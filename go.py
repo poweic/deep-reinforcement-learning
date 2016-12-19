@@ -1,5 +1,6 @@
 #!/usr/bin/python
 import sys
+import cv2
 import scipy.io
 import itertools
 import numpy as np
@@ -167,7 +168,7 @@ class PolicyEstimator():
         sigma = tf.reshape(sigma, (num_outputs, -1))
 
         # Add 1e-5 exploration to make sure it's stochastic
-        sigma = tf.nn.softplus(sigma) + 1e-5
+        sigma = tf.nn.softplus(sigma) + 1e-1
 
         return mu, sigma
 
@@ -264,11 +265,13 @@ def actor_critic(env, estimator_policy, estimator_value, num_episodes, discount_
 
     Transition = collections.namedtuple("Transition", ["state", "action", "reward", "next_state", "done"])
 
-    for i_episode in range(num_episodes):
+    counter = 0
+
+    for i in range(num_episodes):
         # Reset the environment and pick the fisrst action
 
         # set initial state (x, y, theta, x', y', theta')
-        state = np.array([0, 0, 0, 0.1, 10, 1], dtype=np.float32).reshape(6, 1)
+        state = np.array([+7, 10, 0, 0, 20, 1.5], dtype=np.float32).reshape(6, 1)
         action = np.array([0, 0], dtype=np.float32).reshape(2, 1)
         reward = 0
         env._reset(state)
@@ -283,22 +286,26 @@ def actor_critic(env, estimator_policy, estimator_value, num_episodes, discount_
             # Take a step
             mdp_state = form_mdp_state(env, state, action, reward)
             action = estimator_policy.predict(mdp_state)
+            '''
+            counter += 1
+            if counter < 500:
+                action[0] = 10
+                action[1] = 1.5
+            '''
             next_state, reward, done, _ = env.step(action)
-            print "reward = \33[34m{}\33[0m".format(reward)
 
             # Keep track of the transition
             episode.append(Transition(
                 state=state, action=action, reward=reward, next_state=next_state, done=done))
 
-            # Update statistics
-            stats.episode_rewards[i_episode] += reward
-            stats.episode_lengths[i_episode] = t
+            # Update statistics (minus 1 reward per step)
+            stats.episode_rewards[i] += reward
+            stats.episode_lengths[i] = t
 
             # Calculate TD Target
             next_mdp_state = form_mdp_state(env, next_state, action, reward)
             value_next = estimator_value.predict(next_mdp_state)
             td_target = reward + discount_factor * value_next
-            # print "td_target = {}".format(td_target)
             td_error = td_target - estimator_value.predict(mdp_state)
 
             # Update the value estimator
@@ -311,8 +318,12 @@ def actor_critic(env, estimator_policy, estimator_value, num_episodes, discount_
             # print "action = ({}, {}), action2 = ({}, {})".format(action[0], action[1], action2[0], action2[1])
 
             # Print out which step we're on, useful for debugging.
-            print("Step {} @ Episode {}/{} (\33[33m{:.6f}\33[0m)".format(
-                t, i_episode + 1, num_episodes, stats.episode_rewards[i_episode]))
+            print("Step {:3d} @ Episode {} {:10.4f} (\33[93m{:10.4f}\33[0m)".format(
+                t, i + 1, reward, stats.episode_rewards[i])),
+            print "td_target = {:5.2f} + {:5.2f} * {:5.2f} = {:5.2f}".format(reward, discount_factor, value_next, td_target),
+
+            if t > 400 or stats.episode_rewards[i] < -300:
+                break
 
             if done:
                 break
@@ -323,7 +334,8 @@ def actor_critic(env, estimator_policy, estimator_value, num_episodes, discount_
 
 def main():
     vehicle_model = VehicleModel()
-    rewards = scipy.io.loadmat("/share/Research/Yamaha/d-irl/td_lambda_example/data.mat")["reward"]
+    # rewards = scipy.io.loadmat("/share/Research/Yamaha/d-irl/td_lambda_example/data.mat")["reward"]
+    rewards = scipy.io.loadmat("circle2.mat")["reward"].astype(np.float32) - 100
     env = OffRoadNavEnv(rewards, vehicle_model)
 
     tf.reset_default_graph()
