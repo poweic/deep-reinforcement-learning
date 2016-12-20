@@ -10,21 +10,24 @@ class OffRoadNavEnv(gym.Env):
     def __init__(self, rewards, vehicle_model):
         self.viewer = None
 
-        self.action_space = {
+        A = {
             # maximum speed = 2500 cm/s = 90 km/hr
-            'v_forward': {'low': 0, 'high': 2500 / 20},
+            'v_forward': {'low': 0, 'high': 2500 / 10},
 
             # maximum yawrate = +- 360 deg/s
-            'yawrate': {'low': -360 / 20, 'high': 360 / 20}
+            'yawrate': {'low': -360 / 10, 'high': 360 / 10}
         }
+        self.A = A
 
-        self.max_a = np.array([self.action_space['v_forward']['high'], self.action_space['yawrate']['high']]).reshape((1, 2))
-        self.min_a = np.array([self.action_space['v_forward']['low'], self.action_space['yawrate']['low']]).reshape((1, 2))
+        self.max_a = np.array([A['v_forward']['high'], A['yawrate']['high']]).reshape((1, 2))
+        self.min_a = np.array([A['v_forward']['low'], A['yawrate']['low']]).reshape((1, 2))
 
         # A tf.tensor (or np) containing rewards, we need a constant version and 
         self.rewards = rewards
 
         self.vehicle_model = vehicle_model
+
+        self.K = 10
 
         self.state = None
 
@@ -40,7 +43,7 @@ class OffRoadNavEnv(gym.Env):
         Returns
         -------
         Tuple
-            A 4-elements tuple (state, reward, done, info)
+            A 4-element tuple (state, reward, done, info)
         '''
         self.state = self.vehicle_model.predict(self.state, action)
 
@@ -51,8 +54,10 @@ class OffRoadNavEnv(gym.Env):
         done = (ix < -19) or (ix > 20) or (iy < 0) or (iy > 39)
 
         reward = self._bilinear_reward_lookup(x, y)
+        '''
         print "(ix, iy) = ({:3d}, {:3d}) {}".format(
             ix, iy, "\33[92mDone\33[0m" if done else "")
+        '''
 
         # debug info
         info = {}
@@ -92,14 +97,21 @@ class OffRoadNavEnv(gym.Env):
         w11 = xx*yy
 
         r = f00*w00 + f01*w01 + f10*w10 + f11*w11
+        '''
         if debug:
             print "reward[{:6.2f},{:6.2f}] = {:7.2f}*{:4.2f} + {:7.2f}*{:4.2f} + {:7.2f}*{:4.2f} + {:7.2f}*{:4.2f} = {:7.2f}".format(
                 x, y, f00, w00, f01, w01, f10, w10, f11, w11, r
             ),
+        '''
         return r
 
     def _reset(self, s0):
+        if not hasattr(self, "R"):
+            self.R = self.to_image(self.rewards, self.K)
+            self.bR = self.to_image(self.debug_bilinear_R(self.K), self.K)
+
         self.state = s0
+        self.bR_temp = np.copy(self.bR)
         self.vehicle_model.reset(s0)
         return s0
 
@@ -121,18 +133,22 @@ class OffRoadNavEnv(gym.Env):
 
         return bR
 
-    def _render(self, mode='human', close=False):
+    def _render(self, info, mode='human', close=False):
 
-        K = 10
-        if not hasattr(self, "R"):
-            self.R = self.to_image(self.rewards, K)
-            self.bR = self.to_image(self.debug_bilinear_R(K), K)
+        ix, iy = np.floor(self.state[:2, 0] * self.K / 0.5).astype(np.int)
 
         bR = np.copy(self.bR)
 
-        ix, iy = np.floor(self.state[:2, 0] * K / 0.5).astype(np.int)
+        cv2.circle(self.bR_temp, (40*self.K/2-1 + ix, 40*self.K-1-iy), 1, (0, 0, 255), 1)
+        cv2.circle(bR, (40*self.K/2-1 + ix, 40*self.K-1-iy), 2, (0, 0, 255), 2)
 
-        cv2.circle(bR, (40*K/2-1 + ix, 40*K-1-iy), 2, (0, 0, 255), 2)
+        text = "max return = {:.3f}".format(info["max_return"])
+        cv2.putText(bR, text, (0, 370), cv2.FONT_HERSHEY_PLAIN, 1, (255, 255, 255), 1)
+        text = "total_return = {:.3f}".format(info["total_return"])
+        cv2.putText(bR, text, (0, 390), cv2.FONT_HERSHEY_PLAIN, 1, (255, 255, 255), 1)
 
-        cv2.imshow("Simulation in Env with bilinear interpolated reward map", bR)
+        img = np.concatenate([bR, self.bR_temp], axis=1)
+
+        # cv2.imshow("trajectories", self.bR_temp)
+        cv2.imshow("Simulation in Env with bilinear interpolated reward map", img)
         cv2.waitKey(10)
