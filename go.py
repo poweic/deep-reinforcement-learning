@@ -8,10 +8,10 @@ import tensorflow as tf
 import collections
 
 from gym_offroad_nav.envs import OffRoadNavEnv
+from gym_offroad_nav.vehicle_model import VehicleModel
 from lib import plotting
 
-from estimators import PolicyEstimator, ValueEstimator
-from vehicle_model import VehicleModel
+from a3c.estimators import PolicyEstimator, ValueEstimator
 
 def actor_critic(env, estimator_policy, estimator_value, num_episodes, discount_factor=1.0):
     """
@@ -117,7 +117,7 @@ def actor_critic(env, estimator_policy, estimator_value, num_episodes, discount_
 def main():
     vehicle_model = VehicleModel()
     # rewards = scipy.io.loadmat("/share/Research/Yamaha/d-irl/td_lambda_example/data.mat")["reward"]
-    rewards = scipy.io.loadmat("circle2.mat")["reward"].astype(np.float32) - 100
+    rewards = scipy.io.loadmat("data/circle2.mat")["reward"].astype(np.float32) - 100
     env = OffRoadNavEnv(rewards, vehicle_model)
 
     tf.reset_default_graph()
