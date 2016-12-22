@@ -10,18 +10,6 @@ class OffRoadNavEnv(gym.Env):
     def __init__(self, rewards, vehicle_model):
         self.viewer = None
 
-        A = {
-            # maximum speed = 2500 cm/s = 90 km/hr
-            'v_forward': {'low': 0, 'high': 2500 / 10},
-
-            # maximum yawrate = +- 360 deg/s
-            'yawrate': {'low': -360 / 10, 'high': 360 / 10}
-        }
-        self.A = A
-
-        self.max_a = np.array([A['v_forward']['high'], A['yawrate']['high']]).reshape((1, 2))
-        self.min_a = np.array([A['v_forward']['low'], A['yawrate']['low']]).reshape((1, 2))
-
         # A tf.tensor (or np) containing rewards, we need a constant version and 
         self.rewards = rewards
 
@@ -111,7 +99,7 @@ class OffRoadNavEnv(gym.Env):
             self.bR = self.to_image(self.debug_bilinear_R(self.K), self.K)
 
         self.state = s0
-        self.bR_temp = np.copy(self.bR)
+        self.disp_img = np.copy(self.bR)
         self.vehicle_model.reset(s0)
         return s0
 
@@ -135,20 +123,33 @@ class OffRoadNavEnv(gym.Env):
 
     def _render(self, info, mode='human', close=False):
 
-        ix, iy = np.floor(self.state[:2, 0] * self.K / 0.5).astype(np.int)
+        wnd_name = info["worker"]
+        # cv2.namedWindow(wnd_name)
 
-        bR = np.copy(self.bR)
+        if self.state is not None:
 
-        cv2.circle(self.bR_temp, (40*self.K/2-1 + ix, 40*self.K-1-iy), 1, (0, 0, 255), 0)
-        cv2.circle(bR, (40*self.K/2-1 + ix, 40*self.K-1-iy), 2, (0, 0, 255), 2)
+            ix, iy = np.floor(self.state[:2, 0] * self.K / 0.5).astype(np.int)
 
-        text = "max return = {:.3f}".format(info["max_return"])
-        cv2.putText(bR, text, (0, 370), cv2.FONT_HERSHEY_PLAIN, 1, (255, 255, 255), 1)
-        text = "total_return = {:.3f}".format(info["total_return"])
-        cv2.putText(bR, text, (0, 390), cv2.FONT_HERSHEY_PLAIN, 1, (255, 255, 255), 1)
+            # Turn ix, iy to image coordinate on disp_img (reward)
+            x, y = 40*self.K/2-1 + ix, 40*self.K-1-iy
 
-        img = np.concatenate([bR, self.bR_temp], axis=1)
+            # Draw vehicle on image without copying it first to leave a trajectory
+            cv2.circle(self.disp_img, (x, y), 1, (169, 255, 0), 0)
 
-        # cv2.imshow("trajectories", self.bR_temp)
-        cv2.imshow(info["worker_name"], img)
-        cv2.waitKey(20)
+            # Copy the image and draw again
+            disp_img = np.copy(self.disp_img)
+            cv2.circle(disp_img, (x, y), 2, (0, 0, 255), 2)
+
+            # Put max/total return on image for debugging
+            # text = "max return = {:.3f}".format(info["max_return"])
+            # cv2.putText(disp_img, text, (0, 370), cv2.FONT_HERSHEY_PLAIN, 1, (255, 255, 255), 1)
+            # text = "total_return = {:.3f}".format(info["total_return"])
+            # cv2.putText(disp_img, text, (0, 390), cv2.FONT_HERSHEY_PLAIN, 1, (255, 255, 255), 1)
+
+            cv2.imshow4(int(wnd_name[-1]), disp_img)
+        '''
+        else:
+            print "\33[93m{} not initialized yet\33[0m".format(wnd_name)
+        '''
+
+        # cv2.waitKey(5)

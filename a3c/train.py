@@ -21,28 +21,40 @@ if import_path not in sys.path:
     sys.path.append(import_path)
 
 from a3c.estimators import ValueEstimator, PolicyEstimator
-# from policy_monitor import PolicyMonitor
+from a3c.policy_monitor import PolicyMonitor
 from worker import Worker
 from gym_offroad_nav.envs import OffRoadNavEnv
 from gym_offroad_nav.vehicle_model import VehicleModel
 
-tf.flags.DEFINE_string("model_dir", "/tmp/a3c", "Directory to write Tensorboard summaries and videos to.")
-tf.flags.DEFINE_integer("t_max", 1000, "Number of steps before performing an update")
+tf.flags.DEFINE_string("model_dir", "/tmp/a3c-offroad", "Directory to write Tensorboard summaries and videos to.")
+tf.flags.DEFINE_integer("t_max", 10000, "Number of steps before performing an update")
 tf.flags.DEFINE_integer("max_global_steps", None, "Stop training after this many steps in the environment. Defaults to running indefinitely.")
 tf.flags.DEFINE_integer("eval_every", 300, "Evaluate the policy every N seconds")
 tf.flags.DEFINE_boolean("reset", False, "If set, delete the existing model directory and start training from scratch.")
 tf.flags.DEFINE_integer("parallelism", 6, "Number of threads to run. If not set we run [num_cpu_cores] threads.")
 tf.flags.DEFINE_float("max_forward_speed", 2500 / 10, "Maximum forward velocity of vehicle")
 tf.flags.DEFINE_float("min_forward_speed", 10, "Maximum forward velocity of vehicle")
-tf.flags.DEFINE_float("max_yaw_rate", 360 / 100, "Maximum yaw rate (omega) of vehicle")
-tf.flags.DEFINE_float("min_yaw_rate", -360 / 100, "Maximum yaw rate (omega) of vehicle")
+tf.flags.DEFINE_float("max_yaw_rate", 3, "Maximum yaw rate (omega) of vehicle")
+tf.flags.DEFINE_float("min_yaw_rate", -3, "Maximum yaw rate (omega) of vehicle")
 
 FLAGS = tf.flags.FLAGS
 
-def make_env():
+envs = []
+disp_img = np.zeros((800, 800*2, 3), dtype=np.uint8)
+def imshow4(idx, img):
+    global disp_img
+    x = idx / 4
+    y = idx % 4
+    disp_img[x*400:(x+1)*400, y*400:(y+1)*400, :] = np.copy(img)
+cv2.imshow4 = imshow4
+
+def make_env(name=None):
+    global envs
     vehicle_model = VehicleModel()
     rewards = scipy.io.loadmat("data/circle2.mat")["reward"].astype(np.float32) - 100
     env = OffRoadNavEnv(rewards, vehicle_model)
+    if name is not None:
+        envs.append([name, env])
     return env
 
 # Set the number of workers
@@ -60,7 +72,7 @@ if FLAGS.reset:
 if not os.path.exists(CHECKPOINT_DIR):
     os.makedirs(CHECKPOINT_DIR)
 
-summary_writer = tf.train.SummaryWriter(os.path.join(MODEL_DIR, "train"))
+summary_writer = tf.summary.FileWriter(os.path.join(MODEL_DIR, "train"))
 
 with tf.device("/cpu:0"):
 
@@ -89,7 +101,7 @@ with tf.device("/cpu:0"):
         name = "worker_{}".format(worker_id)
         worker = Worker(
             name=name,
-            env=make_env(),
+            env=make_env(name),
             rewards=rewards,
             policy_net=policy_net,
             value_net=value_net,
@@ -98,20 +110,18 @@ with tf.device("/cpu:0"):
             summary_writer=worker_summary_writer,
             max_global_steps=FLAGS.max_global_steps)
 
-        # cv2.namedWindow(name)
         workers.append(worker)
 
     saver = tf.train.Saver(keep_checkpoint_every_n_hours=0.01, max_to_keep=10)
 
     # Used to occasionally save videos for our policy net
     # and write episode rewards to Tensorboard
-    '''
     pe = PolicyMonitor(
-        env=make_env(wrap=False),
+        env=make_env(),
+        rewards=rewards,
         policy_net=policy_net,
         summary_writer=summary_writer,
         saver=saver)
-    '''
 
 with tf.Session() as sess:
     sess.run(tf.global_variables_initializer())
@@ -121,8 +131,7 @@ with tf.Session() as sess:
     sess.run(rewards.assign(
         make_env().rewards.reshape(rewards.get_shape().as_list())
     ))
-
-    saver.save(sess, 'models/test')
+    # saver.save(sess, 'models/test')
 
     # Load a previous checkpoint if it exists
     latest_checkpoint = tf.train.latest_checkpoint(CHECKPOINT_DIR)
@@ -139,8 +148,15 @@ with tf.Session() as sess:
         worker_threads.append(t)
 
     # Start a thread for policy eval task
-    # monitor_thread = threading.Thread(target=lambda: pe.continuous_eval(FLAGS.eval_every, sess, coord))
-    # monitor_thread.start()
+    monitor_thread = threading.Thread(target=lambda: pe.continuous_eval(FLAGS.eval_every, sess, coord))
+    monitor_thread.start()
+
+    # Show how agent behaves in envs in main thread
+    while True:
+        for name, env in envs:
+            env._render({"worker": name})
+            cv2.imshow("result", disp_img)
+            cv2.waitKey(5)
 
     # Wait for all workers to finish
     coord.join(worker_threads)

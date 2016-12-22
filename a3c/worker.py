@@ -130,6 +130,7 @@ class Worker(object):
     def run_n_steps(self, n, sess):
 
         global max_return
+        self.reset_env()
 
         # print "{} started a new episode".format(self.name)
         transitions = []
@@ -168,7 +169,6 @@ class Worker(object):
                 tf.logging.info("{}: local Step {}, global step {}".format(self.name, local_t, global_t))
 
             if done:
-                self.reset_env()
                 break
             else:
                 self.state = next_state
@@ -246,23 +246,22 @@ class Worker(object):
         # Train the global estimators using local gradients
         # global_step, pnet_loss, vnet_loss, _, _, pnet_summaries, vnet_summaries = sess.run([
         # print "\33[33m Update policy net and value net\33[0m"
-        global_step, pnet_loss, vnet_loss, _, _ = sess.run([
+        global_step, pnet_loss, vnet_loss, _, _, pnet_summaries, vnet_summaries = sess.run([
             self.global_step,
             self.policy_net.loss,
             self.value_net.loss,
             self.pnet_train_op,
             self.vnet_train_op,
-            # self.policy_net.summaries,
-            # self.value_net.summaries
+            self.policy_net.summaries,
+            self.value_net.summaries
         ], feed_dict)
 
         # Write summaries
-        '''
         if self.summary_writer is not None:
             self.summary_writer.add_summary(pnet_summaries, global_step)
             self.summary_writer.add_summary(vnet_summaries, global_step)
             self.summary_writer.flush()
-        '''
+
         assert pnet_loss == pnet_loss, "pnet_loss = {}, vnet_loss = {}".format(pnet_loss, vnet_loss)
 
-        return pnet_loss, vnet_loss #, pnet_summaries, vnet_summaries
+        return pnet_loss, vnet_loss, pnet_summaries, vnet_summaries

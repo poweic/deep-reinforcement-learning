@@ -64,6 +64,7 @@ def build_shared_network(rewards, state, add_summaries=False):
     return concat2
 
 def tf_print(x, message):
+    return x
     step = tf.contrib.framework.get_global_step()
     cond = tf.equal(tf.mod(step, 100), 0)
     return tf.cond(cond, lambda: tf.Print(x, [x], message=message, summarize=100), lambda: x)
@@ -114,15 +115,17 @@ class PolicyEstimator():
 
             # Loss and train op
             log_prob = tf.reshape(normal_dist.log_prob(reshaped_action), [-1, 2])
-            # log_prob = tf_print(log_prob, "log_prob = ")
             self.loss = tf.reduce_sum(-log_prob * self.target)
 
             # Add cross entropy cost to encourage exploration
-            self.loss -= tf.reduce_sum(1e-1 * normal_dist.entropy())
-            # self.loss = tf.Print(self.loss, [tf.shape(self.loss)], message="loss.shape = ")
+            self.entropy = normal_dist.entropy()
+            self.entropy_mean = tf.reduce_mean(self.entropy)
+            self.loss -= 0.01 * tf.reduce_sum(self.entropy)
 
-            # self.summary = tf.summary.scalar('policy loss', self.loss)
-            # import ipdb; ipdb.set_trace()
+            prefix = tf.get_variable_scope().name
+            tf.summary.scalar("{}/loss".format(prefix), self.loss)
+            tf.summary.scalar("{}/entropy_mean".format(prefix), self.entropy_mean)
+            # tf.summary.histogram("{}/entropy".format(prefix), self.entropy)
 
             # self.optimizer = tf.train.MomentumOptimizer(learning_rate, momentum=0.5)
             self.optimizer = tf.train.AdamOptimizer(learning_rate)
@@ -133,6 +136,14 @@ class PolicyEstimator():
             ]
             self.train_op = self.optimizer.apply_gradients(
                 self.grads_and_vars, global_step=tf.contrib.framework.get_global_step())
+
+        var_scope_name = tf.get_variable_scope().name
+        summary_ops = tf.get_collection(tf.GraphKeys.SUMMARIES)
+        summaries = [s for s in summary_ops if var_scope_name in s.name]
+        print "{}'s summaries:".format(scope)
+        for s in summaries:
+            print s.name
+        self.summaries = tf.summary.merge(summaries)
 
     def policy_network(self, input, num_outputs):
 
@@ -166,9 +177,6 @@ class PolicyEstimator():
         feed_dict[self.target] = np.array(target).reshape(-1)
         feed_dict[self.action] = action.reshape(-1, 2)
 
-        # merged = tf.summary.merge_all()
-        # merged = tf.merge_summary([self.summary])
-        # summary_op = tf.merge_all_summaries()
         _, loss = sess.run([self.train_op, self.loss], feed_dict)
         return loss
 
@@ -188,8 +196,9 @@ class ValueEstimator():
             shared = build_shared_network(self.rewards, self.state, add_summaries=(not reuse))
 
         with tf.variable_scope(scope):
-            self.value_estimate = self.value_network(shared)
-            self.loss = tf.reduce_sum(tf.squared_difference(self.value_estimate, self.target))
+            self.logits = self.value_network(shared)
+            self.losses = tf.squared_difference(self.logits, self.target)
+            self.loss = tf.reduce_sum(self.losses)
 
             # self.optimizer = tf.train.MomentumOptimizer(learning_rate, momentum=0.5)
             self.optimizer = tf.train.AdamOptimizer(learning_rate)
@@ -200,6 +209,28 @@ class ValueEstimator():
             ]
             self.train_op = self.optimizer.apply_gradients(
                 self.grads_and_vars, global_step=tf.contrib.framework.get_global_step())
+
+            # Summaries
+            prefix = tf.get_variable_scope().name
+            tf.summary.scalar("{}/loss".format(prefix), self.loss)
+
+            # tf.summary.histogram("{}/value".format(prefix), self.logits)
+            tf.summary.scalar("{}/max_value".format(prefix), tf.reduce_max(self.logits))
+            tf.summary.scalar("{}/min_value".format(prefix), tf.reduce_min(self.logits))
+            tf.summary.scalar("{}/mean_value".format(prefix), tf.reduce_mean(self.logits))
+
+            # tf.summary.histogram("{}/td_target".format(prefix), self.target)
+            tf.summary.scalar("{}/max_td_target".format(prefix), tf.reduce_max(self.target))
+            tf.summary.scalar("{}/min_td_target".format(prefix), tf.reduce_min(self.target))
+            tf.summary.scalar("{}/mean_td_target".format(prefix), tf.reduce_mean(self.target))
+
+        var_scope_name = tf.get_variable_scope().name
+        summary_ops = tf.get_collection(tf.GraphKeys.SUMMARIES)
+        summaries = [s for s in summary_ops if var_scope_name in s.name and "shared" not in s.name]
+        print "{}'s summaries:".format(scope)
+        for s in summaries:
+            print s.name
+        self.summaries = tf.summary.merge(summaries)
 
     def value_network(self, input, num_outputs=1):
         # This is just linear classifier
@@ -215,7 +246,7 @@ class ValueEstimator():
     def predict(self, state, sess=None):
         sess = sess or tf.get_default_session()
         feed_dict = { self.state[k]: state[k] for k in state.keys() }
-        return sess.run(self.value_estimate, feed_dict)
+        return sess.run(self.logits, feed_dict)
 
     def update(self, state, target, sess=None):
         sess = sess or tf.get_default_session()
