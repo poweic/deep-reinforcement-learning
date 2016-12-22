@@ -139,7 +139,7 @@ class OffRoadNavEnv(gym.Env):
 
         bR = np.copy(self.bR)
 
-        cv2.circle(self.bR_temp, (40*self.K/2-1 + ix, 40*self.K-1-iy), 1, (0, 0, 255), 1)
+        cv2.circle(self.bR_temp, (40*self.K/2-1 + ix, 40*self.K-1-iy), 1, (0, 0, 255), 0)
         cv2.circle(bR, (40*self.K/2-1 + ix, 40*self.K-1-iy), 2, (0, 0, 255), 2)
 
         text = "max return = {:.3f}".format(info["max_return"])
@@ -150,5 +150,5 @@ class OffRoadNavEnv(gym.Env):
         img = np.concatenate([bR, self.bR_temp], axis=1)
 
         # cv2.imshow("trajectories", self.bR_temp)
-        cv2.imshow("Simulation in Env with bilinear interpolated reward map", img)
-        cv2.waitKey(10)
+        cv2.imshow(info["worker_name"], img)
+        cv2.waitKey(20)

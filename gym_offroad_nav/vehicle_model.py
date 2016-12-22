@@ -3,7 +3,7 @@ import numpy as np
 
 class VehicleModel():
 
-    def __init__(self, timestep=0.001):
+    def __init__(self, timestep=0.005):
         model = scipy.io.loadmat("../vehicle_modeling/vehicle_model_ABCD.mat")
         self.A = model["A"]
         self.B = model["B"]
@@ -21,13 +21,23 @@ class VehicleModel():
         # y' = Cx + Du (measurement)
         self.x = None
 
+        self.sigma = 0.01
+        self.delta = 0.01
+
     def _predict(self, x, u):
-        y = np.dot(self.C, x) + np.dot(self.D, u)
-        x = np.dot(self.A, x) + np.dot(self.B, u)
+        u = u.reshape(2, 1)
+        y = np.dot(self.C, x) + np.dot(self.D, u) + np.random.randn() * self.sigma
+        x = np.dot(self.A, x) + np.dot(self.B, u) + np.random.randn() * self.delta
         return y, x
 
     def predict(self, state, action):
-        # TODO
+        if self.x is None:
+            raise ValueError("self.x is still None. Call reset() first.")
+
+        assert state.shape == (6, 1), "state.shape = {}".format(state.shape)
+        assert action.shape == (2, 1), "action.shape = {}".format(action.shape)
+        assert self.x.shape == (4, 1), "self.x.shape = {}".format(self.x.shape)
+
         # y = state[3:6]
         y, self.x = self._predict(self.x, action)
         

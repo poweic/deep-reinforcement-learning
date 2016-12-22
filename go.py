@@ -1,4 +1,6 @@
 #!/usr/bin/python
+import colored_traceback.always
+
 import sys
 import cv2
 import scipy.io
@@ -11,9 +13,16 @@ from gym_offroad_nav.envs import OffRoadNavEnv
 from gym_offroad_nav.vehicle_model import VehicleModel
 from lib import plotting
 
-from a3c.estimators import PolicyEstimator, ValueEstimator
+from a3c.estimators import ActorCritic, PolicyEstimator, ValueEstimator
 
-def actor_critic(env, estimator_policy, estimator_value, num_episodes, discount_factor=1.0):
+def form_mdp_state(state, prev_action, prev_reward):
+    return {
+        "vehicle_state": state.T,
+        "prev_action": prev_action.T,
+        "prev_reward": np.array(prev_reward, dtype=np.float32).reshape((-1, 1))
+    }
+
+def actor_critic_f(env, estimator_policy, estimator_value, num_episodes, discount_factor=1.0):
     """
     Actor Critic Algorithm. Optimizes the policy 
     function approximator using policy gradient.
@@ -29,15 +38,6 @@ def actor_critic(env, estimator_policy, estimator_value, num_episodes, discount_
     An EpisodeStats object with two numpy arrays for episode_lengths and episode_rewards.
     """
 
-    def form_mdp_state(env, state, prev_action, prev_reward):
-        mdp_state = {
-            "rewards": env.rewards[None, ..., None],
-            "vehicle_state": state.T,
-            "prev_action": prev_action.T,
-            "prev_reward": np.array(prev_reward, dtype=np.float32).reshape((-1, 1))
-        }
-        return mdp_state
-
     # Keeps track of useful statistics
     stats = plotting.EpisodeStats(
         episode_lengths=np.zeros(num_episodes),
@@ -52,16 +52,18 @@ def actor_critic(env, estimator_policy, estimator_value, num_episodes, discount_
 
         # set initial state (x, y, theta, x', y', theta')
         state = np.array([+7, 10, 0, 0, 20, 1.5], dtype=np.float32).reshape(6, 1)
+        # state = np.array([+9, 1, 0, 0, 20, 0], dtype=np.float32).reshape(6, 1)
         action = np.array([0, 0], dtype=np.float32).reshape(2, 1)
         reward = 0
         env._reset(state)
 
-        episode = []
         total_return = 0
 
         # One step in the environment
         for t in itertools.count():
             print "{}-#{:03d} ".format(t, i+1),
+            if t > 1000:
+                break
 
             env._render({
                 "max_return": max_return,
@@ -69,14 +71,14 @@ def actor_critic(env, estimator_policy, estimator_value, num_episodes, discount_
             })
 
             # Take a step
-            mdp_state = form_mdp_state(env, state, action, reward)
+            mdp_state = form_mdp_state(state, action, reward)
             action = estimator_policy.predict(mdp_state)
-            # action[0] = 10
+            # action[0, 0] = 10
+            # action[1, 0] = 1.9
             next_state, reward, done, _ = env.step(action)
 
-            # Keep track of the transition
-            episode.append(Transition(
-                state=state, action=action, reward=reward, next_state=next_state, done=done))
+            if total_return + reward < 0:
+                reward = -500
 
             # Update statistics (minus 1 reward per step)
             total_return += reward
@@ -85,7 +87,7 @@ def actor_critic(env, estimator_policy, estimator_value, num_episodes, discount_
                 max_return = total_return
 
             # Calculate TD Target
-            next_mdp_state = form_mdp_state(env, next_state, action, reward)
+            next_mdp_state = form_mdp_state(next_state, action, reward)
             value = estimator_value.predict(mdp_state)
             value_next = estimator_value.predict(next_mdp_state)
             td_target = reward + discount_factor * value_next
@@ -110,30 +112,47 @@ def actor_critic(env, estimator_policy, estimator_value, num_episodes, discount_
         
         stats.episode_rewards[i] = total_return
         stats.episode_lengths[i] = t
-        # writer.add_summary(summary, i)
 
     return stats
 
-def main():
+def load_rewards(name):
+
+    if name == "circle":
+        rewards = scipy.io.loadmat("data/circle2.mat")["reward"].astype(np.float32) - 100
+    elif name == "maze":
+        rewards = scipy.io.loadmat("data/maze.mat")["reward"].astype(np.float32)
+        goal = rewards == 255
+        rewards[rewards > 0] = 50
+        rewards[rewards <= 0] = -100
+        rewards[goal] = 1000
+    elif name == "topdown":
+        rewards = scipy.io.loadmat("/share/Research/Yamaha/d-irl/td_lambda_example/data.mat")["reward"].astype(np.float32)
+
+    return rewards
+
+def make_env():
     vehicle_model = VehicleModel()
-    # rewards = scipy.io.loadmat("/share/Research/Yamaha/d-irl/td_lambda_example/data.mat")["reward"]
-    rewards = scipy.io.loadmat("data/circle2.mat")["reward"].astype(np.float32) - 100
+    rewards = load_rewards("circle")
     env = OffRoadNavEnv(rewards, vehicle_model)
+    return env
+
+def main():
+    env = make_env()
 
     tf.reset_default_graph()
 
-    global_step = tf.Variable(0, name="global_step", trainable=False)
     # import ipdb; ipdb.set_trace()
-    policy_estimator = PolicyEstimator(env, learning_rate=0.001)
-    value_estimator = ValueEstimator(reuse=False, learning_rate=0.1)
+    global_step = tf.Variable(0, name="global_step", trainable=False)
+
+    with tf.variable_scope("abc"):
+        actor_critic = ActorCritic("worker0", env, num_episodes=5000)
+
+    policy_estimator = PolicyEstimator(env, learning_rate=0.00025)
+    value_estimator = ValueEstimator(env, reuse=True, learning_rate=0.00025)
 
     with tf.Session() as sess:
         sess.run(tf.initialize_all_variables())
-        # global writer
-        # writer = tf.train.SummaryWriter("/Data3/tensorboard_log_dir", graph=sess.graph)
-        # Note, due to randomness in the policy the number of episodes you need to learn a good
-        # TODO: Sometimes the algorithm gets stuck, I'm not sure what exactly is happening there.
-        stats = actor_critic(env, policy_estimator, value_estimator, 50000, discount_factor=0.95)
+        # stats = actor_critic_f(env, policy_estimator, value_estimator, 50000, discount_factor=0.99)
 
 if __name__ == '__main__':
     main()
