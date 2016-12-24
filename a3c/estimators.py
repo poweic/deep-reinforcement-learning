@@ -3,15 +3,20 @@ import tensorflow as tf
 from tensorflow_helnet.layers import DenseLayer, Conv2DLayer
 
 def get_state_placeholder():
+    # Note that placeholder are tf.Tensor not tf.Variable
+    map_with_vehicle = tf.placeholder(tf.float32, [None, 20, 20, 1], "map_with_vehicle")
     vehicle_state = tf.placeholder(tf.float32, [None, 6], "vehicle_state")
     prev_action = tf.placeholder(tf.float32, [None, 2], "prev_action")
     prev_reward = tf.placeholder(tf.float32, [None, 1], "prev_reward")
 
-    return {
+    state = {
+        "map_with_vehicle": map_with_vehicle,
         "vehicle_state": vehicle_state,
         "prev_action": prev_action,
         "prev_reward": prev_reward
     }
+
+    return state
 
 def build_shared_network(rewards, state, add_summaries=False):
     """
@@ -23,8 +28,19 @@ def build_shared_network(rewards, state, add_summaries=False):
     Returns:
     Final layer activations.
     """
-
     X = rewards
+
+    '''
+    broadcaster = tf.reshape(state["prev_reward"] * 0, [-1, 1, 1, 1])
+    X += broadcaster
+
+    x = state["vehicle_state"][:, 0]
+    y = state["vehicle_state"][:, 1]
+    ix = tf.to_int32(tf.floor(x / 0.5))
+    iy = tf.to_int32(tf.floor(y / 0.5))
+    linear_idx = (40 - 1 - iy) * 40 + (ix + 19)
+    ch2 = tf.zeros_like(X)
+    '''
 
     # Three convolutional layers
     conv1 = tf.contrib.layers.conv2d(
@@ -74,9 +90,9 @@ class PolicyEstimator():
     Policy Function approximator. 
     """
 
-    def __init__(self, rewards, reuse=False, learning_rate=0.001, scope="policy_estimator"):
+    def __init__(self, reuse=False, learning_rate=0.001, scope="policy_estimator"):
 
-        self.rewards = rewards
+        # self.rewards = rewards
 
         with tf.variable_scope(scope):
             self.target = tf.placeholder(tf.float32, [None, 1], "target")
@@ -84,15 +100,17 @@ class PolicyEstimator():
         # Graph shared with Value Net
         with tf.variable_scope("shared", reuse=reuse):
             self.state = get_state_placeholder()
-            shared = build_shared_network(self.rewards, self.state, add_summaries=(not reuse))
+            shared = build_shared_network(self.state["map_with_vehicle"], self.state, add_summaries=(not reuse))
 
         with tf.variable_scope(scope):
             self.mu, self.sigma = self.policy_network(shared, 2)
 
             FLAGS = tf.flags.FLAGS
-            max_a = tf.constant([[FLAGS.max_forward_speed, FLAGS.max_yaw_rate]], dtype=tf.float32)
-            min_a = tf.constant([[FLAGS.min_forward_speed, FLAGS.min_yaw_rate]], dtype=tf.float32)
+            max_a = tf.constant([[FLAGS.max_forward_speed, FLAGS.max_yaw_rate]], dtype=tf.float32) * FLAGS.timestep
+            min_a = tf.constant([[FLAGS.min_forward_speed, FLAGS.min_yaw_rate]], dtype=tf.float32) * FLAGS.timestep
+            '''
             self.mu = (max_a + min_a) / 2 + tf.nn.tanh(self.mu) * (max_a - min_a) / 2
+            '''
             # self.mu = tf.nn.sigmoid(self.mu) * (max_a - min_a) + min_a
 
             self.mu = tf.reshape(self.mu, [-1])
@@ -161,7 +179,8 @@ class PolicyEstimator():
         sigma = tf.reshape(sigma, [-1, 2])
 
         # Add 1e-5 exploration to make sure it's stochastic
-        sigma = tf.nn.sigmoid(sigma) * 5 + 0.1
+        # sigma = tf.nn.sigmoid(sigma) * 5 + 0.1
+        sigma = tf.nn.softplus(sigma) + 0.1
 
         return mu, sigma
 
@@ -185,15 +204,15 @@ class ValueEstimator():
     Value Function approximator. 
     """
 
-    def __init__(self, rewards, reuse=False, learning_rate=0.001, scope="value_estimator"):
-        self.rewards = rewards
+    def __init__(self, state, reuse=False, learning_rate=0.001, scope="value_estimator"):
+        # self.rewards = rewards
         with tf.variable_scope(scope):
             self.target = tf.placeholder(tf.float32, [None, 1], "target")
 
         # Graph shared with Value Net
         with tf.variable_scope("shared", reuse=reuse):
-            self.state = get_state_placeholder()
-            shared = build_shared_network(self.rewards, self.state, add_summaries=(not reuse))
+            self.state = state
+            shared = build_shared_network(self.state["map_with_vehicle"], self.state, add_summaries=(not reuse))
 
         with tf.variable_scope(scope):
             self.logits = self.value_network(shared)

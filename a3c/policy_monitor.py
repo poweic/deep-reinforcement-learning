@@ -48,7 +48,7 @@ class PolicyMonitor(object):
 
         # Local policy net
         with tf.variable_scope("policy_eval"):
-            self.policy_net = PolicyEstimator(self.rewards)
+            self.policy_net = PolicyEstimator()
 
         # Op to copy params from global policy/value net parameters
         self.copy_params_op = make_copy_params_op(
@@ -59,7 +59,8 @@ class PolicyMonitor(object):
         # self.env.monitor.start(directory=self.video_dir, video_callable=lambda x: True, resume=True)
 
     def reset_env(self):
-        self.state = np.array([+7, 10, 0, 0, 20, 1.5], dtype=np.float32).reshape(6, 1)
+        # self.state = np.array([+7, 10, 0, 0, 20, 1.5], dtype=np.float32).reshape(6, 1)
+        self.state = np.array([+9, 1, 0, 0, 20, 0], dtype=np.float32).reshape(6, 1)
         self.action = np.array([0, 0], dtype=np.float32).reshape(2, 1)
         self.env._reset(self.state)
 
@@ -76,7 +77,7 @@ class PolicyMonitor(object):
         reward = 0
 
         while not done:
-            mdp_state = form_mdp_state(self.state, self.action, reward)
+            mdp_state = form_mdp_state(self.env, self.state, self.action, reward)
             action = self.policy_net.predict(mdp_state, sess).reshape(2, -1)
             next_state, reward, done, _ = self.env.step(action)
             total_reward += reward

@@ -1,6 +1,7 @@
 import gym
 import sys
 import os
+import cv2
 import itertools
 import collections
 import numpy as np
@@ -18,8 +19,38 @@ if import_path not in sys.path:
 from estimators import ValueEstimator, PolicyEstimator
 
 Transition = collections.namedtuple("Transition", ["state", "action", "reward", "next_state", "done"])
-def form_mdp_state(state, prev_action, prev_reward):
+def get_map_with_vehicle(env, state):
+
+    # Rotate the map according the vehicle orientation in degree (not radian)
+    img = env.get_front_view()
+    return img.reshape(1, 20, 20, 1)
+
+    '''
+    rewards = env.rewards #.reshape(1, 40, 40, 1)
+    x, y, theta = state[:3, 0]
+    ix, iy = env.get_ixiy(x, y)
+    linear_idx = env.get_linear_idx(ix, iy)
+
+
+    vehicle = np.zeros_like(rewards).flatten()
+    linear_idx = np.clip(linear_idx, 0, len(vehicle)-1)
+    vehicle[linear_idx] = 1
+    vehicle = vehicle.reshape(rewards.shape)
+
+    rewards = rewards[None, ..., None]
+    vehicle = vehicle[None, ..., None]
+
+    map_with_vehicle = np.concatenate([rewards, vehicle], axis=3)
+
+    return map_with_vehicle
+    '''
+
+def form_mdp_state(env, state, prev_action, prev_reward):
+
+    map_with_vehicle = get_map_with_vehicle(env, state)
+
     return {
+        "map_with_vehicle": map_with_vehicle,
         "vehicle_state": state.T,
         "prev_action": prev_action.T,
         "prev_reward": np.array(prev_reward, dtype=np.float32).reshape((-1, 1))
@@ -83,8 +114,8 @@ class Worker(object):
 
         # Create local policy/value nets that are not updated asynchronously
         with tf.variable_scope(name):
-            self.policy_net = PolicyEstimator(self.rewards)
-            self.value_net = ValueEstimator(self.rewards, reuse=True)
+            self.policy_net = PolicyEstimator()
+            self.value_net = ValueEstimator(self.policy_net.state, reuse=True)
 
         # Op to copy params from global policy/valuenets
         self.copy_params_op = make_copy_params_op(
@@ -123,7 +154,8 @@ class Worker(object):
                 return
 
     def reset_env(self):
-        self.state = np.array([+7, 10, 0, 0, 20, 1.5], dtype=np.float32).reshape(6, 1)
+        # self.state = np.array([+7, 10, 0, 0, 20, 1.5], dtype=np.float32).reshape(6, 1)
+        self.state = np.array([+9, 1, 0, 0, 20, 0], dtype=np.float32).reshape(6, 1)
         self.action = np.array([0, 0], dtype=np.float32).reshape(2, 1)
         self.env._reset(self.state)
 
@@ -138,16 +170,12 @@ class Worker(object):
         total_return = 0
         for i in range(n):
 
-            '''
-            self.env._render({
-                "worker_name": self.name,
-                "max_return": max_return,
-                "total_return": total_return
-            })
-            '''
-
-            mdp_state = form_mdp_state(self.state, self.action, reward)
+            mdp_state = form_mdp_state(self.env, self.state, self.action, reward)
             action = self.policy_net.predict(mdp_state, sess).reshape(2, -1)
+            '''
+            action[0, 0] = 0.05
+            action[1, 0] = 1 / 180. * np.pi
+            '''
             # print "predicted action = {}".format(action.shape)
 
             # Take a step
@@ -190,7 +218,7 @@ class Worker(object):
         reward = 0.0
         last = transitions[-1]
         if not last.done:
-            mdp_state = form_mdp_state(last.next_state, last.action, last.reward)
+            mdp_state = form_mdp_state(self.env, last.next_state, last.action, last.reward)
             # print "mdp_state['prev_action'].shape = {}".format(mdp_state["prev_action"].shape)
             reward = self.value_net.predict(mdp_state, sess)
 
@@ -202,6 +230,8 @@ class Worker(object):
         prev_actions = []
         prev_rewards = []
 
+        mdp_states = []
+
         T = len(transitions)
         for t in range(T)[::-1]:
             transition = transitions[t]
@@ -209,43 +239,39 @@ class Worker(object):
             # Get previous action and reward: a_{t-1}, r_{t-1}
             a_tm1 = transitions[t-1].action if t > 0 else np.zeros((2, 1))
             r_tm1 = transitions[t-1].reward if t > 0 else 0
-            mdp_state = form_mdp_state(transition.state, a_tm1, r_tm1)
+            mdp_state = form_mdp_state(self.env, transition.state, a_tm1, r_tm1)
 
             # Get td_target (reward) and td_error
             reward = transition.reward + self.discount_factor * reward
             td_error = (reward - self.value_net.predict(mdp_state, sess))
 
             # Accumulate updates
-            states.append(transition.state)
-            prev_actions.append(a_tm1)
-            prev_rewards.append(r_tm1)
+            mdp_states.append(mdp_state)
+
             actions.append(transition.action)
             policy_targets.append(td_error)
             value_targets.append(reward)
 
+        # Turn list of dictionaries to dictionary of lists (numpy array)
+        mdp_states = {
+            key: np.squeeze(np.array([s[key] for s in mdp_states]), axis=1)
+            for key in mdp_state.keys()
+        }
+
+        # Add TD Target, TD Error, and action to feed_dict
         feed_dict = {
-            # MDP States
-            self.policy_net.state["vehicle_state"]: np.array(states).reshape((-1, 6)),
-            self.policy_net.state["prev_action"]: np.array(prev_actions).reshape((-1, 2)),
-            self.policy_net.state["prev_reward"]: np.array(prev_rewards).reshape((-1, 1)),
-            # MDP States
-            self.value_net.state["vehicle_state"]: np.array(states).reshape((-1, 6)),
-            self.value_net.state["prev_action"]: np.array(prev_actions).reshape((-1, 2)),
-            self.value_net.state["prev_reward"]: np.array(prev_rewards).reshape((-1, 1)),
-            # TD Target, TD Error, and action
             self.policy_net.target: np.array(policy_targets).reshape((-1, 1)),
             self.policy_net.action: np.array(actions).reshape((-1, 2)),
             self.value_net.target: np.array(value_targets).reshape((-1, 1)),
         }
 
-        '''
+        for k in mdp_states.keys():
+            feed_dict[self.policy_net.state[k]] = mdp_states[k]
+
         for k, v in feed_dict.iteritems():
-            print k, v.shape
-        '''
+            print k.name, v.shape
 
         # Train the global estimators using local gradients
-        # global_step, pnet_loss, vnet_loss, _, _, pnet_summaries, vnet_summaries = sess.run([
-        # print "\33[33m Update policy net and value net\33[0m"
         global_step, pnet_loss, vnet_loss, _, _, pnet_summaries, vnet_summaries = sess.run([
             self.global_step,
             self.policy_net.loss,

@@ -32,10 +32,11 @@ tf.flags.DEFINE_integer("max_global_steps", None, "Stop training after this many
 tf.flags.DEFINE_integer("eval_every", 300, "Evaluate the policy every N seconds")
 tf.flags.DEFINE_boolean("reset", False, "If set, delete the existing model directory and start training from scratch.")
 tf.flags.DEFINE_integer("parallelism", 6, "Number of threads to run. If not set we run [num_cpu_cores] threads.")
-tf.flags.DEFINE_float("max_forward_speed", 2500 / 10, "Maximum forward velocity of vehicle")
-tf.flags.DEFINE_float("min_forward_speed", 10, "Maximum forward velocity of vehicle")
-tf.flags.DEFINE_float("max_yaw_rate", 3, "Maximum yaw rate (omega) of vehicle")
-tf.flags.DEFINE_float("min_yaw_rate", -3, "Maximum yaw rate (omega) of vehicle")
+tf.flags.DEFINE_float("timestep", 0.01, "Maximum forward velocity of vehicle")
+tf.flags.DEFINE_float("max_forward_speed", 25, "Maximum forward velocity of vehicle (m/s)")
+tf.flags.DEFINE_float("min_forward_speed", 1, "Minimum forward velocity of vehicle (m/s)")
+tf.flags.DEFINE_float("max_yaw_rate", 360, "Maximum yaw rate (omega) of vehicle (degree / sec)")
+tf.flags.DEFINE_float("min_yaw_rate", -360, "Minimum yaw rate (omega) of vehicle (degree / sec)")
 
 FLAGS = tf.flags.FLAGS
 
@@ -50,8 +51,9 @@ cv2.imshow4 = imshow4
 
 def make_env(name=None):
     global envs
-    vehicle_model = VehicleModel()
-    rewards = scipy.io.loadmat("data/circle2.mat")["reward"].astype(np.float32) - 100
+    vehicle_model = VehicleModel(FLAGS.timestep)
+    # rewards = scipy.io.loadmat("data/circle2.mat")["reward"].astype(np.float32) - 100
+    rewards = scipy.io.loadmat("data/maze.mat")["reward"].astype(np.float32) - 15
     env = OffRoadNavEnv(rewards, vehicle_model)
     if name is not None:
         envs.append([name, env])
@@ -82,8 +84,8 @@ with tf.device("/cpu:0"):
     # Global policy and value nets
     with tf.variable_scope("global") as vs:
         rewards = tf.Variable(tf.zeros([1, 40, 40, 1]), name="rewards", trainable=False)
-        policy_net = PolicyEstimator(rewards)
-        value_net = ValueEstimator(rewards, reuse=True)
+        policy_net = PolicyEstimator()
+        value_net = ValueEstimator(policy_net.state, reuse=True)
 
     # Global step iterator
     global_counter = itertools.count()
@@ -148,8 +150,10 @@ with tf.Session() as sess:
         worker_threads.append(t)
 
     # Start a thread for policy eval task
+    '''
     monitor_thread = threading.Thread(target=lambda: pe.continuous_eval(FLAGS.eval_every, sess, coord))
     monitor_thread.start()
+    '''
 
     # Show how agent behaves in envs in main thread
     while True:

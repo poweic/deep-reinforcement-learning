@@ -3,7 +3,7 @@ import numpy as np
 
 class VehicleModel():
 
-    def __init__(self, timestep=0.001):
+    def __init__(self, timestep=0.005):
         model = scipy.io.loadmat("../vehicle_modeling/vehicle_model_ABCD.mat")
         self.A = model["A"]
         self.B = model["B"]
@@ -13,6 +13,13 @@ class VehicleModel():
 
         print "A: {}, B: {}, C: {}, D: {}".format(
             self.A.shape, self.B.shape, self.C.shape, self.D.shape)
+
+        # Turn cm/s, degree/s to m/s and rad/s
+        Q = np.diag([100., 180./np.pi]).astype(np.float32)
+        Qinv = np.diag([0.01, 0.01, np.pi/180.]).astype(np.float32)
+        self.B = self.B.dot(Q)
+        self.C = Qinv.dot(self.C)
+        self.D = Qinv.dot(self.D).dot(Q)
 
         # x is the unobservable hidden state, y is the observation
         # u is (v_forward, yaw_rate), y is (vx, vy, w), where
@@ -41,7 +48,9 @@ class VehicleModel():
         # y = state[3:6]
         y, self.x = self._predict(self.x, action)
         
+        # theta is in radian
         theta = state[2]
+
         c, s = np.cos(theta)[0], np.sin(theta)[0]
         M = np.array([[c, s, 0], [-s, c, 0], [0, 0, 1]])
 
@@ -57,4 +66,3 @@ class VehicleModel():
         # extract the last 3 elements from state
         y0 = state[3:6].reshape(3, 1)
         self.x = np.dot(np.linalg.pinv(self.C), y0)
-
