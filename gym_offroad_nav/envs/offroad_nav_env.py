@@ -127,8 +127,8 @@ class OffRoadNavEnv(gym.Env):
 
         return bR
 
-    def get_front_view(self):
-        x, y, theta = self.state[:3, 0]
+    def get_front_view(self, state):
+        x, y, theta = state[:3, 0]
         ix, iy = self.get_ixiy(x, y)
 
         iix = np.clip(ix + 19, 0, 39)
@@ -143,12 +143,14 @@ class OffRoadNavEnv(gym.Env):
 
         assert img.shape == (20, 20), "rotated.shape = {}, iix = {}, iiy = {}, img.shape = {}".format(rotated.shape, iix, iiy, img.shape)
 
+        '''
         front_view = self.to_image(img, self.K * 2, None)
         front_view[0, :, :] = 255
         front_view[-1, :, :] = 255
         front_view[:, 1, :] = 255
         front_view[:, -1, :] = 255
         self.front_view_disp = front_view
+        '''
 
         return img
 
@@ -178,7 +180,7 @@ class OffRoadNavEnv(gym.Env):
             # cv2.putText(disp_img, text, (0, 390), cv2.FONT_HERSHEY_PLAIN, 1, (255, 255, 255), 1)
 
             cv2.imshow4(int(wnd_name[-1]), disp_img)
-            cv2.imshow4(int(wnd_name[-1]) + 1, self.front_view_disp)
+            # cv2.imshow4(int(wnd_name[-1]) + 1, self.front_view_disp)
         '''
         else:
             print "\33[93m{} not initialized yet\33[0m".format(wnd_name)

@@ -34,7 +34,7 @@ tf.flags.DEFINE_boolean("reset", False, "If set, delete the existing model direc
 tf.flags.DEFINE_integer("parallelism", 6, "Number of threads to run. If not set we run [num_cpu_cores] threads.")
 tf.flags.DEFINE_float("timestep", 0.01, "Maximum forward velocity of vehicle")
 tf.flags.DEFINE_float("max_forward_speed", 25, "Maximum forward velocity of vehicle (m/s)")
-tf.flags.DEFINE_float("min_forward_speed", 1, "Minimum forward velocity of vehicle (m/s)")
+tf.flags.DEFINE_float("min_forward_speed", 10, "Minimum forward velocity of vehicle (m/s)")
 tf.flags.DEFINE_float("max_yaw_rate", 360, "Maximum yaw rate (omega) of vehicle (degree / sec)")
 tf.flags.DEFINE_float("min_yaw_rate", -360, "Minimum yaw rate (omega) of vehicle (degree / sec)")
 
@@ -52,8 +52,8 @@ cv2.imshow4 = imshow4
 def make_env(name=None):
     global envs
     vehicle_model = VehicleModel(FLAGS.timestep)
-    # rewards = scipy.io.loadmat("data/circle2.mat")["reward"].astype(np.float32) - 100
-    rewards = scipy.io.loadmat("data/maze.mat")["reward"].astype(np.float32) - 15
+    rewards = scipy.io.loadmat("data/circle2.mat")["reward"].astype(np.float32) - 100
+    # rewards = scipy.io.loadmat("data/maze.mat")["reward"].astype(np.float32) - 15
     env = OffRoadNavEnv(rewards, vehicle_model)
     if name is not None:
         envs.append([name, env])
@@ -101,6 +101,7 @@ with tf.device("/cpu:0"):
             worker_summary_writer = summary_writer
 
         name = "worker_{}".format(worker_id)
+        print "Initializing {} ...".format(name)
         worker = Worker(
             name=name,
             env=make_env(name),
@@ -150,10 +151,8 @@ with tf.Session() as sess:
         worker_threads.append(t)
 
     # Start a thread for policy eval task
-    '''
     monitor_thread = threading.Thread(target=lambda: pe.continuous_eval(FLAGS.eval_every, sess, coord))
     monitor_thread.start()
-    '''
 
     # Show how agent behaves in envs in main thread
     while True:

@@ -11,8 +11,10 @@ class VehicleModel():
         self.D = model["D"]
         self.timestep = timestep
 
+        '''
         print "A: {}, B: {}, C: {}, D: {}".format(
             self.A.shape, self.B.shape, self.C.shape, self.D.shape)
+        '''
 
         # Turn cm/s, degree/s to m/s and rad/s
         Q = np.diag([100., 180./np.pi]).astype(np.float32)

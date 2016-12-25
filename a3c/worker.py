@@ -20,30 +20,9 @@ from estimators import ValueEstimator, PolicyEstimator
 
 Transition = collections.namedtuple("Transition", ["state", "action", "reward", "next_state", "done"])
 def get_map_with_vehicle(env, state):
-
     # Rotate the map according the vehicle orientation in degree (not radian)
-    img = env.get_front_view()
+    img = env.get_front_view(state)
     return img.reshape(1, 20, 20, 1)
-
-    '''
-    rewards = env.rewards #.reshape(1, 40, 40, 1)
-    x, y, theta = state[:3, 0]
-    ix, iy = env.get_ixiy(x, y)
-    linear_idx = env.get_linear_idx(ix, iy)
-
-
-    vehicle = np.zeros_like(rewards).flatten()
-    linear_idx = np.clip(linear_idx, 0, len(vehicle)-1)
-    vehicle[linear_idx] = 1
-    vehicle = vehicle.reshape(rewards.shape)
-
-    rewards = rewards[None, ..., None]
-    vehicle = vehicle[None, ..., None]
-
-    map_with_vehicle = np.concatenate([rewards, vehicle], axis=3)
-
-    return map_with_vehicle
-    '''
 
 def form_mdp_state(env, state, prev_action, prev_reward):
 
@@ -108,7 +87,6 @@ class Worker(object):
         self.global_value_net = value_net
         self.global_counter = global_counter
         self.local_counter = itertools.count()
-        # self.sp = StateProcessor()
         self.summary_writer = summary_writer
         self.env = env
 
@@ -154,8 +132,8 @@ class Worker(object):
                 return
 
     def reset_env(self):
-        # self.state = np.array([+7, 10, 0, 0, 20, 1.5], dtype=np.float32).reshape(6, 1)
-        self.state = np.array([+9, 1, 0, 0, 20, 0], dtype=np.float32).reshape(6, 1)
+        self.state = np.array([+7, 10, 0, 0, 20, 1.5], dtype=np.float32).reshape(6, 1)
+        # self.state = np.array([+9, 1, 0, 0, 20, 0], dtype=np.float32).reshape(6, 1)
         self.action = np.array([0, 0], dtype=np.float32).reshape(2, 1)
         self.env._reset(self.state)
 
@@ -268,10 +246,13 @@ class Worker(object):
         for k in mdp_states.keys():
             feed_dict[self.policy_net.state[k]] = mdp_states[k]
 
+        '''
         for k, v in feed_dict.iteritems():
             print k.name, v.shape
+        '''
 
         # Train the global estimators using local gradients
+        print "Updates from {}, # of steps = {}".format(self.name, len(states))
         global_step, pnet_loss, vnet_loss, _, _, pnet_summaries, vnet_summaries = sess.run([
             self.global_step,
             self.policy_net.loss,

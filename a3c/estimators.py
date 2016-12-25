@@ -30,25 +30,13 @@ def build_shared_network(rewards, state, add_summaries=False):
     """
     X = rewards
 
-    '''
-    broadcaster = tf.reshape(state["prev_reward"] * 0, [-1, 1, 1, 1])
-    X += broadcaster
-
-    x = state["vehicle_state"][:, 0]
-    y = state["vehicle_state"][:, 1]
-    ix = tf.to_int32(tf.floor(x / 0.5))
-    iy = tf.to_int32(tf.floor(y / 0.5))
-    linear_idx = (40 - 1 - iy) * 40 + (ix + 19)
-    ch2 = tf.zeros_like(X)
-    '''
-
     # Three convolutional layers
     conv1 = tf.contrib.layers.conv2d(
-        X, 16, 5, 2, activation_fn=tf.nn.relu, scope="conv1")
+        X, 32, 5, 2, activation_fn=tf.nn.relu, scope="conv1")
     conv2 = tf.contrib.layers.conv2d(
-        conv1, 16, 3, 2, activation_fn=tf.nn.relu, scope="conv2")
+        conv1, 32, 3, 2, activation_fn=tf.nn.relu, scope="conv2")
     conv3 = tf.contrib.layers.conv2d(
-        conv2, 16, 3, 2, activation_fn=tf.nn.relu, scope="conv3")
+        conv2, 32, 3, 2, activation_fn=tf.nn.relu, scope="conv3")
     conv4 = tf.contrib.layers.conv2d(
         conv3, 16, 3, 2, activation_fn=tf.nn.relu, scope="conv4")
 
@@ -56,28 +44,35 @@ def build_shared_network(rewards, state, add_summaries=False):
     fc1 = DenseLayer(
         input=tf.contrib.layers.flatten(conv4),
         num_outputs=256,
+        nonlinearity="relu",
         name="fc1")
 
-    broadcaster = state["prev_reward"] * 0
-    fc1 += broadcaster
     concat1 = tf.concat(1, [fc1, state["prev_reward"]])
 
     fc2 = DenseLayer(
         input=tf.contrib.layers.flatten(concat1),
         num_outputs=256,
+        nonlinearity="relu",
         name="fc2")
 
     concat2 = tf.concat(1, [fc1, fc2, state["vehicle_state"], state["prev_action"]])
+
+    fc3 = DenseLayer(
+        input=tf.contrib.layers.flatten(concat2),
+        num_outputs=256,
+        nonlinearity="relu",
+        name="fc3")
 
     if add_summaries:
         tf.contrib.layers.summarize_activation(conv1)
         tf.contrib.layers.summarize_activation(conv2)
         tf.contrib.layers.summarize_activation(fc1)
         tf.contrib.layers.summarize_activation(fc2)
+        tf.contrib.layers.summarize_activation(fc3)
         tf.contrib.layers.summarize_activation(concat1)
         tf.contrib.layers.summarize_activation(concat2)
 
-    return concat2
+    return fc3
 
 def tf_print(x, message):
     return x
@@ -158,9 +153,11 @@ class PolicyEstimator():
         var_scope_name = tf.get_variable_scope().name
         summary_ops = tf.get_collection(tf.GraphKeys.SUMMARIES)
         summaries = [s for s in summary_ops if var_scope_name in s.name]
+        '''
         print "{}'s summaries:".format(scope)
         for s in summaries:
             print s.name
+        '''
         self.summaries = tf.summary.merge(summaries)
 
     def policy_network(self, input, num_outputs):
@@ -246,9 +243,11 @@ class ValueEstimator():
         var_scope_name = tf.get_variable_scope().name
         summary_ops = tf.get_collection(tf.GraphKeys.SUMMARIES)
         summaries = [s for s in summary_ops if var_scope_name in s.name and "shared" not in s.name]
+        '''
         print "{}'s summaries:".format(scope)
         for s in summaries:
             print s.name
+        '''
         self.summaries = tf.summary.merge(summaries)
 
     def value_network(self, input, num_outputs=1):
