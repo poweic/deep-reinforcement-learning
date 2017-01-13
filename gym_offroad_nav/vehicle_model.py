@@ -3,7 +3,7 @@ import numpy as np
 
 class VehicleModel():
 
-    def __init__(self, timestep=0.005):
+    def __init__(self, timestep):
         model = scipy.io.loadmat("../vehicle_modeling/vehicle_model_ABCD.mat")
         self.A = model["A"]
         self.B = model["B"]
@@ -16,6 +16,7 @@ class VehicleModel():
             self.A.shape, self.B.shape, self.C.shape, self.D.shape)
         '''
 
+        # x = Ax + Bu, y = Cx + Du
         # Turn cm/s, degree/s to m/s and rad/s
         Q = np.diag([100., 180./np.pi]).astype(np.float32)
         Qinv = np.diag([0.01, 0.01, np.pi/180.]).astype(np.float32)
@@ -30,8 +31,8 @@ class VehicleModel():
         # y' = Cx + Du (measurement)
         self.x = None
 
-        self.sigma = 0.01
-        self.delta = 0.01
+        self.sigma = 0.001
+        self.delta = 0.001
 
     def _predict(self, x, u):
         u = u.reshape(2, 1)

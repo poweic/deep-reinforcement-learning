@@ -75,7 +75,9 @@ def build_shared_network(rewards, state, add_summaries=False):
     return fc3
 
 def tf_print(x, message):
-    return x
+    if not tf.flags.FLAGS.debug:
+        return x
+
     step = tf.contrib.framework.get_global_step()
     cond = tf.equal(tf.mod(step, 100), 0)
     return tf.cond(cond, lambda: tf.Print(x, [x], message=message, summarize=100), lambda: x)
@@ -85,9 +87,12 @@ class PolicyEstimator():
     Policy Function approximator. 
     """
 
-    def __init__(self, reuse=False, learning_rate=0.001, scope="policy_estimator"):
+    def __init__(self, reuse=False, scope="policy_estimator"):
 
         # self.rewards = rewards
+        FLAGS = tf.flags.FLAGS
+        max_a = tf.constant([[FLAGS.max_forward_speed, FLAGS.max_yaw_rate]], dtype=tf.float32)# * FLAGS.timestep
+        min_a = tf.constant([[FLAGS.min_forward_speed, FLAGS.min_yaw_rate]], dtype=tf.float32)# * FLAGS.timestep
 
         with tf.variable_scope(scope):
             self.target = tf.placeholder(tf.float32, [None, 1], "target")
@@ -98,57 +103,56 @@ class PolicyEstimator():
             shared = build_shared_network(self.state["map_with_vehicle"], self.state, add_summaries=(not reuse))
 
         with tf.variable_scope(scope):
-            self.mu, self.sigma = self.policy_network(shared, 2)
+            self.mu, self.sigma = self.policy_network(shared, 2, min_a, max_a)
 
-            FLAGS = tf.flags.FLAGS
-            max_a = tf.constant([[FLAGS.max_forward_speed, FLAGS.max_yaw_rate]], dtype=tf.float32) * FLAGS.timestep
-            min_a = tf.constant([[FLAGS.min_forward_speed, FLAGS.min_yaw_rate]], dtype=tf.float32) * FLAGS.timestep
-            '''
-            self.mu = (max_a + min_a) / 2 + tf.nn.tanh(self.mu) * (max_a - min_a) / 2
-            '''
+            # Make it deterministic for debugging
+            # self.mu = self.mu * 0 + (max_a + min_a) / 2.
+            # self.sigma = self.sigma * 0
+
+            # Use hyperbolic tangent (or sigmoid)
+            # self.mu = (max_a + min_a) / 2 + tf.nn.tanh(self.mu) * (max_a - min_a) / 2
             # self.mu = tf.nn.sigmoid(self.mu) * (max_a - min_a) + min_a
 
-            self.mu = tf.reshape(self.mu, [-1])
-            self.sigma = tf.reshape(self.sigma, [-1])
-
+            # For debug
             self.mu = tf_print(self.mu, "mu = ")
             self.sigma = tf_print(self.sigma, "sigma = ")
 
+            # Reshape, sample, and reshape it back
+            self.mu = tf.reshape(self.mu, [-1])
+            self.sigma = tf.reshape(self.sigma, [-1])
             normal_dist = tf.contrib.distributions.Normal(self.mu, self.sigma)
             self.action = normal_dist.sample_n(1)
             self.action = tf.reshape(self.action, [-1, 2])
 
             # clip action if exceed low/high defined in env.action_space
             self.action = tf.maximum(tf.minimum(self.action, max_a), min_a)
-
-            action = self.action
-            action = tf_print(action, "action = ")
-            reshaped_action = tf.reshape(action, [-1])
-            # reshaped_action = tf_print(reshaped_action, "reshaped_action = ")
+            self.action = tf_print(self.action, "action = ")
 
             # Loss and train op
-            log_prob = tf.reshape(normal_dist.log_prob(reshaped_action), [-1, 2])
-            self.loss = tf.reduce_sum(-log_prob * self.target)
+            reshaped_action = tf.reshape(self.action, [-1])
+            log_prob = normal_dist.log_prob(reshaped_action)
+            log_prob = tf.reshape(log_prob, [-1, 2])
+            self.loss = -tf.reduce_sum(log_prob * self.target)
 
             # Add cross entropy cost to encourage exploration
             self.entropy = normal_dist.entropy()
             self.entropy_mean = tf.reduce_mean(self.entropy)
-            self.loss -= 0.01 * tf.reduce_sum(self.entropy)
+            self.loss -= 1e-3 * tf.reduce_sum(self.entropy)
 
+            self.optimizer = tf.train.AdamOptimizer(tf.flags.FLAGS.learning_rate)
+            self.grads_and_vars = self.optimizer.compute_gradients(self.loss)
+            self.grads_and_vars = [(g, v) for g, v in self.grads_and_vars if g is not None]
+            self.train_op = self.optimizer.apply_gradients(
+                self.grads_and_vars, global_step=tf.contrib.framework.get_global_step())
+
+        self.summarize(scope)
+    
+    def summarize(self, scope):
+        with tf.variable_scope(scope):
             prefix = tf.get_variable_scope().name
             tf.summary.scalar("{}/loss".format(prefix), self.loss)
             tf.summary.scalar("{}/entropy_mean".format(prefix), self.entropy_mean)
             # tf.summary.histogram("{}/entropy".format(prefix), self.entropy)
-
-            # self.optimizer = tf.train.MomentumOptimizer(learning_rate, momentum=0.5)
-            self.optimizer = tf.train.AdamOptimizer(learning_rate)
-            self.grads_and_vars = self.optimizer.compute_gradients(self.loss)
-            self.grads_and_vars = [
-                (tf.clip_by_norm(grad, 100.), var)
-                for grad, var in self.grads_and_vars if grad is not None
-            ]
-            self.train_op = self.optimizer.apply_gradients(
-                self.grads_and_vars, global_step=tf.contrib.framework.get_global_step())
 
         var_scope_name = tf.get_variable_scope().name
         summary_ops = tf.get_collection(tf.GraphKeys.SUMMARIES)
@@ -160,7 +164,13 @@ class PolicyEstimator():
         '''
         self.summaries = tf.summary.merge(summaries)
 
-    def policy_network(self, input, num_outputs):
+    def policy_network(self, input, num_outputs, min_a, max_a):
+        
+        input = DenseLayer(
+            input=input,
+            num_outputs=256,
+            nonlinearity="relu",
+            name="policy-input-dense")
 
         # This is just linear classifier
         mu = DenseLayer(
@@ -175,9 +185,9 @@ class PolicyEstimator():
             name="policy-sigma-dense")
         sigma = tf.reshape(sigma, [-1, 2])
 
-        # Add 1e-5 exploration to make sure it's stochastic
-        # sigma = tf.nn.sigmoid(sigma) * 5 + 0.1
-        sigma = tf.nn.softplus(sigma) + 0.1
+        # Add 1% exploration to make sure it's stochastic
+        # sigma = tf.nn.sigmoid(sigma) * 0.01 * (max_a - min_a)
+        sigma = tf.nn.softplus(sigma) + 0.05 * (max_a - min_a)
 
         return mu, sigma
 
@@ -201,7 +211,7 @@ class ValueEstimator():
     Value Function approximator. 
     """
 
-    def __init__(self, state, reuse=False, learning_rate=0.001, scope="value_estimator"):
+    def __init__(self, state, reuse=False, scope="value_estimator"):
         # self.rewards = rewards
         with tf.variable_scope(scope):
             self.target = tf.placeholder(tf.float32, [None, 1], "target")
@@ -213,19 +223,19 @@ class ValueEstimator():
 
         with tf.variable_scope(scope):
             self.logits = self.value_network(shared)
-            self.losses = tf.squared_difference(self.logits, self.target)
+            self.losses = 0.5 * tf.squared_difference(self.logits, self.target)
             self.loss = tf.reduce_sum(self.losses)
 
-            # self.optimizer = tf.train.MomentumOptimizer(learning_rate, momentum=0.5)
-            self.optimizer = tf.train.AdamOptimizer(learning_rate)
+            self.optimizer = tf.train.AdamOptimizer(tf.flags.FLAGS.learning_rate)
             self.grads_and_vars = self.optimizer.compute_gradients(self.loss)
-            self.grads_and_vars = [
-                (tf.clip_by_norm(grad, 100.), var)
-                for grad, var in self.grads_and_vars if grad is not None
-            ]
+            self.grads_and_vars = [(g, v) for g, v in self.grads_and_vars if g is not None]
             self.train_op = self.optimizer.apply_gradients(
                 self.grads_and_vars, global_step=tf.contrib.framework.get_global_step())
 
+        self.summarize(scope)
+
+    def summarize(self, scope):
+        with tf.variable_scope(scope):
             # Summaries
             prefix = tf.get_variable_scope().name
             tf.summary.scalar("{}/loss".format(prefix), self.loss)
@@ -251,6 +261,12 @@ class ValueEstimator():
         self.summaries = tf.summary.merge(summaries)
 
     def value_network(self, input, num_outputs=1):
+        input = DenseLayer(
+            input=input,
+            num_outputs=256,
+            nonlinearity="relu",
+            name="value-input-dense")
+
         # This is just linear classifier
         value = DenseLayer(
             input=input,

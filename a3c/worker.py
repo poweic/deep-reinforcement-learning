@@ -6,6 +6,7 @@ import itertools
 import collections
 import numpy as np
 import tensorflow as tf
+import scipy.io
 
 max_return = 0
 
@@ -57,7 +58,7 @@ def make_train_op(local_estimator, global_estimator):
     """
     local_grads, _ = zip(*local_estimator.grads_and_vars)
     # Clip gradients
-    local_grads, _ = tf.clip_by_global_norm(local_grads, 5.0)
+    # local_grads, _ = tf.clip_by_global_norm(local_grads, 5.0)
     _, global_vars = zip(*global_estimator.grads_and_vars)
     local_global_grads_and_vars = list(zip(local_grads, global_vars))
     return global_estimator.optimizer.apply_gradients(
@@ -89,6 +90,7 @@ class Worker(object):
         self.local_counter = itertools.count()
         self.summary_writer = summary_writer
         self.env = env
+        self.counter = 0
 
         # Create local policy/value nets that are not updated asynchronously
         with tf.variable_scope(name):
@@ -110,12 +112,13 @@ class Worker(object):
 
         with sess.as_default(), sess.graph.as_default():
 
-            # Initial state
-            self.reset_env()
             try:
                 while not coord.should_stop():
                     # Copy Parameters from the global networks
                     sess.run(self.copy_params_op)
+
+                    # Initial state
+                    self.reset_env()
 
                     # Collect some experience
                     transitions, local_t, global_t = self.run_n_steps(t_max, sess)
@@ -132,15 +135,23 @@ class Worker(object):
                 return
 
     def reset_env(self):
-        self.state = np.array([+7, 10, 0, 0, 20, 1.5], dtype=np.float32).reshape(6, 1)
-        # self.state = np.array([+9, 1, 0, 0, 20, 0], dtype=np.float32).reshape(6, 1)
-        self.action = np.array([0, 0], dtype=np.float32).reshape(2, 1)
+        # FLAGS = tf.flags.FLAGS
+        # self.state = np.array([+7, 10, 0, 0, 2.0, 1.0])
+        self.state = np.array([+7.5, 7.1, 0, 0, 2.0, 1.0])
+        # theta = np.random.rand() * np.pi * 2
+        # self.state = np.array([6 * np.cos(theta), 10 + 6 * np.sin(theta), theta, 0, 0, 1.0])
+        # self.state = np.array([+9, 1, 0, 0, 2.0, 0])
+        self.action = np.array([0, 0])
+
+        # Reshape to compatiable format
+        self.state = self.state.astype(np.float32).reshape(6, 1)
+        self.action = self.action.astype(np.float32).reshape(2, 1)
+
         self.env._reset(self.state)
 
     def run_n_steps(self, n, sess):
 
         global max_return
-        self.reset_env()
 
         # print "{} started a new episode".format(self.name)
         transitions = []
@@ -149,23 +160,20 @@ class Worker(object):
         for i in range(n):
 
             mdp_state = form_mdp_state(self.env, self.state, self.action, reward)
-            action = self.policy_net.predict(mdp_state, sess).reshape(2, -1)
-            '''
-            action[0, 0] = 0.05
-            action[1, 0] = 1 / 180. * np.pi
-            '''
-            # print "predicted action = {}".format(action.shape)
+            self.action = self.policy_net.predict(mdp_state, sess).reshape(2, -1)
+            self.action[0, 0] = 2
+            self.action[1, 0] = np.pi / 11.2
 
             # Take a step
-            next_state, reward, done, _ = self.env.step(action)
+            next_state, reward, done, _ = self.env.step(self.action)
             total_return += reward
             if total_return > max_return:
                 max_return = total_return
-                print "max_return = \33[93m{}\33[0m (step #{:05d}, action = ({}, {}))".format(max_return, i, action[0, 0], action[1, 0])
+                print "max_return = \33[93m{}\33[0m (step #{:05d}, action = {})".format(max_return, i, self.action.flatten())
 
             # Store transition
             transitions.append(Transition(
-                state=self.state, action=action, reward=reward, next_state=next_state, done=done))
+                state=self.state, action=self.action, reward=reward, next_state=next_state, done=done))
 
             # Increase local and global counters
             local_t = next(self.local_counter)
@@ -201,12 +209,9 @@ class Worker(object):
             reward = self.value_net.predict(mdp_state, sess)
 
         # Accumulate minibatch exmaples
-        states = []
         policy_targets = []
         value_targets = []
         actions = []
-        prev_actions = []
-        prev_rewards = []
 
         mdp_states = []
 
@@ -221,7 +226,10 @@ class Worker(object):
 
             # Get td_target (reward) and td_error
             reward = transition.reward + self.discount_factor * reward
-            td_error = (reward - self.value_net.predict(mdp_state, sess))
+            value = self.value_net.predict(mdp_state, sess)
+            td_error = reward - value
+            # print "step #{:04d}: reward = {}, value = {}, td_error = {}".format(t, reward, value, td_error)
+            # print "{} {} {}".format(reward, value, td_error)
 
             # Accumulate updates
             mdp_states.append(mdp_state)
@@ -229,6 +237,16 @@ class Worker(object):
             actions.append(transition.action)
             policy_targets.append(td_error)
             value_targets.append(reward)
+
+        '''
+        scipy.io.savemat("feed_dict/{}.mat".format(self.counter), dict(
+            mdp_states=mdp_states,
+            actions=actions,
+            policy_targets=policy_targets,
+            value_targets=value_targets
+        ))
+        self.counter += 1
+        '''
 
         # Turn list of dictionaries to dictionary of lists (numpy array)
         mdp_states = {
@@ -252,7 +270,7 @@ class Worker(object):
         '''
 
         # Train the global estimators using local gradients
-        print "Updates from {}, # of steps = {}".format(self.name, len(states))
+        print "Updates from {}, reward = {}, # of steps = {}".format(self.name, reward, T)
         global_step, pnet_loss, vnet_loss, _, _, pnet_summaries, vnet_summaries = sess.run([
             self.global_step,
             self.policy_net.loss,
@@ -262,6 +280,7 @@ class Worker(object):
             self.policy_net.summaries,
             self.value_net.summaries
         ], feed_dict)
+        print "pnet_loss = {:.7e}, vnet_loss = {:.7e}".format(pnet_loss, vnet_loss)
 
         # Write summaries
         if self.summary_writer is not None:

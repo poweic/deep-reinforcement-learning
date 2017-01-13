@@ -44,10 +44,6 @@ class OffRoadNavEnv(gym.Env):
         done = (ix < -19) or (ix > 20) or (iy < 0) or (iy > 39)
 
         reward = self._bilinear_reward_lookup(x, y)
-        '''
-        print "(ix, iy) = ({:3d}, {:3d}) {}".format(
-            ix, iy, "\33[92mDone\33[0m" if done else "")
-        '''
 
         # debug info
         info = {}
@@ -63,9 +59,9 @@ class OffRoadNavEnv(gym.Env):
         r = self.rewards.flatten()[linear_idx]
         return r
 
-    def get_ixiy(self, x, y):
-        ix = int(np.floor(x / 0.5))
-        iy = int(np.floor(y / 0.5))
+    def get_ixiy(self, x, y, scale=1.):
+        ix = int(np.floor(x * float(scale) / 0.5))
+        iy = int(np.floor(y * float(scale) / 0.5))
         return ix, iy
 
     def _bilinear_reward_lookup(self, x, y, debug=True):
@@ -100,8 +96,14 @@ class OffRoadNavEnv(gym.Env):
         return r
 
     def _reset(self, s0):
+        if not hasattr(self, "padded_rewards"):
+            self.padded_rewards = np.ones((80, 80), dtype=self.rewards.dtype) * np.min(self.rewards)
+            self.padded_rewards[20:60, 20:60] = self.rewards
+
         if not hasattr(self, "R"):
             self.R = self.to_image(self.rewards, self.K)
+
+        if not hasattr(self, "bR"):
             self.bR = self.to_image(self.debug_bilinear_R(self.K), self.K)
 
         self.disp_img = np.copy(self.bR)
@@ -110,8 +112,9 @@ class OffRoadNavEnv(gym.Env):
         return s0
 
     def to_image(self, R, K, interpolation=cv2.INTER_NEAREST):
-        R = np.clip((R - np.min(R)) * 255. / (np.max(R) - np.min(R)), 0, 255).astype(np.uint8)
-        R = cv2.resize(R, (400, 400), interpolation=cv2.INTER_NEAREST)[..., None]
+        R = (R - np.min(R)) / (np.max(R) - np.min(R)) * 255.
+        R = np.clip(R, 0, 255).astype(np.uint8)
+        R = cv2.resize(R, (400, 400), interpolation=interpolation)[..., None]
         R = np.concatenate([R, R, R], axis=2)
         return R
 
@@ -129,28 +132,26 @@ class OffRoadNavEnv(gym.Env):
 
     def get_front_view(self, state):
         x, y, theta = state[:3, 0]
+
         ix, iy = self.get_ixiy(x, y)
 
         iix = np.clip(ix + 19, 0, 39)
         iiy = np.clip(40 - 1 - iy, 0, 39)
 
-        theta *= 180. / np.pi
         # print "iix = {}, iiy = {}, theta = {}".format(iix, iiy, theta)
-        M = cv2.getRotationMatrix2D((iix, iiy), theta, 1)
-        rotated = cv2.warpAffine(self.rewards, M, (40, 40))
-        rotated = cv2.copyMakeBorder(rotated, 20, 0, 10, 10, 0)
-        img = rotated[iiy:iiy+20, iix:iix+20]
+        angle = theta * 180. / np.pi
+        M = cv2.getRotationMatrix2D((iix + 20, iiy + 20), angle, 1)
+        rotated = cv2.warpAffine(self.padded_rewards, M, (80, 80))
+        img = cv2.getRectSubPix(rotated, (20, 20), (iix + 20, iiy + 20))
 
-        assert img.shape == (20, 20), "rotated.shape = {}, iix = {}, iiy = {}, img.shape = {}".format(rotated.shape, iix, iiy, img.shape)
+        assert img.shape == (20, 20), "rotated_with_border.shape = {}, iix = {}, iiy = {}, img.shape = {}".format(rotated_with_border.shape, iix, iiy, img.shape)
 
-        '''
-        front_view = self.to_image(img, self.K * 2, None)
+        front_view = self.to_image(img, self.K * 2)
         front_view[0, :, :] = 255
         front_view[-1, :, :] = 255
         front_view[:, 1, :] = 255
         front_view[:, -1, :] = 255
         self.front_view_disp = front_view
-        '''
 
         return img
 
@@ -161,7 +162,9 @@ class OffRoadNavEnv(gym.Env):
 
         if self.state is not None:
 
-            ix, iy = np.floor(self.state[:2, 0] * self.K / 0.5).astype(np.int)
+            x, y = self.state[:2, 0]
+            ix, iy = self.get_ixiy(x, y, self.K)
+            theta = self.state[2, 0]
 
             # Turn ix, iy to image coordinate on disp_img (reward)
             x, y = 40*self.K/2-1 + ix, 40*self.K-1-iy
@@ -171,7 +174,10 @@ class OffRoadNavEnv(gym.Env):
 
             # Copy the image and draw again
             disp_img = np.copy(self.disp_img)
-            cv2.circle(disp_img, (x, y), 2, (0, 0, 255), 2)
+            pt1 = (x, y)
+            cv2.circle(disp_img, pt1, 2, (0, 0, 255), 2)
+            pt2 = (x + int(50 * np.cos(theta - np.pi / 2)), y + int(50 * np.sin(theta - np.pi / 2)))
+            cv2.arrowedLine(disp_img, pt1, pt2, (0, 0, 255), tipLength=0.2)
 
             # Put max/total return on image for debugging
             # text = "max return = {:.3f}".format(info["max_return"])
@@ -179,8 +185,8 @@ class OffRoadNavEnv(gym.Env):
             # text = "total_return = {:.3f}".format(info["total_return"])
             # cv2.putText(disp_img, text, (0, 390), cv2.FONT_HERSHEY_PLAIN, 1, (255, 255, 255), 1)
 
-            cv2.imshow4(int(wnd_name[-1]), disp_img)
-            # cv2.imshow4(int(wnd_name[-1]) + 1, self.front_view_disp)
+            cv2.imshow4(2*int(wnd_name[-1]), disp_img)
+            cv2.imshow4(2*int(wnd_name[-1]) + 1, self.front_view_disp)
         '''
         else:
             print "\33[93m{} not initialized yet\33[0m".format(wnd_name)
