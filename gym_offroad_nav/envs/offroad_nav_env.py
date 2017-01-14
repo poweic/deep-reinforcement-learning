@@ -142,7 +142,7 @@ class OffRoadNavEnv(gym.Env):
         angle = theta * 180. / np.pi
         M = cv2.getRotationMatrix2D((iix + 20, iiy + 20), angle, 1)
         rotated = cv2.warpAffine(self.padded_rewards, M, (80, 80))
-        img = cv2.getRectSubPix(rotated, (20, 20), (iix + 20, iiy + 20))
+        img = cv2.getRectSubPix(rotated, (20, 20), (iix + 20, iiy + 20 - 10))
 
         assert img.shape == (20, 20), "rotated_with_border.shape = {}, iix = {}, iiy = {}, img.shape = {}".format(rotated_with_border.shape, iix, iiy, img.shape)
 

@@ -138,6 +138,7 @@ class Worker(object):
         # FLAGS = tf.flags.FLAGS
         # self.state = np.array([+7, 10, 0, 0, 2.0, 1.0])
         self.state = np.array([+7.5, 7.1, 0, 0, 2.0, 1.0])
+        # self.state = np.array([+6, 0, 0, 0, 0, 0])
         # theta = np.random.rand() * np.pi * 2
         # self.state = np.array([6 * np.cos(theta), 10 + 6 * np.sin(theta), theta, 0, 0, 1.0])
         # self.state = np.array([+9, 1, 0, 0, 2.0, 0])
@@ -161,8 +162,10 @@ class Worker(object):
 
             mdp_state = form_mdp_state(self.env, self.state, self.action, reward)
             self.action = self.policy_net.predict(mdp_state, sess).reshape(2, -1)
+            '''
             self.action[0, 0] = 2
             self.action[1, 0] = np.pi / 11.2
+            '''
 
             # Take a step
             next_state, reward, done, _ = self.env.step(self.action)
