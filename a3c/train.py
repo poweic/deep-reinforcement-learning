@@ -155,6 +155,7 @@ with tf.Session() as sess:
     monitor_thread.start()
 
     # Show how agent behaves in envs in main thread
+    counter = 0
     while True:
         for worker in workers:
             if worker.max_return > max_return:
@@ -162,8 +163,11 @@ with tf.Session() as sess:
                 print "max_return = \33[93m{}\33[00m".format(max_return)
 
             worker.env._render({"worker": worker})
-            cv2.imshow("result", disp_img)
-            cv2.waitKey(10)
+
+        # cv2.imwrite("/share/Research/Yamaha/dirl-exp/{:06d}.png".format(counter), disp_img)
+        cv2.imshow("result", disp_img)
+        cv2.waitKey(10)
+        counter += 1
 
     # Wait for all workers to finish
     coord.join(worker_threads)

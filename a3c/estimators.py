@@ -189,7 +189,7 @@ class PolicyEstimator():
 
         # Add 1% exploration to make sure it's stochastic
         # sigma = tf.nn.sigmoid(sigma) * 0.01 * (max_a - min_a)
-        sigma = tf.nn.softplus(sigma) + 0.01 #1 * (max_a - min_a)
+        sigma = tf.nn.softplus(sigma) + 0.05 #1 * (max_a - min_a)
 
         return mu, sigma
 

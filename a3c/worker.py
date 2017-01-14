@@ -108,6 +108,7 @@ class Worker(object):
         self.action = None
         self.max_return = 0
         self.total_return = 0
+        self.current_reward = 0
 
     def run(self, sess, coord, t_max):
 
@@ -162,6 +163,7 @@ class Worker(object):
 
             mdp_state = form_mdp_state(self.env, self.state, self.action, reward)
             self.action = self.policy_net.predict(mdp_state, sess).reshape(2, -1)
+            assert not np.any(np.isnan(self.action))
             '''
             self.action[0, 0] = 2
             self.action[1, 0] = np.pi / 11.2
@@ -169,6 +171,10 @@ class Worker(object):
 
             # Take a step
             next_state, reward, done, _ = self.env.step(self.action)
+            if reward < 0:
+                done = True
+                reward = -1000
+            self.current_reward = reward
             self.total_return += reward
             if self.total_return > self.max_return:
                 self.max_return = self.total_return

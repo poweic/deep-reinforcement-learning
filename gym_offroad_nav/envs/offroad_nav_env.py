@@ -126,7 +126,9 @@ class OffRoadNavEnv(gym.Env):
         return s0
 
     def to_image(self, R, K, interpolation=cv2.INTER_NEAREST):
-        R = (R - np.min(R)) / (np.max(R) - np.min(R)) * 255.
+        value_range = np.max(R) - np.min(R)
+        if value_range != 0:
+            R = (R - np.min(R)) / value_range * 255.
         R = np.clip(R, 0, 255).astype(np.uint8)
         R = cv2.resize(R, (400, 400), interpolation=interpolation)[..., None]
         R = np.concatenate([R, R, R], axis=2)
@@ -162,12 +164,14 @@ class OffRoadNavEnv(gym.Env):
             # print "\33[33m ================ BEGIN ({}) ==================== iix + 20 = {}, iiy + 20 = {}, angle = {}\33[0m".format(self.name, iix + 20, iiy + 20, angle)
             # assert 0 <= iix + 20 < 80 and 0 <= iiy + 20 - 10 < 80, "\33[31m(iix, iiy) = ({}, {}), (iix + 20, iiy + 20 - 10) = ({}, {})".format(iix, iiy, iix + 20, iiy + 20 - 10)
             # FIXME Does warpAffine even supports float32 ?????
-            M = cv2.getRotationMatrix2D((iix + 20, iiy + 20), angle, 1)
+            cx, cy = iix + 20, iiy + 20
+            M = cv2.getRotationMatrix2D((cx, cy), angle, 1)
             rotated = cv2.warpAffine(self.padded_rewards, M, (80, 80))
             # assert np.all(np.array(rotated.shape) > 0)
             # assert 0 <= iix < 80 and 0 <= iiy < 80, "(iix, iiy) = ({}, {}), (iix + 20, iiy + 20 - 10) = ({}, {})".format(iix, iiy, iix + 20, iiy + 20 - 10)
             # print "rotated.shape = {}, (iix, iiy) = ({}, {}), (iix + 20, iiy + 20 - 10) = ({}, {})".format(rotated.shape, iix, iiy, iix + 20, iiy + 20 - 10)
-            img = cv2.getRectSubPix(rotated, (20, 20), (iix + 20, iiy + 20 - 10))
+            img = rotated[cy-10-10:cy-10+10, cx-10:cx+10]
+            # img = cv2.getRectSubPix(rotated, (20, 20), (cx, cy - 10))
         except:
             print "angle = {}".format(angle)
             print "M = ", M
@@ -178,6 +182,12 @@ class OffRoadNavEnv(gym.Env):
         # print "\33[32m ================  END ({}) ==================== \33[0m".format(self.name)
 
         front_view = self.to_image(img, self.K * 2)
+        '''
+        front_view = np.zeros((400, 400, 3), dtype=np.uint8)
+        front_view[:20, :20, 0] = img
+        front_view[:20, :20, 1] = img
+        front_view[:20, :20, 2] = img
+        '''
         front_view[0, :, :] = 255
         front_view[-1, :, :] = 255
         front_view[:, 1, :] = 255
@@ -211,8 +221,10 @@ class OffRoadNavEnv(gym.Env):
 
             # Put max/total return on image for debugging
             text = "max return = {:.3f}".format(worker.max_return)
-            cv2.putText(disp_img, text, (0, 370), cv2.FONT_HERSHEY_PLAIN, 1, (255, 255, 255), 1)
+            cv2.putText(disp_img, text, (0, 350), cv2.FONT_HERSHEY_PLAIN, 1, (255, 255, 255), 1)
             text = "total_return = {:.3f}".format(worker.total_return)
+            cv2.putText(disp_img, text, (0, 370), cv2.FONT_HERSHEY_PLAIN, 1, (255, 255, 255), 1)
+            text = "current_reward= {:.3f}".format(worker.current_reward)
             cv2.putText(disp_img, text, (0, 390), cv2.FONT_HERSHEY_PLAIN, 1, (255, 255, 255), 1)
 
             idx = int(worker.name[-1])
