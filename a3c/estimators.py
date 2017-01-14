@@ -137,7 +137,7 @@ class PolicyEstimator():
             # Add cross entropy cost to encourage exploration
             self.entropy = normal_dist.entropy()
             self.entropy_mean = tf.reduce_mean(self.entropy)
-            self.loss -= 1e-3 * tf.reduce_sum(self.entropy)
+            self.loss -= 100. * tf.reduce_sum(self.entropy)
 
             self.optimizer = tf.train.AdamOptimizer(tf.flags.FLAGS.learning_rate)
             self.grads_and_vars = self.optimizer.compute_gradients(self.loss)
@@ -166,11 +166,13 @@ class PolicyEstimator():
 
     def policy_network(self, input, num_outputs, min_a, max_a):
         
+        '''
         input = DenseLayer(
             input=input,
             num_outputs=256,
             nonlinearity="relu",
             name="policy-input-dense")
+        '''
 
         # This is just linear classifier
         mu = DenseLayer(
@@ -187,7 +189,7 @@ class PolicyEstimator():
 
         # Add 1% exploration to make sure it's stochastic
         # sigma = tf.nn.sigmoid(sigma) * 0.01 * (max_a - min_a)
-        sigma = tf.nn.softplus(sigma) + 0.05 * (max_a - min_a)
+        sigma = tf.nn.softplus(sigma) + 0.01 #1 * (max_a - min_a)
 
         return mu, sigma
 
@@ -261,11 +263,13 @@ class ValueEstimator():
         self.summaries = tf.summary.merge(summaries)
 
     def value_network(self, input, num_outputs=1):
+        '''
         input = DenseLayer(
             input=input,
             num_outputs=256,
             nonlinearity="relu",
             name="value-input-dense")
+        '''
 
         # This is just linear classifier
         value = DenseLayer(

@@ -7,8 +7,7 @@ import collections
 import numpy as np
 import tensorflow as tf
 import scipy.io
-
-max_return = 0
+import traceback
 
 from inspect import getsourcefile
 current_path = os.path.dirname(os.path.abspath(getsourcefile(lambda:0)))
@@ -107,6 +106,8 @@ class Worker(object):
 
         self.state = None
         self.action = None
+        self.max_return = 0
+        self.total_return = 0
 
     def run(self, sess, coord, t_max):
 
@@ -116,9 +117,6 @@ class Worker(object):
                 while not coord.should_stop():
                     # Copy Parameters from the global networks
                     sess.run(self.copy_params_op)
-
-                    # Initial state
-                    self.reset_env()
 
                     # Collect some experience
                     transitions, local_t, global_t = self.run_n_steps(t_max, sess)
@@ -133,11 +131,13 @@ class Worker(object):
             
             except tf.errors.CancelledError:
                 return
+            except:
+                traceback.print_exc()
 
     def reset_env(self):
         # FLAGS = tf.flags.FLAGS
         # self.state = np.array([+7, 10, 0, 0, 2.0, 1.0])
-        self.state = np.array([+7.5, 7.1, 0, 0, 2.0, 1.0])
+        self.state = np.array([+7.1, 7.1, 0, 0, 2.0, np.pi / 20])
         # self.state = np.array([+6, 0, 0, 0, 0, 0])
         # theta = np.random.rand() * np.pi * 2
         # self.state = np.array([6 * np.cos(theta), 10 + 6 * np.sin(theta), theta, 0, 0, 1.0])
@@ -147,17 +147,17 @@ class Worker(object):
         # Reshape to compatiable format
         self.state = self.state.astype(np.float32).reshape(6, 1)
         self.action = self.action.astype(np.float32).reshape(2, 1)
+        self.total_return = 0
 
         self.env._reset(self.state)
 
     def run_n_steps(self, n, sess):
 
-        global max_return
+        # Initial state
+        self.reset_env()
 
-        # print "{} started a new episode".format(self.name)
         transitions = []
         reward = 0
-        total_return = 0
         for i in range(n):
 
             mdp_state = form_mdp_state(self.env, self.state, self.action, reward)
@@ -169,10 +169,11 @@ class Worker(object):
 
             # Take a step
             next_state, reward, done, _ = self.env.step(self.action)
-            total_return += reward
-            if total_return > max_return:
-                max_return = total_return
-                print "max_return = \33[93m{}\33[0m (step #{:05d}, action = {})".format(max_return, i, self.action.flatten())
+            self.total_return += reward
+            if self.total_return > self.max_return:
+                self.max_return = self.total_return
+                print "{}'s max_return = {} (step #{:05d}, action = {})".format(
+                    self.name, self.max_return, i, self.action.flatten())
 
             # Store transition
             transitions.append(Transition(

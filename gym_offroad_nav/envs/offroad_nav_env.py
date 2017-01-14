@@ -1,13 +1,14 @@
 import gym
 import cv2
 import numpy as np
+import scipy.io
 from gym import error, spaces, utils
 from gym.utils import seeding
 
 class OffRoadNavEnv(gym.Env):
     metadata = {'render.modes': ['human']}
 
-    def __init__(self, rewards, vehicle_model):
+    def __init__(self, rewards, vehicle_model, name):
         self.viewer = None
 
         # A tf.tensor (or np) containing rewards, we need a constant version and 
@@ -18,6 +19,8 @@ class OffRoadNavEnv(gym.Env):
         self.K = 10
 
         self.state = None
+
+        self.name = name
 
         self.front_view_disp = np.zeros((400, 400, 3), np.uint8)
 
@@ -96,6 +99,13 @@ class OffRoadNavEnv(gym.Env):
         return r
 
     def _reset(self, s0):
+        if not hasattr(self, "R"):
+            data = scipy.io.loadmat("data/circle3-metadata.mat")
+            self.R = data["R"].copy()
+            self.bR = data["bR"].copy()
+            self.padded_rewards = data["padded_rewards"].astype(np.float32).copy()
+
+        '''
         if not hasattr(self, "padded_rewards"):
             self.padded_rewards = np.ones((80, 80), dtype=self.rewards.dtype) * np.min(self.rewards)
             self.padded_rewards[20:60, 20:60] = self.rewards
@@ -105,6 +115,10 @@ class OffRoadNavEnv(gym.Env):
 
         if not hasattr(self, "bR"):
             self.bR = self.to_image(self.debug_bilinear_R(self.K), self.K)
+
+        if hasattr(self, "bR") and hasattr(self, "R") and hasattr(self, "padded_rewards"):
+            scipy.io.savemat("data/circle3-metadata.mat", dict(bR=self.bR, R=self.R, padded_rewards=self.padded_rewards))
+        '''
 
         self.disp_img = np.copy(self.bR)
         self.vehicle_model.reset(s0)
@@ -139,12 +153,29 @@ class OffRoadNavEnv(gym.Env):
         iiy = np.clip(40 - 1 - iy, 0, 39)
 
         # print "iix = {}, iiy = {}, theta = {}".format(iix, iiy, theta)
-        angle = theta * 180. / np.pi
-        M = cv2.getRotationMatrix2D((iix + 20, iiy + 20), angle, 1)
-        rotated = cv2.warpAffine(self.padded_rewards, M, (80, 80))
-        img = cv2.getRectSubPix(rotated, (20, 20), (iix + 20, iiy + 20 - 10))
+        try:
+            angle = theta * 180. / np.pi
+            assert angle == angle, "angle = ".format(angle)
+            # iix = 6
+            # iiy = 18
+            # angle = -153.175926025
+            # print "\33[33m ================ BEGIN ({}) ==================== iix + 20 = {}, iiy + 20 = {}, angle = {}\33[0m".format(self.name, iix + 20, iiy + 20, angle)
+            # assert 0 <= iix + 20 < 80 and 0 <= iiy + 20 - 10 < 80, "\33[31m(iix, iiy) = ({}, {}), (iix + 20, iiy + 20 - 10) = ({}, {})".format(iix, iiy, iix + 20, iiy + 20 - 10)
+            # FIXME Does warpAffine even supports float32 ?????
+            M = cv2.getRotationMatrix2D((iix + 20, iiy + 20), angle, 1)
+            rotated = cv2.warpAffine(self.padded_rewards, M, (80, 80))
+            # assert np.all(np.array(rotated.shape) > 0)
+            # assert 0 <= iix < 80 and 0 <= iiy < 80, "(iix, iiy) = ({}, {}), (iix + 20, iiy + 20 - 10) = ({}, {})".format(iix, iiy, iix + 20, iiy + 20 - 10)
+            # print "rotated.shape = {}, (iix, iiy) = ({}, {}), (iix + 20, iiy + 20 - 10) = ({}, {})".format(rotated.shape, iix, iiy, iix + 20, iiy + 20 - 10)
+            img = cv2.getRectSubPix(rotated, (20, 20), (iix + 20, iiy + 20 - 10))
+        except:
+            print "angle = {}".format(angle)
+            print "M = ", M
+            print "\33[31m(iix, iiy) = ({}, {}), (iix + 20, iiy + 20 - 10) = ({}, {})\33[0m".format(iix, iiy, iix + 20, iiy + 20 - 10)
+            print "rotated.shape = {}, rotated.dtype = {}".format(rotated.shape, rotated.dtype)
 
-        assert img.shape == (20, 20), "rotated_with_border.shape = {}, iix = {}, iiy = {}, img.shape = {}".format(rotated_with_border.shape, iix, iiy, img.shape)
+        # assert img.shape == (20, 20), "img.shape = {}, iix = {}, iiy = {}, img.shape = {}".format(img.shape, iix, iiy, img.shape)
+        # print "\33[32m ================  END ({}) ==================== \33[0m".format(self.name)
 
         front_view = self.to_image(img, self.K * 2)
         front_view[0, :, :] = 255
@@ -157,8 +188,7 @@ class OffRoadNavEnv(gym.Env):
 
     def _render(self, info, mode='human', close=False):
 
-        wnd_name = info["worker"]
-        # cv2.namedWindow(wnd_name)
+        worker = info["worker"]
 
         if self.state is not None:
 
@@ -180,16 +210,15 @@ class OffRoadNavEnv(gym.Env):
             cv2.arrowedLine(disp_img, pt1, pt2, (0, 0, 255), tipLength=0.2)
 
             # Put max/total return on image for debugging
-            # text = "max return = {:.3f}".format(info["max_return"])
-            # cv2.putText(disp_img, text, (0, 370), cv2.FONT_HERSHEY_PLAIN, 1, (255, 255, 255), 1)
-            # text = "total_return = {:.3f}".format(info["total_return"])
-            # cv2.putText(disp_img, text, (0, 390), cv2.FONT_HERSHEY_PLAIN, 1, (255, 255, 255), 1)
+            text = "max return = {:.3f}".format(worker.max_return)
+            cv2.putText(disp_img, text, (0, 370), cv2.FONT_HERSHEY_PLAIN, 1, (255, 255, 255), 1)
+            text = "total_return = {:.3f}".format(worker.total_return)
+            cv2.putText(disp_img, text, (0, 390), cv2.FONT_HERSHEY_PLAIN, 1, (255, 255, 255), 1)
 
-            cv2.imshow4(2*int(wnd_name[-1]), disp_img)
-            cv2.imshow4(2*int(wnd_name[-1]) + 1, self.front_view_disp)
+            idx = int(worker.name[-1])
+            cv2.imshow4(2*idx, disp_img)
+            cv2.imshow4(2*idx + 1, self.front_view_disp)
         '''
         else:
             print "\33[93m{} not initialized yet\33[0m".format(wnd_name)
         '''
-
-        # cv2.waitKey(5)

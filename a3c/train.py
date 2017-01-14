@@ -27,7 +27,7 @@ from gym_offroad_nav.envs import OffRoadNavEnv
 from gym_offroad_nav.vehicle_model import VehicleModel
 
 tf.flags.DEFINE_string("model_dir", "/tmp/a3c-offroad", "Directory to write Tensorboard summaries and videos to.")
-tf.flags.DEFINE_integer("t_max", 2500, "Number of steps before performing an update")
+tf.flags.DEFINE_integer("t_max", 1000, "Number of steps before performing an update")
 tf.flags.DEFINE_integer("max_global_steps", None, "Stop training after this many steps in the environment. Defaults to running indefinitely.")
 tf.flags.DEFINE_integer("eval_every", 300, "Evaluate the policy every N seconds")
 tf.flags.DEFINE_boolean("reset", False, "If set, delete the existing model directory and start training from scratch.")
@@ -35,15 +35,14 @@ tf.flags.DEFINE_boolean("debug", False, "If set, turn on the debug flag")
 
 tf.flags.DEFINE_integer("parallelism", 6, "Number of threads to run. If not set we run [num_cpu_cores] threads.")
 tf.flags.DEFINE_float("learning_rate", 1e-4, "Learning rate for policy net and value net")
-tf.flags.DEFINE_float("timestep", 0.01, "Simulation timestep")
+tf.flags.DEFINE_float("timestep", 0.02, "Simulation timestep")
 tf.flags.DEFINE_float("max_forward_speed", 2.0, "Maximum forward velocity of vehicle (m/s)")
 tf.flags.DEFINE_float("min_forward_speed", 1.0, "Minimum forward velocity of vehicle (m/s)")
-tf.flags.DEFINE_float("max_yaw_rate", np.pi, "Maximum yaw rate (omega) of vehicle (rad/s)")
-tf.flags.DEFINE_float("min_yaw_rate", -np.pi, "Minimum yaw rate (omega) of vehicle (rad/s)")
+tf.flags.DEFINE_float("max_yaw_rate", np.pi/20, "Maximum yaw rate (omega) of vehicle (rad/s)")
+tf.flags.DEFINE_float("min_yaw_rate", -np.pi/20, "Minimum yaw rate (omega) of vehicle (rad/s)")
 
 FLAGS = tf.flags.FLAGS
 
-envs = []
 disp_img = np.zeros((800, 800*2, 3), dtype=np.uint8)
 def imshow4(idx, img):
     global disp_img
@@ -53,13 +52,10 @@ def imshow4(idx, img):
 cv2.imshow4 = imshow4
 
 def make_env(name=None):
-    global envs
     vehicle_model = VehicleModel(FLAGS.timestep)
     rewards = scipy.io.loadmat("data/circle3.mat")["reward"].astype(np.float32) - 100
     # rewards = scipy.io.loadmat("data/maze.mat")["reward"].astype(np.float32) - 15
-    env = OffRoadNavEnv(rewards, vehicle_model)
-    if name is not None:
-        envs.append([name, env])
+    env = OffRoadNavEnv(rewards, vehicle_model, name)
     return env
 
 # Set the number of workers
@@ -83,6 +79,7 @@ with tf.device("/cpu:0"):
 
     # Keeps track of the number of updates we've performed
     global_step = tf.Variable(0, name="global_step", trainable=False)
+    max_return = 0
 
     # Global policy and value nets
     with tf.variable_scope("global") as vs:
@@ -159,10 +156,14 @@ with tf.Session() as sess:
 
     # Show how agent behaves in envs in main thread
     while True:
-        for name, env in envs:
-            env._render({"worker": name})
+        for worker in workers:
+            if worker.max_return > max_return:
+                max_return = worker.max_return
+                print "max_return = \33[93m{}\33[00m".format(max_return)
+
+            worker.env._render({"worker": worker})
             cv2.imshow("result", disp_img)
-            cv2.waitKey(5)
+            cv2.waitKey(10)
 
     # Wait for all workers to finish
     coord.join(worker_threads)

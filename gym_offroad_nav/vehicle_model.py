@@ -31,8 +31,8 @@ class VehicleModel():
         # y' = Cx + Du (measurement)
         self.x = None
 
-        self.sigma = 0.001
-        self.delta = 0.001
+        self.sigma = 0.1
+        self.delta = 0.1
 
     def _predict(self, x, u):
         u = u.reshape(2, 1)
