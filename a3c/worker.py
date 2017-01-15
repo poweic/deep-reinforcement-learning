@@ -174,7 +174,7 @@ class Worker(object):
 
             mdp_state = form_mdp_state(self.env, self.state, self.action, reward)
             self.action = self.policy_net.predict(mdp_state, sess).reshape(2, -1)
-            assert not np.any(np.isnan(self.action)), "self.action = {}".format(self.action)
+            assert not np.any(np.isnan(self.action)), "self.action = {}, mdp_state = ".format(self.action, mdp_state)
             '''
             self.action[0, 0] = 2
             self.action[1, 0] = np.pi / 11.2
