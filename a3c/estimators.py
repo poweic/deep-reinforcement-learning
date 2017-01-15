@@ -285,7 +285,11 @@ class ValueEstimator():
     def predict(self, state, sess=None):
         sess = sess or tf.get_default_session()
         feed_dict = { self.state[k]: state[k] for k in state.keys() }
-        return np.asscalar(sess.run(self.logits, feed_dict))
+        result = sess.run(self.logits, feed_dict)
+        if result.size == 1:
+            return np.asscalar(result)
+        else:
+            return result.squeeze()
 
     def update(self, state, target, sess=None):
         sess = sess or tf.get_default_session()

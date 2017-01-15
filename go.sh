@@ -1,2 +1,2 @@
 #!/bin/bash
-./a3c/train.py --parallelism 1 --reset $@
+./a3c/train.py --parallelism 8 --reset $@
