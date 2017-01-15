@@ -27,7 +27,7 @@ from gym_offroad_nav.envs import OffRoadNavEnv
 from gym_offroad_nav.vehicle_model import VehicleModel
 
 tf.flags.DEFINE_string("model_dir", "/tmp/a3c-offroad", "Directory to write Tensorboard summaries and videos to.")
-tf.flags.DEFINE_integer("t_max", 1000, "Number of steps before performing an update")
+tf.flags.DEFINE_integer("t_max", 3000, "Number of steps before performing an update")
 tf.flags.DEFINE_integer("max_global_steps", None, "Stop training after this many steps in the environment. Defaults to running indefinitely.")
 tf.flags.DEFINE_integer("eval_every", 300, "Evaluate the policy every N seconds")
 tf.flags.DEFINE_boolean("reset", False, "If set, delete the existing model directory and start training from scratch.")
@@ -36,25 +36,33 @@ tf.flags.DEFINE_boolean("debug", False, "If set, turn on the debug flag")
 tf.flags.DEFINE_integer("parallelism", 6, "Number of threads to run. If not set we run [num_cpu_cores] threads.")
 tf.flags.DEFINE_float("learning_rate", 1e-4, "Learning rate for policy net and value net")
 tf.flags.DEFINE_float("timestep", 0.02, "Simulation timestep")
-tf.flags.DEFINE_float("max_forward_speed", 2.0, "Maximum forward velocity of vehicle (m/s)")
-tf.flags.DEFINE_float("min_forward_speed", 1.0, "Minimum forward velocity of vehicle (m/s)")
-tf.flags.DEFINE_float("max_yaw_rate", np.pi/20, "Maximum yaw rate (omega) of vehicle (rad/s)")
-tf.flags.DEFINE_float("min_yaw_rate", -np.pi/20, "Minimum yaw rate (omega) of vehicle (rad/s)")
+tf.flags.DEFINE_float("max_forward_speed", 10.0, "Maximum forward velocity of vehicle (m/s)")
+tf.flags.DEFINE_float("min_forward_speed", 0.0, "Minimum forward velocity of vehicle (m/s)")
+# tf.flags.DEFINE_float("max_yaw_rate", np.pi / 11.2 + np.pi/20, "Maximum yaw rate (omega) of vehicle (rad/s)")
+# tf.flags.DEFINE_float("min_yaw_rate", np.pi / 11.2 - np.pi/20, "Minimum yaw rate (omega) of vehicle (rad/s)")
+tf.flags.DEFINE_float("max_yaw_rate", + np.pi/20, "Maximum yaw rate (omega) of vehicle (rad/s)")
+tf.flags.DEFINE_float("min_yaw_rate", - np.pi/20, "Minimum yaw rate (omega) of vehicle (rad/s)")
 
 FLAGS = tf.flags.FLAGS
 
-disp_img = np.zeros((800, 800*2, 3), dtype=np.uint8)
+W = 400
+disp_img = np.zeros((2*W, 2*W*2, 3), dtype=np.uint8)
+disp_lock = threading.Lock()
 def imshow4(idx, img):
     global disp_img
+    assert 0 <= idx < 8, "idx = {}".format(idx)
     x = idx / 4
     y = idx % 4
-    disp_img[x*400:(x+1)*400, y*400:(y+1)*400, :] = np.copy(img)
+    with disp_lock:
+        disp_img[x*W:(x+1)*W, y*W:(y+1)*W, :] = np.copy(img)
+
 cv2.imshow4 = imshow4
 
 def make_env(name=None):
     vehicle_model = VehicleModel(FLAGS.timestep)
     rewards = scipy.io.loadmat("data/circle3.mat")["reward"].astype(np.float32) - 100
     # rewards = scipy.io.loadmat("data/maze.mat")["reward"].astype(np.float32) - 15
+    rewards = (rewards - np.min(rewards)) / (np.max(rewards) - np.min(rewards))
     env = OffRoadNavEnv(rewards, vehicle_model, name)
     return env
 
@@ -83,7 +91,6 @@ with tf.device("/cpu:0"):
 
     # Global policy and value nets
     with tf.variable_scope("global") as vs:
-        rewards = tf.Variable(tf.zeros([1, 40, 40, 1]), name="rewards", trainable=False)
         policy_net = PolicyEstimator()
         value_net = ValueEstimator(policy_net.state, reuse=True)
 
@@ -105,7 +112,6 @@ with tf.device("/cpu:0"):
         worker = Worker(
             name=name,
             env=make_env(name),
-            rewards=rewards,
             policy_net=policy_net,
             value_net=value_net,
             global_counter=global_counter,
@@ -120,8 +126,7 @@ with tf.device("/cpu:0"):
     # Used to occasionally save videos for our policy net
     # and write episode rewards to Tensorboard
     pe = PolicyMonitor(
-        env=make_env(),
-        rewards=rewards,
+        env=make_env("policy_monitor"),
         policy_net=policy_net,
         summary_writer=summary_writer,
         saver=saver)
@@ -130,10 +135,6 @@ with tf.Session() as sess:
     sess.run(tf.global_variables_initializer())
     coord = tf.train.Coordinator()
 
-    # Copy rewards to GPU variable
-    sess.run(rewards.assign(
-        make_env().rewards.reshape(rewards.get_shape().as_list())
-    ))
     # saver.save(sess, 'models/test')
 
     # Load a previous checkpoint if it exists
@@ -152,7 +153,7 @@ with tf.Session() as sess:
 
     # Start a thread for policy eval task
     monitor_thread = threading.Thread(target=lambda: pe.continuous_eval(FLAGS.eval_every, sess, coord))
-    monitor_thread.start()
+    # monitor_thread.start()
 
     # Show how agent behaves in envs in main thread
     counter = 0
@@ -160,7 +161,7 @@ with tf.Session() as sess:
         for worker in workers:
             if worker.max_return > max_return:
                 max_return = worker.max_return
-                print "max_return = \33[93m{}\33[00m".format(max_return)
+                # print "max_return = \33[93m{}\33[00m".format(max_return)
 
             worker.env._render({"worker": worker})
 

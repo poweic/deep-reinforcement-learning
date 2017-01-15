@@ -106,8 +106,8 @@ class PolicyEstimator():
             self.mu, self.sigma = self.policy_network(shared, 2, min_a, max_a)
 
             # Make it deterministic for debugging
-            # self.mu = self.mu * 0 + (max_a + min_a) / 2.
-            # self.sigma = self.sigma * 0
+            # self.mu = self.mu * 1e-7 + (max_a + min_a) / 2.
+            # self.sigma = self.sigma * 1e-7
 
             # Use hyperbolic tangent (or sigmoid)
             # self.mu = (max_a + min_a) / 2 + tf.nn.tanh(self.mu) * (max_a - min_a) / 2
@@ -137,7 +137,7 @@ class PolicyEstimator():
             # Add cross entropy cost to encourage exploration
             self.entropy = normal_dist.entropy()
             self.entropy_mean = tf.reduce_mean(self.entropy)
-            self.loss -= 100. * tf.reduce_sum(self.entropy)
+            self.loss -= 1e-2 * tf.reduce_sum(self.entropy)
 
             self.optimizer = tf.train.AdamOptimizer(tf.flags.FLAGS.learning_rate)
             self.grads_and_vars = self.optimizer.compute_gradients(self.loss)
@@ -166,13 +166,11 @@ class PolicyEstimator():
 
     def policy_network(self, input, num_outputs, min_a, max_a):
         
-        '''
         input = DenseLayer(
             input=input,
             num_outputs=256,
             nonlinearity="relu",
             name="policy-input-dense")
-        '''
 
         # This is just linear classifier
         mu = DenseLayer(
@@ -188,8 +186,8 @@ class PolicyEstimator():
         sigma = tf.reshape(sigma, [-1, 2])
 
         # Add 1% exploration to make sure it's stochastic
-        # sigma = tf.nn.sigmoid(sigma) * 0.01 * (max_a - min_a)
-        sigma = tf.nn.softplus(sigma) + 0.05 #1 * (max_a - min_a)
+        sigma = tf.nn.sigmoid(sigma) * 0.01 * (max_a - min_a)
+        # sigma = tf.nn.softplus(sigma) + 0.001 #1 * (max_a - min_a)
 
         return mu, sigma
 
@@ -263,13 +261,11 @@ class ValueEstimator():
         self.summaries = tf.summary.merge(summaries)
 
     def value_network(self, input, num_outputs=1):
-        '''
         input = DenseLayer(
             input=input,
             num_outputs=256,
             nonlinearity="relu",
             name="value-input-dense")
-        '''
 
         # This is just linear classifier
         value = DenseLayer(
@@ -284,7 +280,7 @@ class ValueEstimator():
     def predict(self, state, sess=None):
         sess = sess or tf.get_default_session()
         feed_dict = { self.state[k]: state[k] for k in state.keys() }
-        return sess.run(self.logits, feed_dict)
+        return np.asscalar(sess.run(self.logits, feed_dict))
 
     def update(self, state, target, sess=None):
         sess = sess or tf.get_default_session()

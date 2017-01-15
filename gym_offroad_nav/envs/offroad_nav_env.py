@@ -6,9 +6,9 @@ from gym import error, spaces, utils
 from gym.utils import seeding
 
 class OffRoadNavEnv(gym.Env):
-    metadata = {'render.modes': ['human']}
 
     def __init__(self, rewards, vehicle_model, name):
+        print id(self)
         self.viewer = None
 
         # A tf.tensor (or np) containing rewards, we need a constant version and 
@@ -166,13 +166,16 @@ class OffRoadNavEnv(gym.Env):
             # FIXME Does warpAffine even supports float32 ?????
             cx, cy = iix + 20, iiy + 20
             M = cv2.getRotationMatrix2D((cx, cy), angle, 1)
+            assert not np.any(np.isnan(M))
+            assert isinstance(self.padded_rewards, np.ndarray)
             rotated = cv2.warpAffine(self.padded_rewards, M, (80, 80))
             # assert np.all(np.array(rotated.shape) > 0)
             # assert 0 <= iix < 80 and 0 <= iiy < 80, "(iix, iiy) = ({}, {}), (iix + 20, iiy + 20 - 10) = ({}, {})".format(iix, iiy, iix + 20, iiy + 20 - 10)
             # print "rotated.shape = {}, (iix, iiy) = ({}, {}), (iix + 20, iiy + 20 - 10) = ({}, {})".format(rotated.shape, iix, iiy, iix + 20, iiy + 20 - 10)
             img = rotated[cy-10-10:cy-10+10, cx-10:cx+10]
-            # img = cv2.getRectSubPix(rotated, (20, 20), (cx, cy - 10))
-        except:
+        except Exception as e:
+            print e
+            print self.padded_rewards, self.padded_rewards.shape, self.padded_rewards.dtype
             print "angle = {}".format(angle)
             print "M = ", M
             print "\33[31m(iix, iiy) = ({}, {}), (iix + 20, iiy + 20 - 10) = ({}, {})\33[0m".format(iix, iiy, iix + 20, iiy + 20 - 10)
@@ -181,18 +184,18 @@ class OffRoadNavEnv(gym.Env):
         # assert img.shape == (20, 20), "img.shape = {}, iix = {}, iiy = {}, img.shape = {}".format(img.shape, iix, iiy, img.shape)
         # print "\33[32m ================  END ({}) ==================== \33[0m".format(self.name)
 
-        front_view = self.to_image(img, self.K * 2)
+        # front_view = self.to_image(img, self.K * 2)
         '''
         front_view = np.zeros((400, 400, 3), dtype=np.uint8)
         front_view[:20, :20, 0] = img
         front_view[:20, :20, 1] = img
         front_view[:20, :20, 2] = img
         '''
-        front_view[0, :, :] = 255
-        front_view[-1, :, :] = 255
-        front_view[:, 1, :] = 255
-        front_view[:, -1, :] = 255
-        self.front_view_disp = front_view
+        # front_view[0, :, :] = 255
+        # front_view[-1, :, :] = 255
+        # front_view[:, 1, :] = 255
+        # front_view[:, -1, :] = 255
+        # self.front_view_disp = front_view
 
         return img
 
@@ -228,9 +231,7 @@ class OffRoadNavEnv(gym.Env):
             cv2.putText(disp_img, text, (0, 390), cv2.FONT_HERSHEY_PLAIN, 1, (255, 255, 255), 1)
 
             idx = int(worker.name[-1])
-            cv2.imshow4(2*idx, disp_img)
-            cv2.imshow4(2*idx + 1, self.front_view_disp)
-        '''
+            cv2.imshow4(idx, disp_img)
+            # cv2.imshow4(2*idx + 1, self.front_view_disp)
         else:
-            print "\33[93m{} not initialized yet\33[0m".format(wnd_name)
-        '''
+            print "\33[93m{} not initialized yet\33[0m".format(self.name)

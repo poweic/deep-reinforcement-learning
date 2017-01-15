@@ -57,7 +57,7 @@ def make_train_op(local_estimator, global_estimator):
     """
     local_grads, _ = zip(*local_estimator.grads_and_vars)
     # Clip gradients
-    # local_grads, _ = tf.clip_by_global_norm(local_grads, 5.0)
+    local_grads, _ = tf.clip_by_global_norm(local_grads, 10.0)
     _, global_vars = zip(*global_estimator.grads_and_vars)
     local_global_grads_and_vars = list(zip(local_grads, global_vars))
     return global_estimator.optimizer.apply_gradients(
@@ -77,11 +77,11 @@ class Worker(object):
     summary_writer: A tf.train.SummaryWriter for Tensorboard summaries
     max_global_steps: If set, stop coordinator when global_counter > max_global_steps
     """
-    def __init__(self, name, rewards, env, policy_net, value_net, global_counter, discount_factor=0.99, summary_writer=None, max_global_steps=None):
+    def __init__(self, name, env, policy_net, value_net, global_counter, discount_factor=0.99, summary_writer=None, max_global_steps=None):
+        print "In {}'s __init__ method".format(name)
         self.name = name
         self.discount_factor = discount_factor
         self.max_global_steps = max_global_steps
-        self.rewards = rewards
         self.global_step = tf.contrib.framework.get_global_step()
         self.global_policy_net = policy_net
         self.global_value_net = value_net
@@ -112,6 +112,8 @@ class Worker(object):
 
     def run(self, sess, coord, t_max):
 
+        print "In {}'s run method".format(self.name)
+
         with sess.as_default(), sess.graph.as_default():
 
             try:
@@ -129,6 +131,8 @@ class Worker(object):
 
                     # Update the global networks
                     self.update(transitions, sess)
+
+                print "\33[91mEnd of for loop\33[0m"
             
             except tf.errors.CancelledError:
                 return
@@ -138,10 +142,12 @@ class Worker(object):
     def reset_env(self):
         # FLAGS = tf.flags.FLAGS
         # self.state = np.array([+7, 10, 0, 0, 2.0, 1.0])
-        self.state = np.array([+7.1, 7.1, 0, 0, 2.0, np.pi / 20])
+        # self.state = np.array([+7.1, 7.1, 0, 0, 2.0, np.pi / 20])
+        # self.state = np.array([+7 + np.random.rand(), 10 + np.random.rand(), 0, 0, 2, 0])
         # self.state = np.array([+6, 0, 0, 0, 0, 0])
-        # theta = np.random.rand() * np.pi * 2
-        # self.state = np.array([6 * np.cos(theta), 10 + 6 * np.sin(theta), theta, 0, 0, 1.0])
+        theta = np.random.rand() * np.pi * 2
+        phi = np.random.rand() * np.pi * 2
+        self.state = np.array([6 * np.cos(theta), 10 + 6 * np.sin(theta), phi, 0, 0, 1.0])
         # self.state = np.array([+9, 1, 0, 0, 2.0, 0])
         self.action = np.array([0, 0])
 
@@ -171,15 +177,19 @@ class Worker(object):
 
             # Take a step
             next_state, reward, done, _ = self.env.step(self.action)
+            '''
             if reward < 0:
                 done = True
                 reward = -1000
+            '''
             self.current_reward = reward
             self.total_return += reward
             if self.total_return > self.max_return:
                 self.max_return = self.total_return
+                '''
                 print "{}'s max_return = {} (step #{:05d}, action = {})".format(
                     self.name, self.max_return, i, self.action.flatten())
+                '''
 
             # Store transition
             transitions.append(Transition(
@@ -280,7 +290,6 @@ class Worker(object):
         '''
 
         # Train the global estimators using local gradients
-        print "Updates from {}, reward = {}, # of steps = {}".format(self.name, reward, T)
         global_step, pnet_loss, vnet_loss, _, _, pnet_summaries, vnet_summaries = sess.run([
             self.global_step,
             self.policy_net.loss,
@@ -290,7 +299,8 @@ class Worker(object):
             self.policy_net.summaries,
             self.value_net.summaries
         ], feed_dict)
-        print "pnet_loss = {:.7e}, vnet_loss = {:.7e}".format(pnet_loss, vnet_loss)
+        print "Updates from {}, reward = {}, # of steps = {}, pnet_loss = {}, vnet_loss = {}, total_loss = {}".format(
+            self.name, reward, T, pnet_loss, vnet_loss, pnet_loss + vnet_loss)
 
         # Write summaries
         if self.summary_writer is not None:
