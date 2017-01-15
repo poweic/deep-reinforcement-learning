@@ -113,25 +113,30 @@ class PolicyEstimator():
             # self.mu = (max_a + min_a) / 2 + tf.nn.tanh(self.mu) * (max_a - min_a) / 2
             # self.mu = tf.nn.sigmoid(self.mu) * (max_a - min_a) + min_a
 
-            # For debug
-            self.mu = tf_print(self.mu, "mu = ")
-            self.sigma = tf_print(self.sigma, "sigma = ")
-
             # Reshape, sample, and reshape it back
             self.mu = tf.reshape(self.mu, [-1])
             self.sigma = tf.reshape(self.sigma, [-1])
+
+            # For debug
+            self.mu = tf_print(self.mu, "\33[93mmu\33[0m = ")
+            self.sigma = tf_print(self.sigma, "\33[93msigma\33[0m = ")
+
             normal_dist = tf.contrib.distributions.Normal(self.mu, self.sigma)
             self.action = normal_dist.sample_n(1)
             self.action = tf.reshape(self.action, [-1, 2])
 
             # clip action if exceed low/high defined in env.action_space
-            self.action = tf.maximum(tf.minimum(self.action, max_a), min_a)
-            self.action = tf_print(self.action, "action = ")
+            self.action = tf_print(self.action, "\33[93maction\33[0m = ")
+            # self.action = tf.maximum(tf.minimum(self.action, max_a), min_a)
+            # self.action = tf_print(self.action, "\33[93mclipped action\33[0m = ")
 
             # Loss and train op
             reshaped_action = tf.reshape(self.action, [-1])
+            reshaped_action = tf_print(reshaped_action, "\33[93mreshaped_action\33[0m = ")
             log_prob = normal_dist.log_prob(reshaped_action)
+            log_prob = tf_print(log_prob, "\33[93mlog_prob\33[0m = ")
             log_prob = tf.reshape(log_prob, [-1, 2])
+
             self.loss = -tf.reduce_sum(log_prob * self.target)
 
             # Add cross entropy cost to encourage exploration

@@ -51,7 +51,7 @@ class OffRoadNavEnv(gym.Env):
         # debug info
         info = {}
 
-        return self.state, reward, done, info
+        return self.state.copy(), reward, done, info
 
     def get_linear_idx(self, ix, iy):
         linear_idx = (40 - 1 - iy) * 40 + (ix + 19)
@@ -122,8 +122,8 @@ class OffRoadNavEnv(gym.Env):
 
         self.disp_img = np.copy(self.bR)
         self.vehicle_model.reset(s0)
-        self.state = s0
-        return s0
+        self.state = s0.copy()
+        return self.state
 
     def to_image(self, R, K, interpolation=cv2.INTER_NEAREST):
         value_range = np.max(R) - np.min(R)

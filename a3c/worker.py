@@ -21,10 +21,14 @@ from estimators import ValueEstimator, PolicyEstimator
 Transition = collections.namedtuple("Transition", ["state", "action", "reward", "next_state", "done"])
 def get_map_with_vehicle(env, state):
     # Rotate the map according the vehicle orientation in degree (not radian)
+    # print "\33[91mstate = {}, state.shape = {}\33[0m".format(state, state.shape)
     img = env.get_front_view(state)
     return img.reshape(1, 20, 20, 1)
 
 def form_mdp_state(env, state, prev_action, prev_reward):
+
+    state = state.copy()
+    prev_action = prev_action.copy()
 
     map_with_vehicle = get_map_with_vehicle(env, state)
 
@@ -165,11 +169,13 @@ class Worker(object):
 
         transitions = []
         reward = 0
+        self.mdp_states_dbg = []
         for i in range(n):
 
             mdp_state = form_mdp_state(self.env, self.state, self.action, reward)
+            self.mdp_states_dbg.append(mdp_state)
             self.action = self.policy_net.predict(mdp_state, sess).reshape(2, -1)
-            assert not np.any(np.isnan(self.action))
+            assert not np.any(np.isnan(self.action)), "self.action = {}".format(self.action)
             '''
             self.action[0, 0] = 2
             self.action[1, 0] = np.pi / 11.2
@@ -193,7 +199,7 @@ class Worker(object):
 
             # Store transition
             transitions.append(Transition(
-                state=self.state, action=self.action, reward=reward, next_state=next_state, done=done))
+                state=self.state.copy(), action=self.action.copy(), reward=reward, next_state=next_state.copy(), done=done))
 
             # Increase local and global counters
             local_t = next(self.local_counter)
@@ -206,8 +212,6 @@ class Worker(object):
                 break
             else:
                 self.state = next_state
-
-        # print "{} steps in episode".format(i)
 
         return transitions, local_t, global_t
 
@@ -258,6 +262,16 @@ class Worker(object):
             policy_targets.append(td_error)
             value_targets.append(reward)
 
+        mdp_states_dbg = self.mdp_states_dbg[::-1]
+        for i in range(len(mdp_states_dbg)):
+            for key in mdp_states_dbg[0].keys():
+                if not np.all(mdp_states_dbg[i][key] == mdp_states[i][key]):
+                    print "i = {}, key = {}, mdp_states_dbg = {}, mdp_states = {}".format(
+                        i, key, mdp_states_dbg[i][key], mdp_states[i][key])
+
+                    import ipdb; ipdb.set_trace()
+                    scipy.io.savemat("debug.mat", dict(dbg=mdp_states_dbg[i][key], non_dbg=mdp_states[i][key]))
+
         '''
         scipy.io.savemat("feed_dict/{}.mat".format(self.counter), dict(
             mdp_states=mdp_states,
@@ -301,6 +315,8 @@ class Worker(object):
         ], feed_dict)
         print "Updates from {}, reward = {}, # of steps = {}, pnet_loss = {}, vnet_loss = {}, total_loss = {}".format(
             self.name, reward, T, pnet_loss, vnet_loss, pnet_loss + vnet_loss)
+
+        # sys.exit(0)
 
         # Write summaries
         if self.summary_writer is not None:
