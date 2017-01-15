@@ -112,27 +112,29 @@ class PolicyEstimator():
             # Use hyperbolic tangent (or sigmoid)
             # self.mu = (max_a + min_a) / 2 + tf.nn.tanh(self.mu) * (max_a - min_a) / 2
             # self.mu = tf.nn.sigmoid(self.mu) * (max_a - min_a) + min_a
+            self.mu = tf.maximum(tf.minimum(self.mu, max_a), min_a)
 
             # Reshape, sample, and reshape it back
             self.mu = tf.reshape(self.mu, [-1])
             self.sigma = tf.reshape(self.sigma, [-1])
 
             # For debug
-            # self.mu = tf_print(self.mu, "\33[93mmu\33[0m = ")
-            # self.sigma = tf_print(self.sigma, "\33[93msigma\33[0m = ")
+            self.mu = tf_print(self.mu, "\33[93mmu\33[0m = ")
+            self.sigma = tf_print(self.sigma, "\33[93msigma\33[0m = ")
 
             normal_dist = tf.contrib.distributions.Normal(self.mu, self.sigma)
             self.action = normal_dist.sample_n(1)
             self.action = tf.reshape(self.action, [-1, 2])
 
             # clip action if exceed low/high defined in env.action_space
-            # self.action = tf_print(self.action, "\33[93maction\33[0m = ")
-            self.action = tf.maximum(tf.minimum(self.action, max_a), min_a)
+            self.action = tf_print(self.action, "\33[93maction\33[0m = ")
+            # self.action = tf.maximum(tf.minimum(self.action, max_a), min_a)
             # self.action = tf_print(self.action, "\33[93mclipped action\33[0m = ")
 
             # Loss and train op
             reshaped_action = tf.reshape(self.action, [-1])
             log_prob = normal_dist.log_prob(reshaped_action)
+            log_prob = tf_print(log_prob, "\33[93mlog_prob\33[0m = ")
             log_prob = tf.reshape(log_prob, [-1, 2])
 
             self.loss = -tf.reduce_mean(log_prob * self.target)
@@ -140,7 +142,7 @@ class PolicyEstimator():
             # Add cross entropy cost to encourage exploration
             self.entropy = normal_dist.entropy()
             self.entropy_mean = tf.reduce_mean(self.entropy)
-            self.loss -= 1e-2 * tf.reduce_mean(self.entropy)
+            self.loss -= 1e-1 * tf.reduce_mean(self.entropy)
 
             self.optimizer = tf.train.AdamOptimizer(tf.flags.FLAGS.learning_rate)
             self.grads_and_vars = self.optimizer.compute_gradients(self.loss)
@@ -169,11 +171,13 @@ class PolicyEstimator():
 
     def policy_network(self, input, num_outputs, min_a, max_a):
         
+        '''
         input = DenseLayer(
             input=input,
             num_outputs=256,
             nonlinearity="relu",
             name="policy-input-dense")
+        '''
 
         # This is just linear classifier
         mu = DenseLayer(
@@ -189,7 +193,7 @@ class PolicyEstimator():
         sigma = tf.reshape(sigma, [-1, 2])
 
         # Add 1% exploration to make sure it's stochastic
-        sigma = tf.nn.sigmoid(sigma) * 0.01 * (max_a - min_a)
+        sigma = tf.nn.sigmoid(sigma) + 0.0001 #* (max_a - min_a)
         # sigma = tf.nn.softplus(sigma) + 0.001 #1 * (max_a - min_a)
 
         return mu, sigma
@@ -264,11 +268,13 @@ class ValueEstimator():
         self.summaries = tf.summary.merge(summaries)
 
     def value_network(self, input, num_outputs=1):
+        '''
         input = DenseLayer(
             input=input,
             num_outputs=256,
             nonlinearity="relu",
             name="value-input-dense")
+        '''
 
         # This is just linear classifier
         value = DenseLayer(

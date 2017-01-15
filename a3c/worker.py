@@ -174,7 +174,7 @@ class Worker(object):
 
             mdp_state = form_mdp_state(self.env, self.state, self.action, reward)
             self.action = self.policy_net.predict(mdp_state, sess).reshape(2, -1)
-            assert not np.any(np.isnan(self.action)), "self.action = {}, mdp_state = ".format(self.action, mdp_state)
+            assert not np.any(np.isnan(self.action)), "i = {}, self.action = {}, mdp_state = {}".format(i, self.action, mdp_state)
             '''
             self.action[0, 0] = 2
             self.action[1, 0] = np.pi / 11.2
@@ -284,7 +284,7 @@ class Worker(object):
             self.policy_net.summaries,
             self.value_net.summaries
         ], feed_dict)
-        print "Updates from {}, reward = {}, # of steps = {}, pnet_loss = {}, vnet_loss = {}, total_loss = {}".format(
+        print "Updates from {}, reward = {:.2f}, # of steps = {:5d}, pnet_loss = {:+.5f}, vnet_loss = {:+.5f}, total_loss = {:+.5f}".format(
             self.name, reward, T, pnet_loss, vnet_loss, pnet_loss + vnet_loss)
 
         # sys.exit(0)
