@@ -55,8 +55,9 @@ class VehicleModel():
         theta = state[2]
 
         c, s = np.cos(theta)[0], np.sin(theta)[0]
-        M = np.array([[c, s, 0], [-s, c, 0], [0, 0, 1]])
+        M = np.array([[c, -s, 0], [s, c, 0], [0, 0, 1]])
 
+        # print "action = {}, state[3:6] = {}".format(action.flatten(), state[3:6].flatten())
         delta = np.dot(M, state[3:6].reshape(3, 1)) * self.timestep
         # print "(x, y, theta): ({}, {}, {}) => ({}, {}, {})".format(state[0], state[1], state[2], delta[0], delta[1], delta[2])
         state[0:3] += delta

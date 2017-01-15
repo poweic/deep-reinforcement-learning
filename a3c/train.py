@@ -30,18 +30,20 @@ tf.flags.DEFINE_string("model_dir", "/tmp/a3c-offroad", "Directory to write Tens
 tf.flags.DEFINE_integer("t_max", 300, "Number of steps before performing an update")
 tf.flags.DEFINE_integer("max_global_steps", None, "Stop training after this many steps in the environment. Defaults to running indefinitely.")
 tf.flags.DEFINE_integer("eval_every", 300, "Evaluate the policy every N seconds")
+tf.flags.DEFINE_integer("parallelism", 6, "Number of threads to run. If not set we run [num_cpu_cores] threads.")
+
 tf.flags.DEFINE_boolean("reset", False, "If set, delete the existing model directory and start training from scratch.")
 tf.flags.DEFINE_boolean("debug", False, "If set, turn on the debug flag")
 
-tf.flags.DEFINE_integer("parallelism", 6, "Number of threads to run. If not set we run [num_cpu_cores] threads.")
 tf.flags.DEFINE_float("learning_rate", 1e-4, "Learning rate for policy net and value net")
+tf.flags.DEFINE_float("max_gradient", 40, "Threshold for gradient clipping used by tf.clip_by_global_norm")
 tf.flags.DEFINE_float("timestep", 0.02, "Simulation timestep")
 tf.flags.DEFINE_float("max_forward_speed", 10.0, "Maximum forward velocity of vehicle (m/s)")
-tf.flags.DEFINE_float("min_forward_speed", 0.0, "Minimum forward velocity of vehicle (m/s)")
+tf.flags.DEFINE_float("min_forward_speed", 2.0, "Minimum forward velocity of vehicle (m/s)")
 # tf.flags.DEFINE_float("max_yaw_rate", np.pi / 11.2 + np.pi/20, "Maximum yaw rate (omega) of vehicle (rad/s)")
 # tf.flags.DEFINE_float("min_yaw_rate", np.pi / 11.2 - np.pi/20, "Minimum yaw rate (omega) of vehicle (rad/s)")
-tf.flags.DEFINE_float("max_yaw_rate", + np.pi/20, "Maximum yaw rate (omega) of vehicle (rad/s)")
-tf.flags.DEFINE_float("min_yaw_rate", - np.pi/20, "Minimum yaw rate (omega) of vehicle (rad/s)")
+tf.flags.DEFINE_float("max_yaw_rate", +np.pi, "Maximum yaw rate (omega) of vehicle (rad/s)")
+tf.flags.DEFINE_float("min_yaw_rate", -np.pi, "Minimum yaw rate (omega) of vehicle (rad/s)")
 
 FLAGS = tf.flags.FLAGS
 

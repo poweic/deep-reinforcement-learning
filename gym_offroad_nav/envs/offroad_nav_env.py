@@ -153,49 +153,22 @@ class OffRoadNavEnv(gym.Env):
 
         iix = np.clip(ix + 19, 0, 39)
         iiy = np.clip(40 - 1 - iy, 0, 39)
+        cx, cy = iix + 20, iiy + 20
 
-        # print "iix = {}, iiy = {}, theta = {}".format(iix, iiy, theta)
-        try:
-            angle = theta * 180. / np.pi
-            assert angle == angle, "angle = ".format(angle)
-            # iix = 6
-            # iiy = 18
-            # angle = -153.175926025
-            # print "\33[33m ================ BEGIN ({}) ==================== iix + 20 = {}, iiy + 20 = {}, angle = {}\33[0m".format(self.name, iix + 20, iiy + 20, angle)
-            # assert 0 <= iix + 20 < 80 and 0 <= iiy + 20 - 10 < 80, "\33[31m(iix, iiy) = ({}, {}), (iix + 20, iiy + 20 - 10) = ({}, {})".format(iix, iiy, iix + 20, iiy + 20 - 10)
-            # FIXME Does warpAffine even supports float32 ?????
-            cx, cy = iix + 20, iiy + 20
-            M = cv2.getRotationMatrix2D((cx, cy), angle, 1)
-            assert not np.any(np.isnan(M))
-            assert isinstance(self.padded_rewards, np.ndarray)
-            rotated = cv2.warpAffine(self.padded_rewards, M, (80, 80))
-            # assert np.all(np.array(rotated.shape) > 0)
-            # assert 0 <= iix < 80 and 0 <= iiy < 80, "(iix, iiy) = ({}, {}), (iix + 20, iiy + 20 - 10) = ({}, {})".format(iix, iiy, iix + 20, iiy + 20 - 10)
-            # print "rotated.shape = {}, (iix, iiy) = ({}, {}), (iix + 20, iiy + 20 - 10) = ({}, {})".format(rotated.shape, iix, iiy, iix + 20, iiy + 20 - 10)
-            img = rotated[cy-10-10:cy-10+10, cx-10:cx+10]
-        except Exception as e:
-            print e
-            print self.padded_rewards, self.padded_rewards.shape, self.padded_rewards.dtype
-            print "angle = {}".format(angle)
-            print "M = ", M
-            print "\33[31m(iix, iiy) = ({}, {}), (iix + 20, iiy + 20 - 10) = ({}, {})\33[0m".format(iix, iiy, iix + 20, iiy + 20 - 10)
-            print "rotated.shape = {}, rotated.dtype = {}".format(rotated.shape, rotated.dtype)
+        angle = - theta * 180. / np.pi
+        assert angle == angle, "angle = ".format(angle)
+        M = cv2.getRotationMatrix2D((cx, cy), angle, 1)
+        rotated = cv2.warpAffine(self.padded_rewards, M, (80, 80))
+        img = rotated[cy-10-10:cy-10+10, cx-10:cx+10]
 
-        # assert img.shape == (20, 20), "img.shape = {}, iix = {}, iiy = {}, img.shape = {}".format(img.shape, iix, iiy, img.shape)
-        # print "\33[32m ================  END ({}) ==================== \33[0m".format(self.name)
-
-        # front_view = self.to_image(img, self.K * 2)
         '''
-        front_view = np.zeros((400, 400, 3), dtype=np.uint8)
-        front_view[:20, :20, 0] = img
-        front_view[:20, :20, 1] = img
-        front_view[:20, :20, 2] = img
+        front_view = self.to_image(img, self.K * 2)
+        front_view[0, :, :] = 255
+        front_view[-1, :, :] = 255
+        front_view[:, 1, :] = 255
+        front_view[:, -1, :] = 255
+        self.front_view_disp = front_view
         '''
-        # front_view[0, :, :] = 255
-        # front_view[-1, :, :] = 255
-        # front_view[:, 1, :] = 255
-        # front_view[:, -1, :] = 255
-        # self.front_view_disp = front_view
 
         return img
 
@@ -219,16 +192,24 @@ class OffRoadNavEnv(gym.Env):
             disp_img = np.copy(self.disp_img)
             pt1 = (x, y)
             cv2.circle(disp_img, pt1, 2, (0, 0, 255), 2)
-            pt2 = (x + int(50 * np.cos(theta - np.pi / 2)), y + int(50 * np.sin(theta - np.pi / 2)))
+            dx, dy = -int(50 * np.sin(theta)), int(50 * np.cos(theta))
+            pt2 = (x + dx, y - dy)
             cv2.arrowedLine(disp_img, pt1, pt2, (0, 0, 255), tipLength=0.2)
 
-            # Put max/total return on image for debugging
-            text = "max return = {:.3f}".format(worker.max_return)
-            cv2.putText(disp_img, text, (0, 350), cv2.FONT_HERSHEY_PLAIN, 1, (255, 255, 255), 1)
-            text = "total_return = {:.3f}".format(worker.total_return)
-            cv2.putText(disp_img, text, (0, 370), cv2.FONT_HERSHEY_PLAIN, 1, (255, 255, 255), 1)
-            text = "current_reward= {:.3f}".format(worker.current_reward)
-            cv2.putText(disp_img, text, (0, 390), cv2.FONT_HERSHEY_PLAIN, 1, (255, 255, 255), 1)
+            # Put return, reward, and vehicle states on image for debugging
+            font = cv2.FONT_HERSHEY_PLAIN
+            font_size = 1
+            color = (255, 255, 255)
+            text = "reward = {:.3f}, return = {:.3f} / {:.3f}".format(worker.current_reward, worker.total_return, worker.max_return)
+            cv2.putText(disp_img, text, (5, 20), font, font_size, color, 1, cv2.CV_AA)
+
+            text = "(x, y, theta)  = ({:+.2f}, {:+.2f}, {:+d})".format(
+                self.state[0, 0], self.state[1, 0], int(np.mod(self.state[2, 0] * 180 / np.pi, 360)))
+            cv2.putText(disp_img, text, (5, 370), font, font_size, color, 1, cv2.CV_AA)
+
+            text = "(x', y', theta') = ({:+.2f}, {:+.2f}, {:+d})".format(
+                self.state[3, 0], self.state[4, 0], int(self.state[5, 0] * 180 / np.pi))
+            cv2.putText(disp_img, text, (5, 390), font, font_size, color, 1, cv2.CV_AA)
 
             idx = int(worker.name[-1])
             cv2.imshow4(idx, disp_img)

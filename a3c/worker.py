@@ -60,8 +60,10 @@ def make_train_op(local_estimator, global_estimator):
     to the global estimator.
     """
     local_grads, _ = zip(*local_estimator.grads_and_vars)
+
     # Clip gradients
-    local_grads, _ = tf.clip_by_global_norm(local_grads, 10.0)
+    max_grad = tf.flags.FLAGS.max_gradient
+    local_grads, _ = tf.clip_by_global_norm(local_grads, max_grad)
     _, global_vars = zip(*global_estimator.grads_and_vars)
     local_global_grads_and_vars = list(zip(local_grads, global_vars))
     return global_estimator.optimizer.apply_gradients(
@@ -144,7 +146,6 @@ class Worker(object):
                 traceback.print_exc()
 
     def reset_env(self):
-        # FLAGS = tf.flags.FLAGS
         # self.state = np.array([+7, 10, 0, 0, 2.0, 1.0])
         # self.state = np.array([+7.1, 7.1, 0, 0, 2.0, np.pi / 20])
         # self.state = np.array([+7 + np.random.rand(), 10 + np.random.rand(), 0, 0, 2, 0])
