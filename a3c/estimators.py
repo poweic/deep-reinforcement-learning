@@ -277,7 +277,7 @@ class ValueEstimator():
             num_outputs=num_outputs,
             name="value-dense")
 
-        value = tf.squeeze(value)
+        value = tf.reshape(value, [-1, 1])
 
         return value
 
