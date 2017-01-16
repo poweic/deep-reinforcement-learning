@@ -12,6 +12,7 @@ import itertools
 import shutil
 import threading
 import multiprocessing
+from pprint import pprint
 
 from inspect import getsourcefile
 current_path = os.path.dirname(os.path.abspath(getsourcefile(lambda:0)))
@@ -29,30 +30,43 @@ from gym_offroad_nav.vehicle_model import VehicleModel
 tf.flags.DEFINE_string("model_dir", "/tmp/a3c-offroad", "Directory to write Tensorboard summaries and videos to.")
 tf.flags.DEFINE_integer("t_max", 1000, "Number of steps before performing an update")
 tf.flags.DEFINE_integer("max_global_steps", None, "Stop training after this many steps in the environment. Defaults to running indefinitely.")
-tf.flags.DEFINE_integer("eval_every", 300, "Evaluate the policy every N seconds")
+tf.flags.DEFINE_integer("eval_every", 30, "Evaluate the policy every N seconds")
 tf.flags.DEFINE_integer("parallelism", 6, "Number of threads to run. If not set we run [num_cpu_cores] threads.")
 
 tf.flags.DEFINE_boolean("reset", False, "If set, delete the existing model directory and start training from scratch.")
 tf.flags.DEFINE_boolean("debug", False, "If set, turn on the debug flag")
 
-tf.flags.DEFINE_float("learning_rate", 1e-4, "Learning rate for policy net and value net")
+tf.flags.DEFINE_float("learning_rate", 1e-5, "Learning rate for policy net and value net")
 tf.flags.DEFINE_float("max_gradient", 40, "Threshold for gradient clipping used by tf.clip_by_global_norm")
 tf.flags.DEFINE_float("timestep", 0.02, "Simulation timestep")
+tf.flags.DEFINE_float("wheelbase", 2.00, "Wheelbase of the vehicle in meters")
+tf.flags.DEFINE_float("vehicle_model_noise_level", 0.05, "level of white noise (variance) in vehicle model")
+tf.flags.DEFINE_float("min_sigma", 1e-5, "minimum variance used in Gaussian policy")
+tf.flags.DEFINE_float("entropy_cost_mult", 1e-4, "multiplier used by entropy regularization")
+tf.flags.DEFINE_float("discount_factor", 0.99, "discount factor in Markov decision process (MDP)")
+
+'''
 tf.flags.DEFINE_float("max_forward_speed", 10.0, "Maximum forward velocity of vehicle (m/s)")
-tf.flags.DEFINE_float("min_forward_speed", 2.0, "Minimum forward velocity of vehicle (m/s)")
-# tf.flags.DEFINE_float("max_yaw_rate", np.pi / 11.2 + np.pi/20, "Maximum yaw rate (omega) of vehicle (rad/s)")
-# tf.flags.DEFINE_float("min_yaw_rate", np.pi / 11.2 - np.pi/20, "Minimum yaw rate (omega) of vehicle (rad/s)")
-tf.flags.DEFINE_float("max_yaw_rate", +np.pi, "Maximum yaw rate (omega) of vehicle (rad/s)")
-tf.flags.DEFINE_float("min_yaw_rate", -np.pi, "Minimum yaw rate (omega) of vehicle (rad/s)")
+tf.flags.DEFINE_float("min_forward_speed", 1.0, "Minimum forward velocity of vehicle (m/s)")
+tf.flags.DEFINE_float("max_yaw_rate", +np.pi / 6, "Maximum yaw rate (omega) of vehicle (rad/s)")
+tf.flags.DEFINE_float("min_yaw_rate", -np.pi / 6, "Minimum yaw rate (omega) of vehicle (rad/s)")
+'''
+
+tf.flags.DEFINE_float("max_forward_speed", 10, "Maximum forward velocity of vehicle (m/s)")
+tf.flags.DEFINE_float("min_forward_speed", 1, "Minimum forward velocity of vehicle (m/s)")
+tf.flags.DEFINE_float("max_steering", +30. * np.pi / 180, "Maximum steering angle (rad)")
+tf.flags.DEFINE_float("min_steering", -30. * np.pi / 180, "Minimum steering angle (rad)")
 
 FLAGS = tf.flags.FLAGS
+print "Simulation time for each episode = {} secs (timestep = {})".format(
+    FLAGS.t_max * FLAGS.timestep, FLAGS.timestep)
+pprint(vars(FLAGS))
 
 W = 400
 disp_img = np.zeros((2*W, 2*W*2, 3), dtype=np.uint8)
 disp_lock = threading.Lock()
 def imshow4(idx, img):
     global disp_img
-    assert 0 <= idx < 8, "idx = {}".format(idx)
     x = idx / 4
     y = idx % 4
     with disp_lock:
@@ -61,7 +75,7 @@ def imshow4(idx, img):
 cv2.imshow4 = imshow4
 
 def make_env(name=None):
-    vehicle_model = VehicleModel(FLAGS.timestep)
+    vehicle_model = VehicleModel(FLAGS.timestep, FLAGS.vehicle_model_noise_level)
     rewards = scipy.io.loadmat("data/circle3.mat")["reward"].astype(np.float32) - 100
     # rewards = scipy.io.loadmat("data/maze.mat")["reward"].astype(np.float32) - 15
     rewards = (rewards - np.min(rewards)) / (np.max(rewards) - np.min(rewards))
@@ -117,7 +131,7 @@ with tf.device("/cpu:0"):
             policy_net=policy_net,
             value_net=value_net,
             global_counter=global_counter,
-            discount_factor = 0.95,
+            discount_factor=FLAGS.discount_factor,
             summary_writer=worker_summary_writer,
             max_global_steps=FLAGS.max_global_steps)
 
@@ -154,8 +168,10 @@ with tf.Session() as sess:
         worker_threads.append(t)
 
     # Start a thread for policy eval task
+    '''
     monitor_thread = threading.Thread(target=lambda: pe.continuous_eval(FLAGS.eval_every, sess, coord))
-    # monitor_thread.start()
+    monitor_thread.start()
+    '''
 
     # Show how agent behaves in envs in main thread
     counter = 0
@@ -163,7 +179,7 @@ with tf.Session() as sess:
         for worker in workers:
             if worker.max_return > max_return:
                 max_return = worker.max_return
-                # print "max_return = \33[93m{}\33[00m".format(max_return)
+                print "max_return = \33[93m{}\33[00m".format(max_return)
 
             worker.env._render({"worker": worker})
 

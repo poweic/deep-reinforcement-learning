@@ -8,7 +8,6 @@ from gym.utils import seeding
 class OffRoadNavEnv(gym.Env):
 
     def __init__(self, rewards, vehicle_model, name):
-        print id(self)
         self.viewer = None
 
         # A tf.tensor (or np) containing rewards, we need a constant version and 
@@ -104,20 +103,22 @@ class OffRoadNavEnv(gym.Env):
             self.R = data["R"].copy()
             self.bR = data["bR"].copy()
             self.padded_rewards = data["padded_rewards"].astype(np.float32).copy()
-
         '''
         if not hasattr(self, "padded_rewards"):
+            print "Creating self.padded_rewards ..."
             self.padded_rewards = np.ones((80, 80), dtype=self.rewards.dtype) * np.min(self.rewards)
             self.padded_rewards[20:60, 20:60] = self.rewards
 
         if not hasattr(self, "R"):
+            print "Creating self.R ..."
             self.R = self.to_image(self.rewards, self.K)
 
         if not hasattr(self, "bR"):
+            print "Creating self.bR ..."
             self.bR = self.to_image(self.debug_bilinear_R(self.K), self.K)
 
         if hasattr(self, "bR") and hasattr(self, "R") and hasattr(self, "padded_rewards"):
-            scipy.io.savemat("data/circle3-metadata.mat", dict(bR=self.bR, R=self.R, padded_rewards=self.padded_rewards))
+            scipy.io.savemat("data/maze-metadata.mat", dict(bR=self.bR, R=self.R, padded_rewards=self.padded_rewards))
         '''
 
         self.disp_img = np.copy(self.bR)
@@ -215,4 +216,5 @@ class OffRoadNavEnv(gym.Env):
             cv2.imshow4(idx, disp_img)
             # cv2.imshow4(2*idx + 1, self.front_view_disp)
         else:
-            print "\33[93m{} not initialized yet\33[0m".format(self.name)
+            pass
+            # print "\33[93m{} not initialized yet\33[0m".format(self.name)

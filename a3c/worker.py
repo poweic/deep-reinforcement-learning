@@ -84,7 +84,6 @@ class Worker(object):
     max_global_steps: If set, stop coordinator when global_counter > max_global_steps
     """
     def __init__(self, name, env, policy_net, value_net, global_counter, discount_factor=0.99, summary_writer=None, max_global_steps=None):
-        print "In {}'s __init__ method".format(name)
         self.name = name
         self.discount_factor = discount_factor
         self.max_global_steps = max_global_steps
@@ -146,13 +145,12 @@ class Worker(object):
                 traceback.print_exc()
 
     def reset_env(self):
-        # self.state = np.array([+7, 10, 0, 0, 2.0, 1.0])
-        # self.state = np.array([+7.1, 7.1, 0, 0, 2.0, np.pi / 20])
-        # self.state = np.array([+7 + np.random.rand(), 10 + np.random.rand(), 0, 0, 2, 0])
-        # self.state = np.array([+6, 0, 0, 0, 0, 0])
+        self.state = np.array([+6.1, 9, 0, 0, 0, 0])
+        '''
         theta = np.random.rand() * np.pi * 2
         phi = np.random.rand() * np.pi * 2
-        self.state = np.array([6 * np.cos(theta), 10 + 6 * np.sin(theta), phi, 0, 0, 1.0])
+        self.state = np.array([6 * np.cos(theta), 10 + 6 * np.sin(theta), phi, 0, 0, 0])
+        '''
         # self.state = np.array([+9, 1, 0, 0, 2.0, 0])
         self.action = np.array([0, 0])
 
@@ -177,7 +175,7 @@ class Worker(object):
             assert not np.any(np.isnan(self.action)), "i = {}, self.action = {}, mdp_state = {}".format(i, self.action, mdp_state)
             '''
             self.action[0, 0] = 2
-            self.action[1, 0] = np.pi / 11.2
+            self.action[1, 0] = -np.pi / 11.2
             '''
 
             # Take a step

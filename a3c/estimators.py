@@ -1,6 +1,7 @@
 import numpy as np
 import tensorflow as tf
 from tensorflow_helnet.layers import DenseLayer, Conv2DLayer
+FLAGS = tf.flags.FLAGS
 
 def get_state_placeholder():
     # Note that placeholder are tf.Tensor not tf.Variable
@@ -18,7 +19,7 @@ def get_state_placeholder():
 
     return state
 
-def build_shared_network(rewards, state, add_summaries=False):
+def build_shared_network(state, add_summaries=False):
     """
     Builds a 3-layer network conv -> conv -> fc as described
     in the A3C paper. This network is shared by both the policy and value net.
@@ -28,7 +29,7 @@ def build_shared_network(rewards, state, add_summaries=False):
     Returns:
     Final layer activations.
     """
-    X = rewards
+    X = state["map_with_vehicle"]
 
     # Three convolutional layers
     conv1 = tf.contrib.layers.conv2d(
@@ -75,11 +76,11 @@ def build_shared_network(rewards, state, add_summaries=False):
     return fc3
 
 def tf_print(x, message):
-    if not tf.flags.FLAGS.debug:
+    if not FLAGS.debug:
         return x
 
     step = tf.contrib.framework.get_global_step()
-    cond = tf.equal(tf.mod(step, 100), 0)
+    cond = tf.equal(tf.mod(step, 10), 0)
     return tf.cond(cond, lambda: tf.Print(x, [x], message=message, summarize=100), lambda: x)
 
 class PolicyEstimator():
@@ -88,11 +89,8 @@ class PolicyEstimator():
     """
 
     def __init__(self, reuse=False, scope="policy_estimator"):
-
-        # self.rewards = rewards
-        FLAGS = tf.flags.FLAGS
-        max_a = tf.constant([[FLAGS.max_forward_speed, FLAGS.max_yaw_rate]], dtype=tf.float32)# * FLAGS.timestep
-        min_a = tf.constant([[FLAGS.min_forward_speed, FLAGS.min_yaw_rate]], dtype=tf.float32)# * FLAGS.timestep
+        max_a = tf.constant([[FLAGS.max_forward_speed, FLAGS.max_steering]], dtype=tf.float32)
+        min_a = tf.constant([[FLAGS.min_forward_speed, FLAGS.min_steering]], dtype=tf.float32)
 
         with tf.variable_scope(scope):
             self.target = tf.placeholder(tf.float32, [None, 1], "target")
@@ -100,7 +98,7 @@ class PolicyEstimator():
         # Graph shared with Value Net
         with tf.variable_scope("shared", reuse=reuse):
             self.state = get_state_placeholder()
-            shared = build_shared_network(self.state["map_with_vehicle"], self.state, add_summaries=(not reuse))
+            shared = build_shared_network(self.state, add_summaries=(not reuse))
 
         with tf.variable_scope(scope):
             self.mu, self.sigma = self.policy_network(shared, 2, min_a, max_a)
@@ -119,7 +117,7 @@ class PolicyEstimator():
             self.sigma = tf.reshape(self.sigma, [-1])
 
             # For debug
-            self.mu = tf_print(self.mu, "\33[93mmu\33[0m = ")
+            # self.mu = tf_print(self.mu, "\33[93mmu\33[0m = ")
             self.sigma = tf_print(self.sigma, "\33[93msigma\33[0m = ")
 
             normal_dist = tf.contrib.distributions.Normal(self.mu, self.sigma)
@@ -127,14 +125,14 @@ class PolicyEstimator():
             self.action = tf.reshape(self.action, [-1, 2])
 
             # clip action if exceed low/high defined in env.action_space
-            self.action = tf_print(self.action, "\33[93maction\33[0m = ")
+            # self.action = tf_print(self.action, "\33[93maction\33[0m = ")
             # self.action = tf.maximum(tf.minimum(self.action, max_a), min_a)
             # self.action = tf_print(self.action, "\33[93mclipped action\33[0m = ")
 
             # Loss and train op
             reshaped_action = tf.reshape(self.action, [-1])
             log_prob = normal_dist.log_prob(reshaped_action)
-            log_prob = tf_print(log_prob, "\33[93mlog_prob\33[0m = ")
+            # log_prob = tf_print(log_prob, "\33[93mlog_prob\33[0m = ")
             log_prob = tf.reshape(log_prob, [-1, 2])
 
             self.loss = -tf.reduce_mean(log_prob * self.target)
@@ -142,9 +140,9 @@ class PolicyEstimator():
             # Add cross entropy cost to encourage exploration
             self.entropy = normal_dist.entropy()
             self.entropy_mean = tf.reduce_mean(self.entropy)
-            self.loss -= 1e-1 * tf.reduce_mean(self.entropy)
+            self.loss -= FLAGS.entropy_cost_mult * tf.reduce_mean(self.entropy)
 
-            self.optimizer = tf.train.AdamOptimizer(tf.flags.FLAGS.learning_rate)
+            self.optimizer = tf.train.AdamOptimizer(FLAGS.learning_rate)
             self.grads_and_vars = self.optimizer.compute_gradients(self.loss)
             self.grads_and_vars = [(g, v) for g, v in self.grads_and_vars if g is not None]
             self.train_op = self.optimizer.apply_gradients(
@@ -157,6 +155,7 @@ class PolicyEstimator():
             prefix = tf.get_variable_scope().name
             tf.summary.scalar("{}/loss".format(prefix), self.loss)
             tf.summary.scalar("{}/entropy_mean".format(prefix), self.entropy_mean)
+            tf.summary.scalar("{}/sigma_mean".format(prefix), tf.reduce_mean(self.sigma))
             # tf.summary.histogram("{}/entropy".format(prefix), self.entropy)
 
         var_scope_name = tf.get_variable_scope().name
@@ -180,11 +179,26 @@ class PolicyEstimator():
         '''
 
         # This is just linear classifier
-        mu = DenseLayer(
+        mu_vf = DenseLayer(
             input=input,
-            num_outputs=num_outputs,
-            name="policy-mu-dense")
-        mu = tf.reshape(mu, [-1, 2])
+            num_outputs=1,
+            name="policy-mu-forward-velocity")
+        mu_vf = tf.reshape(mu_vf, [-1, 1])
+
+        mu_steer = DenseLayer(
+            input=input,
+            num_outputs=1,
+            name="policy-mu-steering-angle")
+        mu_steer = tf.reshape(mu_steer, [-1, 1])
+
+        # vehicle state is of shape [None, 6], (x, y, theta, x', y', theta'), y'
+        # (4-th element) is forward velocity needed by omega (yawrate) = v / R
+        v = self.state["vehicle_state"][:, 4:5]
+        mu_radius = FLAGS.wheelbase / tf.tan(mu_steer)
+        mu_yawrate = v / mu_radius
+
+        # mu is the mean of vf (forward velocity) and the mean of yawrate
+        mu = tf.concat(1, [mu_vf, mu_yawrate])
 
         sigma = DenseLayer(
             input=input,
@@ -192,9 +206,8 @@ class PolicyEstimator():
             name="policy-sigma-dense")
         sigma = tf.reshape(sigma, [-1, 2])
 
-        # Add 1% exploration to make sure it's stochastic
-        sigma = tf.nn.sigmoid(sigma) + 0.0001 #* (max_a - min_a)
-        # sigma = tf.nn.softplus(sigma) + 0.001 #1 * (max_a - min_a)
+        # Add some exploration to make sure it's stochastic
+        sigma = tf.nn.softplus(sigma) + FLAGS.min_sigma
 
         return mu, sigma
 
@@ -219,21 +232,20 @@ class ValueEstimator():
     """
 
     def __init__(self, state, reuse=False, scope="value_estimator"):
-        # self.rewards = rewards
         with tf.variable_scope(scope):
             self.target = tf.placeholder(tf.float32, [None, 1], "target")
 
         # Graph shared with Value Net
         with tf.variable_scope("shared", reuse=reuse):
             self.state = state
-            shared = build_shared_network(self.state["map_with_vehicle"], self.state, add_summaries=(not reuse))
+            shared = build_shared_network(self.state, add_summaries=(not reuse))
 
         with tf.variable_scope(scope):
             self.logits = self.value_network(shared)
             self.losses = 0.5 * tf.squared_difference(self.logits, self.target)
             self.loss = tf.reduce_mean(self.losses)
 
-            self.optimizer = tf.train.AdamOptimizer(tf.flags.FLAGS.learning_rate)
+            self.optimizer = tf.train.AdamOptimizer(FLAGS.learning_rate)
             self.grads_and_vars = self.optimizer.compute_gradients(self.loss)
             self.grads_and_vars = [(g, v) for g, v in self.grads_and_vars if g is not None]
             self.train_op = self.optimizer.apply_gradients(

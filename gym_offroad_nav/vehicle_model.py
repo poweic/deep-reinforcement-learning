@@ -3,18 +3,14 @@ import numpy as np
 
 class VehicleModel():
 
-    def __init__(self, timestep):
+    def __init__(self, timestep, noise_level=0.):
         model = scipy.io.loadmat("../vehicle_modeling/vehicle_model_ABCD.mat")
         self.A = model["A"]
         self.B = model["B"]
         self.C = model["C"]
         self.D = model["D"]
         self.timestep = timestep
-
-        '''
-        print "A: {}, B: {}, C: {}, D: {}".format(
-            self.A.shape, self.B.shape, self.C.shape, self.D.shape)
-        '''
+        self.noise_level = noise_level
 
         # x = Ax + Bu, y = Cx + Du
         # Turn cm/s, degree/s to m/s and rad/s
@@ -31,13 +27,10 @@ class VehicleModel():
         # y' = Cx + Du (measurement)
         self.x = None
 
-        self.sigma = 0.005
-        self.delta = 0.005
-
     def _predict(self, x, u):
         u = u.reshape(2, 1)
-        y = np.dot(self.C, x) + np.dot(self.D, u) + np.random.randn() * self.sigma
-        x = np.dot(self.A, x) + np.dot(self.B, u) + np.random.randn() * self.delta
+        y = np.dot(self.C, x) + np.dot(self.D, u)
+        x = np.dot(self.A, x) + np.dot(self.B, u)
         return y, x
 
     def predict(self, state, action):
@@ -57,9 +50,13 @@ class VehicleModel():
         c, s = np.cos(theta)[0], np.sin(theta)[0]
         M = np.array([[c, -s, 0], [s, c, 0], [0, 0, 1]])
 
-        # print "action = {}, state[3:6] = {}".format(action.flatten(), state[3:6].flatten())
+        # dx = v * dt, where dx is variable delta
         delta = np.dot(M, state[3:6].reshape(3, 1)) * self.timestep
-        # print "(x, y, theta): ({}, {}, {}) => ({}, {}, {})".format(state[0], state[1], state[2], delta[0], delta[1], delta[2])
+
+        # Add some noise using delta * (1 + noise) instead of delta + noise
+        delta *= 1 + np.random.rand() * self.noise_level
+
+        # x2 = x1 + dx
         state[0:3] += delta
         state[3:6] = y[:]
 
