@@ -40,7 +40,7 @@ tf.flags.DEFINE_float("learning_rate", 1e-5, "Learning rate for policy net and v
 tf.flags.DEFINE_float("max_gradient", 40, "Threshold for gradient clipping used by tf.clip_by_global_norm")
 tf.flags.DEFINE_float("timestep", 0.02, "Simulation timestep")
 tf.flags.DEFINE_float("wheelbase", 2.00, "Wheelbase of the vehicle in meters")
-tf.flags.DEFINE_float("vehicle_model_noise_level", 0.05, "level of white noise (variance) in vehicle model")
+tf.flags.DEFINE_float("vehicle_model_noise_level", 0.10, "level of white noise (variance) in vehicle model")
 tf.flags.DEFINE_float("min_sigma", 1e-5, "minimum variance used in Gaussian policy")
 tf.flags.DEFINE_float("entropy_cost_mult", 1e-4, "multiplier used by entropy regularization")
 tf.flags.DEFINE_float("discount_factor", 0.99, "discount factor in Markov decision process (MDP)")

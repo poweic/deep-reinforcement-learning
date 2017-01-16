@@ -54,7 +54,7 @@ class VehicleModel():
         delta = np.dot(M, state[3:6].reshape(3, 1)) * self.timestep
 
         # Add some noise using delta * (1 + noise) instead of delta + noise
-        delta *= 1 + np.random.rand() * self.noise_level
+        delta *= 1 + np.random.rand(3, 1) * self.noise_level
 
         # x2 = x1 + dx
         state[0:3] += delta
