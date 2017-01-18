@@ -16,7 +16,7 @@ if import_path not in sys.path:
 
 from lib.atari.state_processor import StateProcessor
 from lib.atari import helpers as atari_helpers
-from estimators import ValueEstimator, PolicyEstimator
+from estimators import PolicyValueEstimator
 from worker import make_copy_params_op, form_mdp_state
 
 class PolicyMonitor(object):
@@ -26,12 +26,12 @@ class PolicyMonitor(object):
 
     Args:
     env: environment to run in
-    policy_net: A policy estimator
+    global_net: A policy estimator
     summary_writer: a tf.train.SummaryWriter used to write Tensorboard summaries
     """
-    def __init__(self, env, policy_net, summary_writer, saver=None):
+    def __init__(self, env, global_net, summary_writer, saver=None):
         self.env = env
-        self.global_policy_net = policy_net
+        self.global_net = global_net
         self.summary_writer = summary_writer
         self.saver = saver
         self.sp = StateProcessor()
@@ -47,7 +47,7 @@ class PolicyMonitor(object):
 
         # Local policy net
         with tf.variable_scope("policy_eval"):
-            self.policy_net = PolicyEstimator()
+            self.local_net = PolicyValueEstimator()
 
         # Op to copy params from global policy/value net parameters
         self.copy_params_op = make_copy_params_op(
@@ -77,7 +77,7 @@ class PolicyMonitor(object):
 
         while not done:
             mdp_state = form_mdp_state(self.env, self.state, self.action, reward)
-            action = self.policy_net.predict(mdp_state, sess).reshape(2, -1)
+            action = self.local_net.predict(mdp_state, sess).reshape(2, -1)
             next_state, reward, done, _ = self.env.step(action)
             total_reward += reward
             episode_length += 1

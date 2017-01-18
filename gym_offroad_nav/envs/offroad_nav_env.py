@@ -99,7 +99,8 @@ class OffRoadNavEnv(gym.Env):
 
     def _reset(self, s0):
         if not hasattr(self, "R"):
-            data = scipy.io.loadmat("data/circle3-metadata.mat")
+            # data = scipy.io.loadmat("data/circle3-metadata.mat")
+            data = scipy.io.loadmat("data/maze2-metadata.mat")
             self.R = data["R"].copy()
             self.bR = data["bR"].copy()
             self.padded_rewards = data["padded_rewards"].astype(np.float32).copy()
@@ -118,7 +119,7 @@ class OffRoadNavEnv(gym.Env):
             self.bR = self.to_image(self.debug_bilinear_R(self.K), self.K)
 
         if hasattr(self, "bR") and hasattr(self, "R") and hasattr(self, "padded_rewards"):
-            scipy.io.savemat("data/maze-metadata.mat", dict(bR=self.bR, R=self.R, padded_rewards=self.padded_rewards))
+            scipy.io.savemat("data/maze2-metadata.mat", dict(bR=self.bR, R=self.R, padded_rewards=self.padded_rewards))
         '''
 
         self.disp_img = np.copy(self.bR)

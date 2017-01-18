@@ -21,7 +21,7 @@ import_path = os.path.abspath(os.path.join(current_path, "../.."))
 if import_path not in sys.path:
     sys.path.append(import_path)
 
-from a3c.estimators import ValueEstimator, PolicyEstimator
+from a3c.estimators import PolicyValueEstimator
 from a3c.policy_monitor import PolicyMonitor
 from worker import Worker
 from gym_offroad_nav.envs import OffRoadNavEnv
@@ -32,30 +32,31 @@ tf.flags.DEFINE_integer("t_max", 1000, "Number of steps before performing an upd
 tf.flags.DEFINE_integer("max_global_steps", None, "Stop training after this many steps in the environment. Defaults to running indefinitely.")
 tf.flags.DEFINE_integer("eval_every", 30, "Evaluate the policy every N seconds")
 tf.flags.DEFINE_integer("parallelism", 6, "Number of threads to run. If not set we run [num_cpu_cores] threads.")
+tf.flags.DEFINE_integer("n_episodes", 5, "Update network parameters after collecting N episodes")
+tf.flags.DEFINE_integer("downsample", 10, "Downsample transitions to reduce sample correlation")
 
 tf.flags.DEFINE_boolean("reset", False, "If set, delete the existing model directory and start training from scratch.")
 tf.flags.DEFINE_boolean("debug", False, "If set, turn on the debug flag")
 
-tf.flags.DEFINE_float("learning_rate", 1e-5, "Learning rate for policy net and value net")
+tf.flags.DEFINE_float("learning_rate", 1e-4, "Learning rate for policy net and value net")
 tf.flags.DEFINE_float("max_gradient", 40, "Threshold for gradient clipping used by tf.clip_by_global_norm")
 tf.flags.DEFINE_float("timestep", 0.02, "Simulation timestep")
 tf.flags.DEFINE_float("wheelbase", 2.00, "Wheelbase of the vehicle in meters")
-tf.flags.DEFINE_float("vehicle_model_noise_level", 0.10, "level of white noise (variance) in vehicle model")
-tf.flags.DEFINE_float("min_sigma", 1e-5, "minimum variance used in Gaussian policy")
-tf.flags.DEFINE_float("entropy_cost_mult", 1e-4, "multiplier used by entropy regularization")
+tf.flags.DEFINE_float("vehicle_model_noise_level", 0.20, "level of white noise (variance) in vehicle model")
+tf.flags.DEFINE_float("min_sigma", 1e-2, "minimum variance used in Gaussian policy")
+tf.flags.DEFINE_float("entropy_cost_mult", 1e-3, "multiplier used by entropy regularization")
 tf.flags.DEFINE_float("discount_factor", 0.99, "discount factor in Markov decision process (MDP)")
-
-'''
-tf.flags.DEFINE_float("max_forward_speed", 10.0, "Maximum forward velocity of vehicle (m/s)")
-tf.flags.DEFINE_float("min_forward_speed", 1.0, "Minimum forward velocity of vehicle (m/s)")
-tf.flags.DEFINE_float("max_yaw_rate", +np.pi / 6, "Maximum yaw rate (omega) of vehicle (rad/s)")
-tf.flags.DEFINE_float("min_yaw_rate", -np.pi / 6, "Minimum yaw rate (omega) of vehicle (rad/s)")
-'''
 
 tf.flags.DEFINE_float("max_forward_speed", 10, "Maximum forward velocity of vehicle (m/s)")
 tf.flags.DEFINE_float("min_forward_speed", 1, "Minimum forward velocity of vehicle (m/s)")
 tf.flags.DEFINE_float("max_steering", +30. * np.pi / 180, "Maximum steering angle (rad)")
 tf.flags.DEFINE_float("min_steering", -30. * np.pi / 180, "Minimum steering angle (rad)")
+'''
+tf.flags.DEFINE_float("max_forward_speed", 2 + 0.0001, "Maximum forward velocity of vehicle (m/s)")
+tf.flags.DEFINE_float("min_forward_speed", 2 - 0.0001, "Minimum forward velocity of vehicle (m/s)")
+tf.flags.DEFINE_float("max_steering", -16. * np.pi / 180 + 0.0001, "Maximum steering angle (rad)")
+tf.flags.DEFINE_float("min_steering", -16. * np.pi / 180 - 0.0001, "Minimum steering angle (rad)")
+'''
 
 FLAGS = tf.flags.FLAGS
 print "Simulation time for each episode = {} secs (timestep = {})".format(
@@ -76,8 +77,9 @@ cv2.imshow4 = imshow4
 
 def make_env(name=None):
     vehicle_model = VehicleModel(FLAGS.timestep, FLAGS.vehicle_model_noise_level)
-    rewards = scipy.io.loadmat("data/circle3.mat")["reward"].astype(np.float32) - 100
+    # rewards = scipy.io.loadmat("data/circle3.mat")["reward"].astype(np.float32) - 100
     # rewards = scipy.io.loadmat("data/maze.mat")["reward"].astype(np.float32) - 15
+    rewards = scipy.io.loadmat("data/maze2.mat")["reward"].astype(np.float32)
     rewards = (rewards - np.min(rewards)) / (np.max(rewards) - np.min(rewards))
     env = OffRoadNavEnv(rewards, vehicle_model, name)
     return env
@@ -99,53 +101,53 @@ if not os.path.exists(CHECKPOINT_DIR):
 
 summary_writer = tf.summary.FileWriter(os.path.join(MODEL_DIR, "train"))
 
-with tf.device("/cpu:0"):
+# with tf.device("/cpu:0"):
 
-    # Keeps track of the number of updates we've performed
-    global_step = tf.Variable(0, name="global_step", trainable=False)
-    max_return = 0
+# Keeps track of the number of updates we've performed
+global_step = tf.Variable(0, name="global_step", trainable=False)
+max_return = 0
 
-    # Global policy and value nets
-    with tf.variable_scope("global") as vs:
-        policy_net = PolicyEstimator()
-        value_net = ValueEstimator(policy_net.state, reuse=True)
+# Global policy and value nets
+with tf.variable_scope("global") as vs:
+    global_net = PolicyValueEstimator()
 
-    # Global step iterator
-    global_counter = itertools.count()
+# Global step iterator
+global_counter = itertools.count()
 
-    # Create worker graphs
-    workers = []
-    for worker_id in range(NUM_WORKERS):
-        # We only write summaries in one of the workers because they're
-        # pretty much identical and writing them on all workers
-        # would be a waste of space
-        worker_summary_writer = None
-        if worker_id == 0:
-            worker_summary_writer = summary_writer
+# Create worker graphs
+workers = []
+for worker_id in range(NUM_WORKERS):
+    # We only write summaries in one of the workers because they're
+    # pretty much identical and writing them on all workers
+    # would be a waste of space
+    worker_summary_writer = None
+    if worker_id == 0:
+        worker_summary_writer = summary_writer
 
-        name = "worker_{}".format(worker_id)
-        print "Initializing {} ...".format(name)
-        worker = Worker(
-            name=name,
-            env=make_env(name),
-            policy_net=policy_net,
-            value_net=value_net,
-            global_counter=global_counter,
-            discount_factor=FLAGS.discount_factor,
-            summary_writer=worker_summary_writer,
-            max_global_steps=FLAGS.max_global_steps)
+    name = "worker_{}".format(worker_id)
+    print "Initializing {} ...".format(name)
+    worker = Worker(
+        name=name,
+        env=make_env(name),
+        global_net=global_net,
+        global_counter=global_counter,
+        discount_factor=FLAGS.discount_factor,
+        summary_writer=worker_summary_writer,
+        max_global_steps=FLAGS.max_global_steps)
 
-        workers.append(worker)
+    workers.append(worker)
 
-    saver = tf.train.Saver(keep_checkpoint_every_n_hours=0.01, max_to_keep=10)
+saver = tf.train.Saver(keep_checkpoint_every_n_hours=0.01, max_to_keep=10)
 
-    # Used to occasionally save videos for our policy net
-    # and write episode rewards to Tensorboard
-    pe = PolicyMonitor(
-        env=make_env("policy_monitor"),
-        policy_net=policy_net,
-        summary_writer=summary_writer,
-        saver=saver)
+# Used to occasionally save videos for our policy net
+# and write episode rewards to Tensorboard
+'''
+pe = PolicyMonitor(
+    env=make_env("policy_monitor"),
+    global_net=global_net,
+    summary_writer=summary_writer,
+    saver=saver)
+'''
 
 with tf.Session() as sess:
     sess.run(tf.global_variables_initializer())

@@ -16,7 +16,9 @@ import_path = os.path.abspath(os.path.join(current_path, "../.."))
 if import_path not in sys.path:
     sys.path.append(import_path)
 
-from estimators import ValueEstimator, PolicyEstimator
+from estimators import PolicyValueEstimator
+
+FLAGS = tf.flags.FLAGS
 
 Transition = collections.namedtuple("Transition", ["mdp_state", "state", "action", "reward", "next_state", "done"])
 def get_map_with_vehicle(env, state):
@@ -56,18 +58,22 @@ def make_copy_params_op(v1_list, v2_list):
 
 def make_train_op(local_estimator, global_estimator):
     """
-    Creates an op that applies local estimator gradients
-    to the global estimator.
+    Creates an op that applies local gradients to the global variables.
     """
+    # Get local gradients and global variables
     local_grads, _ = zip(*local_estimator.grads_and_vars)
+    _, global_vars = zip(*global_estimator.grads_and_vars)
 
     # Clip gradients
-    max_grad = tf.flags.FLAGS.max_gradient
+    max_grad = FLAGS.max_gradient
     local_grads, _ = tf.clip_by_global_norm(local_grads, max_grad)
-    _, global_vars = zip(*global_estimator.grads_and_vars)
-    local_global_grads_and_vars = list(zip(local_grads, global_vars))
+
+    # Zip clipped local grads with global variables
+    local_grads_global_vars = list(zip(local_grads, global_vars))
+    global_step = tf.contrib.framework.get_global_step()
+
     return global_estimator.optimizer.apply_gradients(
-        local_global_grads_and_vars, global_step=tf.contrib.framework.get_global_step())
+        local_grads_global_vars, global_step=global_step)
 
 class Worker(object):
     """
@@ -76,20 +82,18 @@ class Worker(object):
     Args:
     name: A unique name for this worker
     env: The Gym environment used by this worker
-    policy_net: Instance of the globally shared policy net
-    value_net: Instance of the globally shared value net
+    global_net: Instance of the globally shared network
     global_counter: Iterator that holds the global step
     discount_factor: Reward discount factor
     summary_writer: A tf.train.SummaryWriter for Tensorboard summaries
     max_global_steps: If set, stop coordinator when global_counter > max_global_steps
     """
-    def __init__(self, name, env, policy_net, value_net, global_counter, discount_factor=0.99, summary_writer=None, max_global_steps=None):
+    def __init__(self, name, env, global_net, global_counter, discount_factor=0.99, summary_writer=None, max_global_steps=None):
         self.name = name
         self.discount_factor = discount_factor
         self.max_global_steps = max_global_steps
         self.global_step = tf.contrib.framework.get_global_step()
-        self.global_policy_net = policy_net
-        self.global_value_net = value_net
+        self.global_net = global_net
         self.global_counter = global_counter
         self.local_counter = itertools.count()
         self.summary_writer = summary_writer
@@ -98,16 +102,15 @@ class Worker(object):
 
         # Create local policy/value nets that are not updated asynchronously
         with tf.variable_scope(name):
-            self.policy_net = PolicyEstimator()
-            self.value_net = ValueEstimator(self.policy_net.state, reuse=True)
+            self.local_net = PolicyValueEstimator()
 
-        # Op to copy params from global policy/valuenets
-        self.copy_params_op = make_copy_params_op(
-            tf.contrib.slim.get_variables(scope="global", collection=tf.GraphKeys.TRAINABLE_VARIABLES),
-            tf.contrib.slim.get_variables(scope=self.name, collection=tf.GraphKeys.TRAINABLE_VARIABLES))
+        # Operation to copy params from global net to local net
+        global_vars = tf.contrib.slim.get_variables(scope="global", collection=tf.GraphKeys.TRAINABLE_VARIABLES)
+        local_vars = tf.contrib.slim.get_variables(scope=self.name, collection=tf.GraphKeys.TRAINABLE_VARIABLES)
+        self.copy_params_op = make_copy_params_op(global_vars, local_vars)
 
-        self.vnet_train_op = make_train_op(self.value_net, self.global_value_net)
-        self.pnet_train_op = make_train_op(self.policy_net, self.global_policy_net)
+        # Operation to 
+        self.net_train_op = make_train_op(self.local_net, self.global_net)
 
         self.state = None
         self.action = None
@@ -117,7 +120,7 @@ class Worker(object):
 
     def run(self, sess, coord, t_max):
 
-        print "In {}'s run method".format(self.name)
+        self.sess = sess
 
         with sess.as_default(), sess.graph.as_default():
 
@@ -126,8 +129,10 @@ class Worker(object):
                     # Copy Parameters from the global networks
                     sess.run(self.copy_params_op)
 
-                    # Collect some experience
-                    transitions, local_t, global_t = self.run_n_steps(t_max, sess)
+                    # Collect 10 episodes of experience
+                    transitions = []
+                    for i in range(FLAGS.n_episodes):
+                        local_t, global_t = self.run_n_steps(t_max, transitions)
 
                     if self.max_global_steps is not None and global_t >= self.max_global_steps:
                         tf.logging.info("Reached global step {}. Stopping.".format(global_t))
@@ -135,7 +140,7 @@ class Worker(object):
                         return
 
                     # Update the global networks
-                    self.update(transitions, sess)
+                    self.update(transitions)
 
                 print "\33[91mEnd of for loop\33[0m"
             
@@ -145,7 +150,8 @@ class Worker(object):
                 traceback.print_exc()
 
     def reset_env(self):
-        self.state = np.array([+6.1, 9, 0, 0, 0, 0])
+        self.state = np.array([0, 0, 0, 0, 0, 0])
+        # self.state = np.array([+6.1, 9, 0, 0, 0, 0])
         '''
         theta = np.random.rand() * np.pi * 2
         phi = np.random.rand() * np.pi * 2
@@ -159,19 +165,22 @@ class Worker(object):
         self.action = self.action.astype(np.float32).reshape(2, 1)
         self.total_return = 0
 
+        # Add some noise to have diverse start points
+        noise = np.random.rand(6, 1) * 0.1
+        self.state += noise
+
         self.env._reset(self.state)
 
-    def run_n_steps(self, n, sess):
+    def run_n_steps(self, n, transitions):
 
         # Initial state
         self.reset_env()
 
-        transitions = []
         reward = 0
         for i in range(n):
 
             mdp_state = form_mdp_state(self.env, self.state, self.action, reward)
-            self.action = self.policy_net.predict(mdp_state, sess).reshape(2, -1)
+            self.action = self.local_net.predict_actions(mdp_state, self.sess).T
             assert not np.any(np.isnan(self.action)), "i = {}, self.action = {}, mdp_state = {}".format(i, self.action, mdp_state)
             '''
             self.action[0, 0] = 2
@@ -195,14 +204,16 @@ class Worker(object):
                 '''
 
             # Store transition
-            transitions.append(Transition(
-                mdp_state=mdp_state,
-                state=self.state.copy(),
-                action=self.action.copy(),
-                next_state=next_state.copy(),
-                reward=reward,
-                done=done
-            ))
+            # Down-sample transition to reduce correlation between samples
+            if i % FLAGS.downsample == 0 or done:
+                transitions.append(Transition(
+                    mdp_state=mdp_state,
+                    state=self.state.copy(),
+                    action=self.action.copy(),
+                    next_state=next_state.copy(),
+                    reward=reward,
+                    done=done
+                ))
 
             # Increase local and global counters
             local_t = next(self.local_counter)
@@ -216,9 +227,9 @@ class Worker(object):
             else:
                 self.state = next_state
 
-        return transitions, local_t, global_t
+        return local_t, global_t
 
-    def update(self, transitions, sess):
+    def update(self, transitions):
         """
         Updates global policy and value networks based on collected experience
 
@@ -232,7 +243,7 @@ class Worker(object):
         last = transitions[-1]
         if not last.done:
             mdp_state = form_mdp_state(self.env, last.next_state, last.action, last.reward)
-            reward = self.value_net.predict(mdp_state, sess)
+            reward = self.local_net.predict_values(mdp_state, self.sess)
 
         # Accumulate minibatch exmaples
         T = len(transitions)
@@ -245,14 +256,20 @@ class Worker(object):
         value_targets = np.zeros((T, 1), dtype=np.float32)
         policy_targets = np.zeros((T, 1), dtype=np.float32)
         actions = np.zeros((T, 2), dtype=np.float32)
-        values = self.value_net.predict(mdp_states, sess).squeeze()
+        '''
+        values = self.local_net.predict_values(mdp_states, self.sess)
+        '''
+        values, mu, mu_steer, sigma, log_prob = self.local_net.predict_values(mdp_states, self.sess, debug=True)
+
+        mu = mu.reshape((-1, 2))
+        sigma = sigma.reshape((-1, 2))
 
         for t in range(T)[::-1]:
             # discounted reward
             reward = transitions[t].reward + self.discount_factor * reward
 
             # Get the advantage (td_error)
-            value = values[t] # self.value_net.predict(mdp_state, sess)
+            value = values[t]
             td_error = reward - value
 
             value_targets[t] = reward
@@ -262,37 +279,54 @@ class Worker(object):
             # print "step #{:04d}: reward = {}, value = {}, td_error = {}".format(t, reward, value, td_error)
             # print "{} {} {}".format(reward, value, td_error)
 
-        # Add TD Target, TD Error, and action to feed_dict
+        worker_id = int(self.name[-1])
+        if worker_id == 0 and self.counter % 10 == 0:
+            fn = "debug/{:04d}.mat".format(self.counter)
+            scipy.io.savemat(fn, dict(
+                frontviews = mdp_states['map_with_vehicle'],
+                vehicle_state = mdp_states['vehicle_state'],
+                prev_action = mdp_states['prev_action'],
+                prev_reward = mdp_states['prev_reward'],
+                rewards = value_targets,
+                values = values,
+                actions = actions,
+                adv = policy_targets,
+                mu = mu,
+                mu_steer = mu_steer,
+                sigma = sigma,
+                log_prob = log_prob
+            ))
+            print "{} saved.".format(fn)
+
+        self.counter += 1
+
+        # Add TD Target, TD Error, and actions to feed_dict
         feed_dict = {
-            self.value_net.target: value_targets,
-            self.policy_net.target: policy_targets,
-            self.policy_net.action: actions,
+            self.local_net.r: value_targets,
+            self.local_net.advantage: policy_targets,
+            self.local_net.actions: actions,
         }
 
         for k in mdp_states.keys():
-            feed_dict[self.policy_net.state[k]] = mdp_states[k]
+            feed_dict[self.local_net.state[k]] = mdp_states[k]
 
         # Train the global estimators using local gradients
-        global_step, pnet_loss, vnet_loss, _, _, pnet_summaries, vnet_summaries = sess.run([
+        global_step, loss, pi_loss, vf_loss, summaries, _ = self.sess.run([
             self.global_step,
-            self.policy_net.loss,
-            self.value_net.loss,
-            self.pnet_train_op,
-            self.vnet_train_op,
-            self.policy_net.summaries,
-            self.value_net.summaries
+            self.local_net.loss,
+            self.local_net.pi_loss,
+            self.local_net.vf_loss,
+            self.local_net.summaries,
+            self.net_train_op,
         ], feed_dict)
-        print "Updates from {}, reward = {:.2f}, # of steps = {:5d}, pnet_loss = {:+.5f}, vnet_loss = {:+.5f}, total_loss = {:+.5f}".format(
-            self.name, reward, T, pnet_loss, vnet_loss, pnet_loss + vnet_loss)
-
-        # sys.exit(0)
+        print "Updates from {}, reward = {:.2f}, batch_size = {:5d}, pi_loss = {:+.5f}, vf_loss = {:+.5f}, total_loss = {:+.5f}".format(
+            self.name, reward, T, pi_loss, vf_loss, loss)
 
         # Write summaries
         if self.summary_writer is not None:
-            self.summary_writer.add_summary(pnet_summaries, global_step)
-            self.summary_writer.add_summary(vnet_summaries, global_step)
+            self.summary_writer.add_summary(summaries, global_step)
             self.summary_writer.flush()
 
-        assert pnet_loss == pnet_loss, "pnet_loss = {}, vnet_loss = {}".format(pnet_loss, vnet_loss)
+        assert pi_loss == pi_loss, "pi_loss = {}, vf_loss = {}".format(pi_loss, vf_loss)
 
-        return pnet_loss, vnet_loss, pnet_summaries, vnet_summaries
+        # return pnet_loss, vf_loss, summaries
