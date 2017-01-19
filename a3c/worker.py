@@ -170,7 +170,7 @@ class Worker(object):
         self.current_reward = np.zeros((1, self.n_agents))
 
         # Add some noise to have diverse start points
-        noise = np.random.rand(6, self.n_agents).astype(np.float32) * 0.01
+        noise = np.random.rand(6, self.n_agents).astype(np.float32) * 0.5
         self.state = self.state + noise
 
         self.env._reset(self.state)
@@ -354,9 +354,13 @@ class Worker(object):
         for k in mdp_states.keys():
             feed_dict[self.local_net.state[k]] = mdp_states[k]
 
+        # Downsample experiences
+        start_idx = np.random.randint(FLAGS.downsample)
         for k in feed_dict.keys():
-            feed_dict[k] = feed_dict[k][::FLAGS.downsample, ...]
-            # print "feed_dict[{}].shape = {}".format(k, feed_dict[k].shape)
+            feed_dict[k] = feed_dict[k][start_idx::FLAGS.downsample, ...]
+
+        # The 1st dimension is batch_size, get batch_size after down-sampling
+        batch_size = len(feed_dict[k])
 
         # Train the global estimators using local gradients
         global_step, loss, pi_loss, vf_loss, summaries, _ = self.sess.run([
@@ -368,8 +372,9 @@ class Worker(object):
             self.net_train_op,
         ], feed_dict)
 
-        print "update from {}, returns = {:.2f}, batch_size = {:5d}, ".format(
-            self.name, np.mean(returns[:, 0]), T * self.n_agents),
+        print "\33[33m#{:04d}\33[0m update (from {}), returns = {:.2f}, batch_size = {:5d},".format(
+            global_step, self.name, np.mean(returns[:, 0]), batch_size),
+
         print "pi_loss = {:+.5f}, vf_loss = {:+.5f}, total_loss = {:+.5f}".format(
             pi_loss, vf_loss, loss)
 
@@ -379,5 +384,3 @@ class Worker(object):
             self.summary_writer.flush()
 
         assert pi_loss == pi_loss, "pi_loss = {}, vf_loss = {}".format(pi_loss, vf_loss)
-
-        # return pnet_loss, vf_loss, summaries

@@ -113,22 +113,8 @@ class PolicyValueEstimator():
         with tf.variable_scope("local"):
             self.mu, self.sigma = self.policy_network(shared_policy, 2)
 
-            '''
-            # Make it deterministic for debugging
-            self.mu = self.mu * 1e-7 + (max_a + min_a) / 2.
-            self.sigma = self.sigma * 1e-7
-            '''
+            normal_dist = self.get_normal_dist(self.mu, self.sigma)
 
-            # Reshape, sample, and reshape it back
-            self.mu = tf.reshape(self.mu, [-1])
-            self.sigma = tf.reshape(self.sigma, [-1])
-
-            # For debugging
-            # self.mu = tf_print(self.mu, "mu = ")
-            # self.sigma = tf_print(self.sigma, "sigma = ")
-
-            # Create normal distribution and sample some actions
-            normal_dist = tf.contrib.distributions.Normal(self.mu, self.sigma)
             self.actions = self.sample_actions(normal_dist)
 
             # Compute log probabilities
@@ -152,6 +138,28 @@ class PolicyValueEstimator():
 
         self.summarize_policy_estimator()
         self.summarize_value_estimator()
+        self.summaries = self.get_summaries()
+
+    def get_normal_dist(self, mu, sigma):
+
+        '''
+        # Make it deterministic for debugging
+        self.mu = self.mu * 1e-7 + (max_a + min_a) / 2.
+        self.sigma = self.sigma * 1e-7
+        '''
+
+        # For debugging
+        mu = tf_print(mu, "mu = ")
+        sigma = tf_print(sigma, "sigma = ")
+
+        # Reshape and sample
+        mu = tf.reshape(mu, [-1])
+        sigma = tf.reshape(sigma, [-1])
+
+        # Create normal distribution and sample some actions
+        normal_dist = tf.contrib.distributions.Normal(mu, sigma)
+
+        return normal_dist
 
     def sample_actions(self, dist):
         actions = tf.reshape(dist.sample_n(1), [-1, 2])
@@ -181,19 +189,6 @@ class PolicyValueEstimator():
         log_prob = tf.reshape(log_prob, [-1, 2])
 
         return log_prob
-
-    def summarize_policy_estimator(self):
-        scope = "policy_estimator"
-        with tf.variable_scope(scope):
-            prefix = tf.get_variable_scope().name
-            tf.summary.scalar("{}/loss".format(prefix), self.loss)
-            tf.summary.scalar("{}/entropy".format(prefix), self.entropy)
-            tf.summary.scalar("{}/sigma_mean".format(prefix), tf.reduce_mean(self.sigma))
-
-        var_scope_name = tf.get_variable_scope().name
-        summary_ops = tf.get_collection(tf.GraphKeys.SUMMARIES)
-        summaries = [s for s in summary_ops if var_scope_name in s.name]
-        self.summaries = tf.summary.merge(summaries)
 
     def steer_to_yawrate(self, steer):
         # Use Ackerman formula to compute yawrate from steering angle and
@@ -245,26 +240,6 @@ class PolicyValueEstimator():
 
         return mu, sigma
 
-    def summarize_value_estimator(self):
-        scope = "value_estimator"
-        with tf.variable_scope(scope):
-            # Summaries
-            prefix = tf.get_variable_scope().name
-            tf.summary.scalar("{}/loss".format(prefix), self.loss)
-
-            tf.summary.scalar("{}/max_value".format(prefix), tf.reduce_max(self.logits))
-            tf.summary.scalar("{}/min_value".format(prefix), tf.reduce_min(self.logits))
-            tf.summary.scalar("{}/mean_value".format(prefix), tf.reduce_mean(self.logits))
-
-            tf.summary.scalar("{}/max_advantage".format(prefix), tf.reduce_max(self.advantage))
-            tf.summary.scalar("{}/min_advantage".format(prefix), tf.reduce_min(self.advantage))
-            tf.summary.scalar("{}/mean_advantage".format(prefix), tf.reduce_mean(self.advantage))
-
-        var_scope_name = tf.get_variable_scope().name
-        summary_ops = tf.get_collection(tf.GraphKeys.SUMMARIES)
-        summaries = [s for s in summary_ops if var_scope_name in s.name and "shared" not in s.name]
-        self.summaries = tf.summary.merge(summaries)
-
     def value_network(self, input, num_outputs=1):
         input = DenseLayer(
             input=input,
@@ -313,3 +288,26 @@ class PolicyValueEstimator():
     def predict_actions(self, state, sess=None):
         tensors = [self.actions]
         return self.predict(state, tensors, sess)
+
+    def summarize_policy_estimator(self):
+        tf.summary.scalar("pi_loss", self.pi_loss)
+        tf.summary.scalar("entropy", self.entropy)
+        tf.summary.scalar("mean(sigma_vf)", tf.reduce_mean(self.sigma[:, 0]))
+        tf.summary.scalar("mean(sigma_steer)", tf.reduce_mean(self.sigma[:, 1]))
+
+    def get_summaries(self):
+        var_scope_name = tf.get_variable_scope().name
+        summary_ops = tf.get_collection(tf.GraphKeys.SUMMARIES)
+        summaries = [s for s in summary_ops if var_scope_name in s.name]
+        return tf.summary.merge(summaries)
+
+    def summarize_value_estimator(self):
+        tf.summary.scalar("loss", self.vf_loss)
+
+        tf.summary.scalar("max(value)", tf.reduce_max(self.logits))
+        tf.summary.scalar("min(value)", tf.reduce_min(self.logits))
+        tf.summary.scalar("mean(value)", tf.reduce_mean(self.logits))
+
+        tf.summary.scalar("max(advantage)", tf.reduce_max(self.advantage))
+        tf.summary.scalar("min(advantage)", tf.reduce_min(self.advantage))
+        tf.summary.scalar("mean(advantage)", tf.reduce_mean(self.advantage))
