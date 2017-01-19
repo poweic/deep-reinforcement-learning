@@ -1,7 +1,6 @@
 #!/usr/bin/python
 import colored_traceback.always
 
-import unittest
 import sys
 import os
 import cv2
@@ -12,6 +11,7 @@ import itertools
 import shutil
 import threading
 import multiprocessing
+import time
 from pprint import pprint
 
 from inspect import getsourcefile
@@ -175,6 +175,7 @@ with tf.Session() as sess:
         worker_fn = lambda j=i: workers[j].run(sess, coord, FLAGS.t_max)
         t = threading.Thread(target=worker_fn)
         t.start()
+        time.sleep(1)
         worker_threads.append(t)
 
     # Start a thread for policy eval task
