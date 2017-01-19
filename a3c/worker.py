@@ -7,7 +7,9 @@ import collections
 import numpy as np
 import tensorflow as tf
 import scipy.io
+import scipy.signal
 import traceback
+from time import time
 
 from inspect import getsourcefile
 current_path = os.path.dirname(os.path.abspath(getsourcefile(lambda:0)))
@@ -20,25 +22,27 @@ from estimators import PolicyValueEstimator
 
 FLAGS = tf.flags.FLAGS
 
+def discount(x, gamma):
+    if x.ndim == 1:
+        return scipy.signal.lfilter([1], [1, -gamma], x[::-1], axis=0)[::-1]
+    else:
+        return scipy.signal.lfilter([1], [1, -gamma], x[:, ::-1], axis=1)[:, ::-1]
+
+def timer_decorate(func):
+    def func_wrapper(*args, **kwargs):
+        timer = time()
+        result = func(*args, **kwargs)
+        print "\33[2m{} took {:.4f} seconds\33[0m".format(func.__name__, time() - timer)
+        return result
+    return func_wrapper
+
 Transition = collections.namedtuple("Transition", ["mdp_state", "state", "action", "reward", "next_state", "done"])
-def get_map_with_vehicle(env, state):
-    # Rotate the map according the vehicle orientation in degree (not radian)
-    # print "\33[91mstate = {}, state.shape = {}\33[0m".format(state, state.shape)
-    img = env.get_front_view(state)
-    return img.reshape(1, 20, 20, 1)
-
 def form_mdp_state(env, state, prev_action, prev_reward):
-
-    state = state.copy()
-    prev_action = prev_action.copy()
-
-    map_with_vehicle = get_map_with_vehicle(env, state)
-
     return {
-        "map_with_vehicle": map_with_vehicle,
-        "vehicle_state": state.T,
-        "prev_action": prev_action.T,
-        "prev_reward": np.array(prev_reward, dtype=np.float32).reshape((-1, 1))
+        "map_with_vehicle": env.get_front_view(state),
+        "vehicle_state": state.copy().T,
+        "prev_action": prev_action.copy().T,
+        "prev_reward": prev_reward.copy().T
     }
 
 def make_copy_params_op(v1_list, v2_list):
@@ -88,7 +92,7 @@ class Worker(object):
     summary_writer: A tf.train.SummaryWriter for Tensorboard summaries
     max_global_steps: If set, stop coordinator when global_counter > max_global_steps
     """
-    def __init__(self, name, env, global_net, global_counter, discount_factor=0.99, summary_writer=None, max_global_steps=None):
+    def __init__(self, name, env, global_net, global_counter, n_agents=1, discount_factor=0.99, summary_writer=None, max_global_steps=None):
         self.name = name
         self.discount_factor = discount_factor
         self.max_global_steps = max_global_steps
@@ -97,6 +101,7 @@ class Worker(object):
         self.global_counter = global_counter
         self.local_counter = itertools.count()
         self.summary_writer = summary_writer
+        self.n_agents = n_agents
         self.env = env
         self.counter = 0
 
@@ -115,8 +120,6 @@ class Worker(object):
         self.state = None
         self.action = None
         self.max_return = 0
-        self.total_return = 0
-        self.current_reward = 0
 
     def run(self, sess, coord, t_max):
 
@@ -162,25 +165,34 @@ class Worker(object):
 
         # Reshape to compatiable format
         self.state = self.state.astype(np.float32).reshape(6, 1)
-        self.action = self.action.astype(np.float32).reshape(2, 1)
-        self.total_return = 0
+        self.action = np.zeros((2, self.n_agents), dtype=np.float32)
+        self.total_return = np.zeros((1, self.n_agents))
+        self.current_reward = np.zeros((1, self.n_agents))
 
         # Add some noise to have diverse start points
-        noise = np.random.rand(6, 1) * 0.1
-        self.state += noise
+        noise = np.random.rand(6, self.n_agents).astype(np.float32) * 0.01
+        self.state = self.state + noise
 
         self.env._reset(self.state)
 
+    # @timer_decorate
     def run_n_steps(self, n, transitions):
+
+        timer = [0, 0, 0]
 
         # Initial state
         self.reset_env()
 
-        reward = 0
+        reward = np.zeros((1, self.n_agents), dtype=np.float32)
         for i in range(n):
 
+            timer[0] -= time()
             mdp_state = form_mdp_state(self.env, self.state, self.action, reward)
+            timer[0] += time()
+
+            timer[1] -= time()
             self.action = self.local_net.predict_actions(mdp_state, self.sess).T
+            timer[1] += time()
             assert not np.any(np.isnan(self.action)), "i = {}, self.action = {}, mdp_state = {}".format(i, self.action, mdp_state)
             '''
             if self.counter < 1000:
@@ -188,33 +200,29 @@ class Worker(object):
                 self.action[1, 0] = -np.pi / 11.2
             '''
 
+            timer[2] -= time()
             # Take a step
             next_state, reward, done, _ = self.env.step(self.action)
-            '''
-            if reward < 0:
-                done = True
-                reward = -1000
-            '''
             self.current_reward = reward
             self.total_return += reward
-            if self.total_return > self.max_return:
-                self.max_return = self.total_return
+            if np.max(self.total_return) > self.max_return:
+                self.max_return = np.max(self.total_return)
                 '''
                 print "{}'s max_return = {} (step #{:05d}, action = {})".format(
                     self.name, self.max_return, i, self.action.flatten())
                 '''
+            timer[2] += time()
 
             # Store transition
             # Down-sample transition to reduce correlation between samples
-            if i % FLAGS.downsample == 0 or done:
-                transitions.append(Transition(
-                    mdp_state=mdp_state,
-                    state=self.state.copy(),
-                    action=self.action.copy(),
-                    next_state=next_state.copy(),
-                    reward=reward,
-                    done=done
-                ))
+            transitions.append(Transition(
+                mdp_state=mdp_state,
+                state=self.state.copy(),
+                action=self.action.copy(),
+                next_state=next_state.copy(),
+                reward=reward,
+                done=done
+            ))
 
             # Increase local and global counters
             local_t = next(self.local_counter)
@@ -223,13 +231,16 @@ class Worker(object):
             if local_t % 100 == 0:
                 tf.logging.info("{}: local Step {}, global step {}".format(self.name, local_t, global_t))
 
-            if done:
+            if np.any(done):
                 break
             else:
                 self.state = next_state
 
+        print "Took {}, {}, {}, {}, # of steps = {}".format(timer[0], timer[1], timer[2], timer[0] + timer[1] + timer[2], i)
+
         return local_t, global_t
 
+    # @timer_decorate
     def update(self, transitions):
         """
         Updates global policy and value networks based on collected experience
@@ -241,36 +252,66 @@ class Worker(object):
 
         # If we episode was not done we bootstrap the value from the last state
         last = transitions[-1]
-        if last.done:
-            reward = -100.
-        else:
-            mdp_state = form_mdp_state(self.env, last.next_state, last.action, last.reward)
-            reward = self.local_net.predict_values(mdp_state, self.sess)
+        mdp_state = form_mdp_state(self.env, last.next_state, last.action, last.reward)
+        reward = self.local_net.predict_values(mdp_state, self.sess)
+        reward[last.done] = -100.
+
+        rewards = np.concatenate([trans.reward.T for trans in transitions] + [reward], axis=1)
+        returns = discount(rewards, self.discount_factor)[:, :-1]
+        rewards = rewards[:, :-1]
+        # print "returns.shape = ", returns.shape
 
         # Accumulate minibatch exmaples
         T = len(transitions)
 
+        def flatten(x):
+            # flatten first 2 axes
+            return x.reshape((-1,) + x.shape[2:])
+
         mdp_states = {
-            key: np.squeeze(np.array([transitions[t].mdp_state[key] for t in range(T)]), axis=1)
+            key: flatten(np.concatenate([
+                transitions[t].mdp_state[key][:, None, :] for t in range(T)
+            ], axis=1))
             for key in transitions[0].mdp_state.keys()
         }
 
-        value_targets = np.zeros((T, 1), dtype=np.float32)
-        policy_targets = np.zeros((T, 1), dtype=np.float32)
-        actions = np.zeros((T, 2), dtype=np.float32)
+        '''
+        for key in mdp_states:
+            print "mdp_states[{}].shape = {}".format(key, mdp_states[key].shape)
+        '''
+
+        lambda_ = 1.0
+
         values = self.local_net.predict_values(mdp_states, self.sess)
+        values = np.concatenate([values.reshape(-1, T), reward], axis=1)
+
+        delta_t = rewards + self.discount_factor * values[:, 1:] - values[:, :-1]
+        # print "delta_t.shape = ", delta_t.shape
+
+        advantages = discount(delta_t, self.discount_factor * lambda_)
+        # print "advantages.shape = ", advantages.shape
+
+        values = values[:, :-1]
+        # print "values.shape = ", values.shape
+
+        actions = flatten(np.concatenate([
+            trans.action.T[:, None, :] for trans in transitions
+        ], axis=1))
+        # print "actions.shape = ", actions.shape
+
         '''
         values, mu, sigma, log_prob = self.local_net.predict_values(mdp_states, self.sess, debug=True)
         mu = mu.reshape((-1, 2))
         sigma = sigma.reshape((-1, 2))
         '''
 
+        '''
         for t in range(T)[::-1]:
             # discounted reward
-            reward = transitions[t].reward + self.discount_factor * reward
+            reward = transitions[t].reward.T + self.discount_factor * reward
 
             # Get the advantage (td_error)
-            value = values[t]
+            value = values[:, t]
             td_error = reward - value
 
             value_targets[t] = reward
@@ -279,6 +320,7 @@ class Worker(object):
 
             # print "step #{:04d}: reward = {}, value = {}, td_error = {}".format(t, reward, value, td_error)
             # print "{} {} {}".format(reward, value, td_error)
+        '''
 
         '''
         worker_id = int(self.name[-1])
@@ -304,13 +346,17 @@ class Worker(object):
 
         # Add TD Target, TD Error, and actions to feed_dict
         feed_dict = {
-            self.local_net.r: value_targets,
-            self.local_net.advantage: policy_targets,
+            self.local_net.r: rewards.reshape(-1, 1),
+            self.local_net.advantage: advantages.reshape(-1, 1),
             self.local_net.actions: actions,
         }
 
         for k in mdp_states.keys():
             feed_dict[self.local_net.state[k]] = mdp_states[k]
+
+        for k in feed_dict.keys():
+            feed_dict[k] = feed_dict[k][::FLAGS.downsample, ...]
+            # print "feed_dict[{}].shape = {}".format(k, feed_dict[k].shape)
 
         # Train the global estimators using local gradients
         global_step, loss, pi_loss, vf_loss, summaries, _ = self.sess.run([
@@ -321,8 +367,11 @@ class Worker(object):
             self.local_net.summaries,
             self.net_train_op,
         ], feed_dict)
-        print "Updates from {}, reward = {:.2f}, batch_size = {:5d}, pi_loss = {:+.5f}, vf_loss = {:+.5f}, total_loss = {:+.5f}".format(
-            self.name, reward, T, pi_loss, vf_loss, loss)
+
+        print "update from {}, returns = {:.2f}, batch_size = {:5d}, ".format(
+            self.name, np.mean(returns[:, 0]), T * self.n_agents),
+        print "pi_loss = {:+.5f}, vf_loss = {:+.5f}, total_loss = {:+.5f}".format(
+            pi_loss, vf_loss, loss)
 
         # Write summaries
         if self.summary_writer is not None:

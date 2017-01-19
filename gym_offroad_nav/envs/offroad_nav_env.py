@@ -43,16 +43,16 @@ class OffRoadNavEnv(gym.Env):
 
         # Y forward, X lateral
         # ix = -19, -18, ...0, 1, 20, iy = 0, 1, ... 39
-        x, y = self.state[:2, 0]
+        x, y = self.state[:2]
         ix, iy = self.get_ixiy(x, y)
-        done = (ix < -19) or (ix > 20) or (iy < 0) or (iy > 39)
+        done = (ix < -19) | (ix > 20) | (iy < 0) | (iy > 39)
 
         reward = self._bilinear_reward_lookup(x, y)
 
         # debug info
         info = {}
 
-        self.prev_action = action
+        self.prev_action = action.copy()
 
         return self.state.copy(), reward, done, info
 
@@ -66,26 +66,26 @@ class OffRoadNavEnv(gym.Env):
         return r
 
     def get_ixiy(self, x, y, scale=1.):
-        ix = int(np.floor(x * float(scale) / 0.5))
-        iy = int(np.floor(y * float(scale) / 0.5))
+        ix = np.floor(x * scale / 0.5).astype(np.int32)
+        iy = np.floor(y * scale / 0.5).astype(np.int32)
         return ix, iy
 
     def _bilinear_reward_lookup(self, x, y, debug=True):
         ix, iy = self.get_ixiy(x, y)
         # print "(x, y) = ({}, {}), (ix, iy) = ({}, {})".format(x, y, ix, iy)
 
-        x0 = int(np.clip(ix, -19, 20))
-        y0 = int(np.clip(iy, 0, 39))
-        x1 = int(np.clip(ix + 1, -19, 20))
-        y1 = int(np.clip(iy + 1, 0, 39))
+        x0 = np.clip(ix, -19, 20).astype(np.int32)
+        y0 = np.clip(iy, 0, 39).astype(np.int32)
+        x1 = np.clip(ix + 1, -19, 20).astype(np.int32)
+        y1 = np.clip(iy + 1, 0, 39).astype(np.int32)
 
         f00 = self._get_reward(x0, y0)
         f01 = self._get_reward(x0, y1)
         f10 = self._get_reward(x1, y0)
         f11 = self._get_reward(x1, y1)
 
-        xx = x / 0.5 - ix
-        yy = y / 0.5 - iy
+        xx = (x / 0.5 - ix).astype(np.float32)
+        yy = (y / 0.5 - iy).astype(np.float32)
 
         w00 = (1.-xx)*(1.-yy)
         w01 = yy*(1.-xx)
@@ -93,13 +93,7 @@ class OffRoadNavEnv(gym.Env):
         w11 = xx*yy
 
         r = f00*w00 + f01*w01 + f10*w10 + f11*w11
-        '''
-        if debug:
-            print "reward[{:6.2f},{:6.2f}] = {:7.2f}*{:4.2f} + {:7.2f}*{:4.2f} + {:7.2f}*{:4.2f} + {:7.2f}*{:4.2f} = {:7.2f}".format(
-                x, y, f00, w00, f01, w01, f10, w10, f11, w11, r
-            ),
-        '''
-        return r
+        return r.reshape(1, -1)
 
     def _reset(self, s0):
         if not hasattr(self, "R"):
@@ -153,22 +147,24 @@ class OffRoadNavEnv(gym.Env):
         return bR
 
     def get_front_view(self, state):
-        x, y, theta = state[:3, 0]
+        x, y, theta = state[:3]
 
         ix, iy = self.get_ixiy(x, y)
 
         iix = np.clip(ix + 19, 0, 39)
         iiy = np.clip(40 - 1 - iy, 0, 39)
-        cx, cy = iix + 20, iiy + 20
+        cxs, cys = iix + 20, iiy + 20
 
-        angle = - theta * 180. / np.pi
-        assert angle == angle, "angle = ".format(angle)
-        M = cv2.getRotationMatrix2D((cx, cy), angle, 1)
-        rotated = cv2.warpAffine(self.padded_rewards, M, (80, 80))
-        img = rotated[cy-10-10:cy-10+10, cx-10:cx+10]
+        angles = - theta * 180. / np.pi
+
+        img = np.zeros((len(angles), 20, 20, 1), dtype=np.float32)
+        for i, (cx, cy, angle) in enumerate(zip(cxs, cys, angles)):
+            M = cv2.getRotationMatrix2D((cx, cy), angle, 1)
+            rotated = cv2.warpAffine(self.padded_rewards, M, (80, 80))
+            img[i, :, :, 0] = rotated[cy-10-10:cy-10+10, cx-10:cx+10]
 
         '''
-        front_view = self.to_image(img, self.K * 2)
+        front_view = self.to_image(img[0], self.K * 2)
         front_view[0, :, :] = 255
         front_view[-1, :, :] = 255
         front_view[:, 1, :] = 255
@@ -182,20 +178,33 @@ class OffRoadNavEnv(gym.Env):
 
         worker = info["worker"]
 
-        if self.state is not None:
+        if self.state is None:
+            # print "\33[93m{} not initialized yet\33[0m".format(self.name)
+            return
 
-            x, y = self.state[:2, 0]
-            ix, iy = self.get_ixiy(x, y, self.K)
-            theta = self.state[2, 0]
+        x, y = self.state[:2]
+        ix, iy = self.get_ixiy(x, y, self.K)
+        thetas = self.state[2]
 
-            # Turn ix, iy to image coordinate on disp_img (reward)
-            x, y = 40*self.K/2-1 + ix, 40*self.K-1-iy
+        # Turn ix, iy to image coordinate on disp_img (reward)
+        xs, ys = 40*self.K/2-1 + ix, 40*self.K-1-iy
+
+        for i, (x, y, theta, prev_action, state, current_reward, total_return) in enumerate(
+                zip(
+                    xs, ys, thetas, self.prev_action.T, self.state.T,
+                    worker.current_reward.squeeze().T,
+                    worker.total_return.squeeze().T
+                )):
 
             # Draw vehicle on image without copying it first to leave a trajectory
-            cv2.circle(self.disp_img, (x, y), 1, (169, 255, 0), 0)
+            cv2.circle(self.disp_img, (x, y), 0, (169, 255, 0), 0)
 
-            # Copy the image and draw again
+            if i != 0:
+                continue
+
+            # Copy the image before drawing vehicle heading (only when i == 0)
             disp_img = np.copy(self.disp_img)
+
             pt1 = (x, y)
             cv2.circle(disp_img, pt1, 2, (0, 0, 255), 2)
             dx, dy = -int(50 * np.sin(theta)), int(50 * np.cos(theta))
@@ -206,24 +215,21 @@ class OffRoadNavEnv(gym.Env):
             font = cv2.FONT_HERSHEY_PLAIN
             font_size = 1
             color = (255, 255, 255)
-            text = "reward = {:.3f}, return = {:.3f} / {:.3f}".format(worker.current_reward, worker.total_return, worker.max_return)
+            text = "reward = {:.3f}, return = {:.3f} / {:.3f}".format(current_reward, total_return, worker.max_return)
             cv2.putText(disp_img, text, (5, 20), font, font_size, color, 1, cv2.CV_AA)
 
             text = "action = ({:+.2f}, {:+.2f})".format(
-                self.prev_action[0, 0], self.prev_action[1, 0])
+                prev_action[0], prev_action[1])
             cv2.putText(disp_img, text, (5, 350), font, font_size, color, 1, cv2.CV_AA)
 
             text = "(x, y, theta)  = ({:+.2f}, {:+.2f}, {:+d})".format(
-                self.state[0, 0], self.state[1, 0], int(np.mod(self.state[2, 0] * 180 / np.pi, 360)))
+                state[0], state[1], int(np.mod(state[2] * 180 / np.pi, 360)))
             cv2.putText(disp_img, text, (5, 370), font, font_size, color, 1, cv2.CV_AA)
 
             text = "(x', y', theta') = ({:+.2f}, {:+.2f}, {:+d})".format(
-                self.state[3, 0], self.state[4, 0], int(self.state[5, 0] * 180 / np.pi))
+                state[3], state[4], int(state[5] * 180 / np.pi))
             cv2.putText(disp_img, text, (5, 390), font, font_size, color, 1, cv2.CV_AA)
 
-            idx = int(worker.name[-1])
-            cv2.imshow4(idx, disp_img)
-            # cv2.imshow4(2*idx + 1, self.front_view_disp)
-        else:
-            pass
-            # print "\33[93m{} not initialized yet\33[0m".format(self.name)
+        idx = int(worker.name[-1])
+        cv2.imshow4(idx, disp_img)
+        # cv2.imshow4(2*idx + 1, self.front_view_disp)

@@ -34,6 +34,7 @@ tf.flags.DEFINE_integer("eval_every", 30, "Evaluate the policy every N seconds")
 tf.flags.DEFINE_integer("parallelism", 6, "Number of threads to run. If not set we run [num_cpu_cores] threads.")
 tf.flags.DEFINE_integer("n_episodes", 5, "Update network parameters after collecting N episodes")
 tf.flags.DEFINE_integer("downsample", 10, "Downsample transitions to reduce sample correlation")
+tf.flags.DEFINE_integer("n_agents_per_worker", 32, "Downsample transitions to reduce sample correlation")
 
 tf.flags.DEFINE_boolean("reset", False, "If set, delete the existing model directory and start training from scratch.")
 tf.flags.DEFINE_boolean("debug", False, "If set, turn on the debug flag")
@@ -43,7 +44,7 @@ tf.flags.DEFINE_float("max_gradient", 40, "Threshold for gradient clipping used 
 tf.flags.DEFINE_float("timestep", 0.025, "Simulation timestep")
 tf.flags.DEFINE_float("wheelbase", 2.00, "Wheelbase of the vehicle in meters")
 tf.flags.DEFINE_float("vehicle_model_noise_level", 0.20, "level of white noise (variance) in vehicle model")
-tf.flags.DEFINE_float("entropy_cost_mult", 1e-3, "multiplier used by entropy regularization")
+tf.flags.DEFINE_float("entropy_cost_mult", 1e-2, "multiplier used by entropy regularization")
 tf.flags.DEFINE_float("discount_factor", 0.98, "discount factor in Markov decision process (MDP)")
 
 tf.flags.DEFINE_float("max_mu_vf", 40 / 3.6, "Maximum forward velocity of vehicle (m/s)")
@@ -55,6 +56,7 @@ tf.flags.DEFINE_float("min_sigma_vf", 2  / 3.6, "Minimum variance of forward vel
 tf.flags.DEFINE_float("max_sigma_vf", 10 / 3.6, "Maximum variance of forward velocity")
 tf.flags.DEFINE_float("min_sigma_steer", 2  * np.pi / 180, "Minimum variance of steering angle (rad)")
 tf.flags.DEFINE_float("max_sigma_steer", 10 * np.pi / 180, "Maximum variance of steering angle (rad)")
+
 '''
 tf.flags.DEFINE_float("max_forward_speed", 2 + 0.0001, "Maximum forward velocity of vehicle (m/s)")
 tf.flags.DEFINE_float("min_forward_speed", 2 - 0.0001, "Minimum forward velocity of vehicle (m/s)")
@@ -136,6 +138,7 @@ for worker_id in range(NUM_WORKERS):
         env=make_env(name),
         global_net=global_net,
         global_counter=global_counter,
+        n_agents=FLAGS.n_agents_per_worker,
         discount_factor=FLAGS.discount_factor,
         summary_writer=worker_summary_writer,
         max_global_steps=FLAGS.max_global_steps)

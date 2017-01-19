@@ -124,8 +124,8 @@ class PolicyValueEstimator():
             self.sigma = tf.reshape(self.sigma, [-1])
 
             # For debugging
-            self.mu = tf_print(self.mu, "mu = ")
-            self.sigma = tf_print(self.sigma, "sigma = ")
+            # self.mu = tf_print(self.mu, "mu = ")
+            # self.sigma = tf_print(self.sigma, "sigma = ")
 
             # Create normal distribution and sample some actions
             normal_dist = tf.contrib.distributions.Normal(self.mu, self.sigma)
@@ -170,14 +170,14 @@ class PolicyValueEstimator():
         # concatenate it back
         vf = actions[:, 0:1]
         yawrate = actions[:, 1:2]
-        yawrate = tf_print(yawrate, "yawrate = ")
+        # yawrate = tf_print(yawrate, "yawrate = ")
         steer = self.yawrate_to_steer(yawrate)
-        steer = tf_print(steer, "steer = ")
+        # steer = tf_print(steer, "steer = ")
         actions = tf.concat(1, [vf, steer])
 
         reshaped_actions = tf.reshape(actions, [-1])
         log_prob = dist.log_prob(reshaped_actions)
-        log_prob = tf_print(log_prob, "log_prob = ")
+        # log_prob = tf_print(log_prob, "log_prob = ")
         log_prob = tf.reshape(log_prob, [-1, 2])
 
         return log_prob
@@ -241,7 +241,7 @@ class PolicyValueEstimator():
 
         # Clip mu by min and max, use softplus and capping for sigma
         mu = clip(mu, min_mu, max_mu)
-        sigma = tf.minimum(tf.nn.softplus(sigma) + min_sigma, max_mu)
+        sigma = tf.minimum(tf.nn.softplus(sigma) + min_sigma, max_sigma)
 
         return mu, sigma
 
