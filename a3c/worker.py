@@ -66,7 +66,7 @@ def make_train_op(local_estimator, global_estimator):
 
     # Clip gradients
     max_grad = FLAGS.max_gradient
-    local_grads, _ = tf.clip_by_global_norm(local_grads, max_grad)
+    # local_grads, _ = tf.clip_by_global_norm(local_grads, max_grad)
 
     # Zip clipped local grads with global variables
     local_grads_global_vars = list(zip(local_grads, global_vars))
@@ -131,8 +131,8 @@ class Worker(object):
 
                     # Collect 10 episodes of experience
                     transitions = []
-                    for i in range(FLAGS.n_episodes):
-                        local_t, global_t = self.run_n_steps(t_max, transitions)
+                    # for i in range(FLAGS.n_episodes):
+                    local_t, global_t = self.run_n_steps(t_max, transitions)
 
                     if self.max_global_steps is not None and global_t >= self.max_global_steps:
                         tf.logging.info("Reached global step {}. Stopping.".format(global_t))
@@ -150,8 +150,8 @@ class Worker(object):
                 traceback.print_exc()
 
     def reset_env(self):
-        self.state = np.array([0, 0, 0, 0, 0, 0])
-        # self.state = np.array([+6.1, 9, 0, 0, 0, 0])
+        # self.state = np.array([0, 0, 0, 0, 0, 0])
+        self.state = np.array([+6.1, 9.15, 0, 0, 0, 0])
         '''
         theta = np.random.rand() * np.pi * 2
         phi = np.random.rand() * np.pi * 2
@@ -183,8 +183,9 @@ class Worker(object):
             self.action = self.local_net.predict_actions(mdp_state, self.sess).T
             assert not np.any(np.isnan(self.action)), "i = {}, self.action = {}, mdp_state = {}".format(i, self.action, mdp_state)
             '''
-            self.action[0, 0] = 2
-            self.action[1, 0] = -np.pi / 11.2
+            if self.counter < 1000:
+                self.action[0, 0] = 2
+                self.action[1, 0] = -np.pi / 11.2
             '''
 
             # Take a step
@@ -239,9 +240,10 @@ class Worker(object):
         """
 
         # If we episode was not done we bootstrap the value from the last state
-        reward = 0.0
         last = transitions[-1]
-        if not last.done:
+        if last.done:
+            reward = -100.
+        else:
             mdp_state = form_mdp_state(self.env, last.next_state, last.action, last.reward)
             reward = self.local_net.predict_values(mdp_state, self.sess)
 
@@ -256,13 +258,12 @@ class Worker(object):
         value_targets = np.zeros((T, 1), dtype=np.float32)
         policy_targets = np.zeros((T, 1), dtype=np.float32)
         actions = np.zeros((T, 2), dtype=np.float32)
-        '''
         values = self.local_net.predict_values(mdp_states, self.sess)
         '''
-        values, mu, mu_steer, sigma, log_prob = self.local_net.predict_values(mdp_states, self.sess, debug=True)
-
+        values, mu, sigma, log_prob = self.local_net.predict_values(mdp_states, self.sess, debug=True)
         mu = mu.reshape((-1, 2))
         sigma = sigma.reshape((-1, 2))
+        '''
 
         for t in range(T)[::-1]:
             # discounted reward
@@ -279,6 +280,7 @@ class Worker(object):
             # print "step #{:04d}: reward = {}, value = {}, td_error = {}".format(t, reward, value, td_error)
             # print "{} {} {}".format(reward, value, td_error)
 
+        '''
         worker_id = int(self.name[-1])
         if worker_id == 0 and self.counter % 10 == 0:
             fn = "debug/{:04d}.mat".format(self.counter)
@@ -292,11 +294,11 @@ class Worker(object):
                 actions = actions,
                 adv = policy_targets,
                 mu = mu,
-                mu_steer = mu_steer,
                 sigma = sigma,
                 log_prob = log_prob
             ))
             print "{} saved.".format(fn)
+        '''
 
         self.counter += 1
 

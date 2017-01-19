@@ -49,19 +49,19 @@ def build_shared_network(state, add_summaries=False):
         nonlinearity="relu",
         name="fc1")
 
-    concat1 = tf.concat(1, [fc1, state["prev_reward"]])
+    concat1 = tf.concat(1, [fc1, state["prev_reward"], state["vehicle_state"], state["prev_action"]])
 
     fc2 = DenseLayer(
-        input=tf.contrib.layers.flatten(concat1),
+        input=concat1,
         num_outputs=256,
         nonlinearity="relu",
         name="fc2")
 
-    concat2 = tf.concat(1, [fc1, fc2, state["vehicle_state"], state["prev_action"]])
+    concat2 = tf.concat(1, [fc1, fc2, state["prev_reward"], state["vehicle_state"], state["prev_action"]])
 
     fc3 = DenseLayer(
-        input=tf.contrib.layers.flatten(concat2),
-        num_outputs=256,
+        input=concat2,
+        num_outputs=512,
         nonlinearity="relu",
         name="fc3")
 
@@ -82,6 +82,7 @@ def tf_print(x, message):
 
     step = tf.contrib.framework.get_global_step()
     cond = tf.equal(tf.mod(step, 10), 0)
+    message = "\33[93m" + message + "\33[0m"
     return tf.cond(cond, lambda: tf.Print(x, [x], message=message, summarize=100), lambda: x)
 
 class PolicyValueEstimator():
@@ -95,12 +96,22 @@ class PolicyValueEstimator():
         self.r = tf.placeholder(tf.float32, [batch_size, 1], "r")
 
         # Graph shared with Value Net
+        self.state = get_state_placeholder()
         with tf.variable_scope("shared", reuse=reuse):
-            self.state = get_state_placeholder()
             shared = build_shared_network(self.state, add_summaries=(not reuse))
 
+        '''
+        with tf.variable_scope("shared_policy", reuse=reuse):
+            shared_policy = build_shared_network(self.state, add_summaries=(not reuse))
+
+        with tf.variable_scope("shared_value", reuse=reuse):
+            shared_value = build_shared_network(self.state, add_summaries=(not reuse))
+        '''
+        shared_policy = shared
+        shared_value = shared
+
         with tf.variable_scope("local"):
-            self.mu, self.sigma = self.policy_network(shared, 2)
+            self.mu, self.sigma = self.policy_network(shared_policy, 2)
 
             '''
             # Make it deterministic for debugging
@@ -116,14 +127,12 @@ class PolicyValueEstimator():
             self.mu = tf_print(self.mu, "mu = ")
             self.sigma = tf_print(self.sigma, "sigma = ")
 
+            # Create normal distribution and sample some actions
             normal_dist = tf.contrib.distributions.Normal(self.mu, self.sigma)
-            self.actions = tf.reshape(normal_dist.sample_n(1), [-1, 2])
+            self.actions = self.sample_actions(normal_dist)
 
             # Compute log probabilities
-            reshaped_action = tf.reshape(self.actions, [-1])
-            log_prob = normal_dist.log_prob(reshaped_action)
-            log_prob = tf_print(log_prob, "log_prob = ")
-            self.log_prob = tf.reshape(log_prob, [-1, 2])
+            self.log_prob = self.compute_log_prob(normal_dist, self.actions)
 
             # loss of policy (policy gradient)
             self.pi_loss = -tf.reduce_mean(self.log_prob * self.advantage)
@@ -132,7 +141,7 @@ class PolicyValueEstimator():
             self.entropy = tf.reduce_mean(normal_dist.entropy())
 
             # loss of value function
-            self.logits = self.value_network(shared)
+            self.logits = self.value_network(shared_value)
             self.vf_loss = 0.5 * tf.reduce_mean(tf.square(self.logits - self.r))
 
             self.loss = self.pi_loss + self.vf_loss + FLAGS.entropy_cost_mult * self.entropy
@@ -143,6 +152,35 @@ class PolicyValueEstimator():
 
         self.summarize_policy_estimator()
         self.summarize_value_estimator()
+
+    def sample_actions(self, dist):
+        actions = tf.reshape(dist.sample_n(1), [-1, 2])
+
+        # Extract steer from actions (2rd column), turn it to yawrate, and
+        # concatenate it back
+        vf = actions[:, 0:1]
+        steer = actions[:, 1:2]
+        yawrate = self.steer_to_yawrate(steer)
+        actions = tf.concat(1, [vf, yawrate])
+
+        return actions
+
+    def compute_log_prob(self, dist, actions):
+        # Extract yawrate from actions (2rd column), turn it to steer, and
+        # concatenate it back
+        vf = actions[:, 0:1]
+        yawrate = actions[:, 1:2]
+        yawrate = tf_print(yawrate, "yawrate = ")
+        steer = self.yawrate_to_steer(yawrate)
+        steer = tf_print(steer, "steer = ")
+        actions = tf.concat(1, [vf, steer])
+
+        reshaped_actions = tf.reshape(actions, [-1])
+        log_prob = dist.log_prob(reshaped_actions)
+        log_prob = tf_print(log_prob, "log_prob = ")
+        log_prob = tf.reshape(log_prob, [-1, 2])
+
+        return log_prob
 
     def summarize_policy_estimator(self):
         scope = "policy_estimator"
@@ -157,13 +195,32 @@ class PolicyValueEstimator():
         summaries = [s for s in summary_ops if var_scope_name in s.name]
         self.summaries = tf.summary.merge(summaries)
 
+    def steer_to_yawrate(self, steer):
+        # Use Ackerman formula to compute yawrate from steering angle and
+        # forward velocity (4-th element of vehicle_state)
+        v = self.state["vehicle_state"][:, 4:5]
+        radius = FLAGS.wheelbase / tf.tan(steer)
+        omega = v / radius
+        return omega
+
+    def yawrate_to_steer(self, omega):
+        # Use Ackerman formula to compute steering angle from yawrate and
+        # forward velocity (4-th element of vehicle_state)
+        v = self.state["vehicle_state"][:, 4:5]
+        radius = v / omega
+        steer = tf.atan(FLAGS.wheelbase / radius)
+        return steer
+
     def policy_network(self, input, num_outputs):
 
-        max_steer = tf.constant([FLAGS.max_steering], dtype=tf.float32)
-        min_steer = tf.constant([FLAGS.min_steering], dtype=tf.float32)
+        min_mu = tf.constant([[FLAGS.min_mu_vf, FLAGS.min_mu_steer]], dtype=tf.float32)
+        max_mu = tf.constant([[FLAGS.max_mu_vf, FLAGS.max_mu_steer]], dtype=tf.float32)
 
-        max_vf = tf.constant([FLAGS.max_forward_speed], dtype=tf.float32)
-        min_vf = tf.constant([FLAGS.min_forward_speed], dtype=tf.float32)
+        min_sigma = tf.constant([[FLAGS.min_sigma_vf, FLAGS.min_sigma_steer]], dtype=tf.float32)
+        max_sigma = tf.constant([[FLAGS.max_sigma_vf, FLAGS.max_sigma_steer]], dtype=tf.float32)
+
+        def clip(x, min_v, max_v):
+            return tf.maximum(tf.minimum(x, max_v), min_v)
         
         input = DenseLayer(
             input=input,
@@ -171,46 +228,20 @@ class PolicyValueEstimator():
             nonlinearity="relu",
             name="policy-input-dense")
 
-        # This is just linear classifier
-        mu_vf = DenseLayer(
+        # Linear classifiers for mu and sigma
+        mu = DenseLayer(
             input=input,
-            num_outputs=1,
-            name="policy-mu-forward-velocity")
-        mu_vf = tf.reshape(mu_vf, [-1, 1])
-
-        mu_vf = tf.maximum(tf.minimum(mu_vf, max_vf), min_vf)
-
-        mu_steer = DenseLayer(
-            input=input,
-            num_outputs=1,
-            name="policy-mu-steering-angle")
-        mu_steer = tf.reshape(mu_steer, [-1, 1])
-
-        # Use hyperbolic tangent (or sigmoid)
-        # self.mu = (max_a + min_a) / 2 + tf.nn.tanh(self.mu) * (max_a - min_a) / 2
-        # self.mu = tf.nn.sigmoid(self.mu) * (max_a - min_a) + min_a
-        # self.mu = tf.maximum(tf.minimum(self.mu, max_a), min_a)
-        self.mu_steer = tf.maximum(tf.minimum(mu_steer, max_steer), min_steer)
-
-        # Ackerman formula
-        # vehicle state is of shape [batch_size, 6], (x, y, theta, x', y', theta'), y'
-        # (4-th element) is forward velocity needed by omega (yawrate) = v / R
-        v = self.state["vehicle_state"][:, 4:5]
-        mu_radius = FLAGS.wheelbase / tf.tan(self.mu_steer)
-        mu_yawrate = v / mu_radius
-
-        # mu is the mean of vf (forward velocity) and the mean of yawrate
-        mu = tf.concat(1, [mu_vf, mu_yawrate])
+            num_outputs=num_outputs,
+            name="policy-mu")
 
         sigma = DenseLayer(
             input=input,
             num_outputs=num_outputs,
-            name="policy-sigma-dense")
-        sigma = tf.reshape(sigma, [-1, 2])
+            name="policy-sigma")
 
-        # Add some exploration to make sure it's stochastic
-        # sigma = tf.nn.softplus(sigma) + FLAGS.min_sigma
-        sigma = tf.nn.sigmoid(sigma) + FLAGS.min_sigma
+        # Clip mu by min and max, use softplus and capping for sigma
+        mu = clip(mu, min_mu, max_mu)
+        sigma = tf.minimum(tf.nn.softplus(sigma) + min_sigma, max_mu)
 
         return mu, sigma
 
@@ -240,6 +271,14 @@ class PolicyValueEstimator():
             num_outputs=256,
             nonlinearity="relu",
             name="value-input-dense")
+
+        '''
+        input = DenseLayer(
+            input=input,
+            num_outputs=256,
+            nonlinearity="relu",
+            name="value-input-dense-2")
+        '''
 
         # This is just linear classifier
         value = DenseLayer(

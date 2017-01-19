@@ -19,6 +19,8 @@ class OffRoadNavEnv(gym.Env):
 
         self.state = None
 
+        self.prev_action = np.zeros((2, 1))
+
         self.name = name
 
         self.front_view_disp = np.zeros((400, 400, 3), np.uint8)
@@ -49,6 +51,8 @@ class OffRoadNavEnv(gym.Env):
 
         # debug info
         info = {}
+
+        self.prev_action = action
 
         return self.state.copy(), reward, done, info
 
@@ -99,8 +103,8 @@ class OffRoadNavEnv(gym.Env):
 
     def _reset(self, s0):
         if not hasattr(self, "R"):
-            # data = scipy.io.loadmat("data/circle3-metadata.mat")
-            data = scipy.io.loadmat("data/maze2-metadata.mat")
+            data = scipy.io.loadmat("data/circle3-metadata.mat")
+            # data = scipy.io.loadmat("data/maze2-metadata.mat")
             self.R = data["R"].copy()
             self.bR = data["bR"].copy()
             self.padded_rewards = data["padded_rewards"].astype(np.float32).copy()
@@ -119,7 +123,7 @@ class OffRoadNavEnv(gym.Env):
             self.bR = self.to_image(self.debug_bilinear_R(self.K), self.K)
 
         if hasattr(self, "bR") and hasattr(self, "R") and hasattr(self, "padded_rewards"):
-            scipy.io.savemat("data/maze2-metadata.mat", dict(bR=self.bR, R=self.R, padded_rewards=self.padded_rewards))
+            scipy.io.savemat("data/circle3-metadata.mat", dict(bR=self.bR, R=self.R, padded_rewards=self.padded_rewards))
         '''
 
         self.disp_img = np.copy(self.bR)
@@ -204,6 +208,10 @@ class OffRoadNavEnv(gym.Env):
             color = (255, 255, 255)
             text = "reward = {:.3f}, return = {:.3f} / {:.3f}".format(worker.current_reward, worker.total_return, worker.max_return)
             cv2.putText(disp_img, text, (5, 20), font, font_size, color, 1, cv2.CV_AA)
+
+            text = "action = ({:+.2f}, {:+.2f})".format(
+                self.prev_action[0, 0], self.prev_action[1, 0])
+            cv2.putText(disp_img, text, (5, 350), font, font_size, color, 1, cv2.CV_AA)
 
             text = "(x, y, theta)  = ({:+.2f}, {:+.2f}, {:+d})".format(
                 self.state[0, 0], self.state[1, 0], int(np.mod(self.state[2, 0] * 180 / np.pi, 360)))
