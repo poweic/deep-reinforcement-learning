@@ -1,3 +1,4 @@
 *.pyc
 gym_offroad_nav.egg-info/
 python/*.pyc
+data/*
