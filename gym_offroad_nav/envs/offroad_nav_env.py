@@ -2,8 +2,11 @@ import gym
 import cv2
 import numpy as np
 import scipy.io
+import tensorflow as tf
 from gym import error, spaces, utils
 from gym.utils import seeding
+
+FLAGS = tf.flags.FLAGS
 
 class OffRoadNavEnv(gym.Env):
 
@@ -96,9 +99,9 @@ class OffRoadNavEnv(gym.Env):
         return r.reshape(1, -1)
 
     def _reset(self, s0):
+        metadata_fn = "data/{}-metadata.mat".format(FLAGS.game)
         if not hasattr(self, "R"):
-            data = scipy.io.loadmat("data/circle3-metadata.mat")
-            # data = scipy.io.loadmat("data/maze2-metadata.mat")
+            data = scipy.io.loadmat(metadata_fn)
             self.R = data["R"].copy()
             self.bR = data["bR"].copy()
             self.padded_rewards = data["padded_rewards"].astype(np.float32).copy()
@@ -117,7 +120,8 @@ class OffRoadNavEnv(gym.Env):
             self.bR = self.to_image(self.debug_bilinear_R(self.K), self.K)
 
         if hasattr(self, "bR") and hasattr(self, "R") and hasattr(self, "padded_rewards"):
-            scipy.io.savemat("data/circle3-metadata.mat", dict(bR=self.bR, R=self.R, padded_rewards=self.padded_rewards))
+            scipy.io.savemat(metadata_fn, dict(
+                bR=self.bR, R=self.R, padded_rewards=self.padded_rewards))
         '''
 
         self.disp_img = np.copy(self.bR)
@@ -157,11 +161,11 @@ class OffRoadNavEnv(gym.Env):
 
         angles = - theta * 180. / np.pi
 
-        img = np.zeros((len(angles), 20, 20, 1), dtype=np.float32)
+        img = np.zeros((len(angles), 20, 20), dtype=np.float32)
         for i, (cx, cy, angle) in enumerate(zip(cxs, cys, angles)):
             M = cv2.getRotationMatrix2D((cx, cy), angle, 1)
             rotated = cv2.warpAffine(self.padded_rewards, M, (80, 80))
-            img[i, :, :, 0] = rotated[cy-10-10:cy-10+10, cx-10:cx+10]
+            img[i, :, :] = rotated[cy-10-10:cy-10+10, cx-10:cx+10]
 
         '''
         front_view = self.to_image(img[0], self.K * 2)
@@ -172,7 +176,7 @@ class OffRoadNavEnv(gym.Env):
         self.front_view_disp = front_view
         '''
 
-        return img
+        return img[..., None]
 
     def _render(self, info, mode='human', close=False):
 
@@ -222,14 +226,15 @@ class OffRoadNavEnv(gym.Env):
                 prev_action[0], prev_action[1])
             cv2.putText(disp_img, text, (5, 350), font, font_size, color, 1, cv2.CV_AA)
 
-            text = "(x, y, theta)  = ({:+.2f}, {:+.2f}, {:+d})".format(
-                state[0], state[1], int(np.mod(state[2] * 180 / np.pi, 360)))
+            text = "(x, y, theta)  = ({:+.2f}, {:+.2f}, {:+.2f})".format(
+                state[0], state[1], np.mod(state[2] * 180 / np.pi, 360))
             cv2.putText(disp_img, text, (5, 370), font, font_size, color, 1, cv2.CV_AA)
 
-            text = "(x', y', theta') = ({:+.2f}, {:+.2f}, {:+d})".format(
-                state[3], state[4], int(state[5] * 180 / np.pi))
+            text = "(x', y', theta') = ({:+.2f}, {:+.2f}, {:+.2f})".format(
+                state[3], state[4], state[5] * 180 / np.pi)
             cv2.putText(disp_img, text, (5, 390), font, font_size, color, 1, cv2.CV_AA)
 
         idx = int(worker.name[-1])
         cv2.imshow4(idx, disp_img)
+        self.to_disp = disp_img
         # cv2.imshow4(2*idx + 1, self.front_view_disp)

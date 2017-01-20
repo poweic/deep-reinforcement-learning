@@ -6,19 +6,22 @@ batch_size = None
 
 def get_state_placeholder():
     # Note that placeholder are tf.Tensor not tf.Variable
-    map_with_vehicle = tf.placeholder(tf.float32, [batch_size, 20, 20, 1], "map_with_vehicle")
+    front_view = tf.placeholder(tf.float32, [batch_size, 20, 20, 1], "front_view")
     vehicle_state = tf.placeholder(tf.float32, [batch_size, 6], "vehicle_state")
     prev_action = tf.placeholder(tf.float32, [batch_size, 2], "prev_action")
     prev_reward = tf.placeholder(tf.float32, [batch_size, 1], "prev_reward")
 
     state = {
-        "map_with_vehicle": map_with_vehicle,
+        "front_view": front_view,
         "vehicle_state": vehicle_state,
         "prev_action": prev_action,
         "prev_reward": prev_reward
     }
 
     return state
+
+def clip(x, min_v, max_v):
+    return tf.maximum(tf.minimum(x, max_v), min_v)
 
 def build_shared_network(state, add_summaries=False):
     """
@@ -30,49 +33,50 @@ def build_shared_network(state, add_summaries=False):
     Returns:
     Final layer activations.
     """
-    X = state["map_with_vehicle"]
+    X = state["front_view"]
 
-    # Three convolutional layers
-    conv1 = tf.contrib.layers.conv2d(
-        X, 32, 5, 2, activation_fn=tf.nn.relu, scope="conv1")
-    conv2 = tf.contrib.layers.conv2d(
-        conv1, 32, 3, 2, activation_fn=tf.nn.relu, scope="conv2")
-    conv3 = tf.contrib.layers.conv2d(
-        conv2, 32, 3, 2, activation_fn=tf.nn.relu, scope="conv3")
-    conv4 = tf.contrib.layers.conv2d(
-        conv3, 16, 3, 2, activation_fn=tf.nn.relu, scope="conv4")
+    with tf.name_scope("conv"):
+        # Three convolutional layers
+        conv1 = tf.contrib.layers.conv2d(
+            X, 32, 5, 2, activation_fn=tf.nn.relu, scope="conv1")
+        conv2 = tf.contrib.layers.conv2d(
+            conv1, 32, 3, 2, activation_fn=tf.nn.relu, scope="conv2")
+        conv3 = tf.contrib.layers.conv2d(
+            conv2, 32, 3, 2, activation_fn=tf.nn.relu, scope="conv3")
 
-    # Fully connected layer
-    fc1 = DenseLayer(
-        input=tf.contrib.layers.flatten(conv4),
-        num_outputs=256,
-        nonlinearity="relu",
-        name="fc1")
+    with tf.name_scope("dense"):
+        # Fully connected layer
+        fc1 = DenseLayer(
+            input=tf.contrib.layers.flatten(conv3),
+            num_outputs=256,
+            nonlinearity="relu",
+            name="fc1")
 
-    concat1 = tf.concat(1, [fc1, state["prev_reward"], state["vehicle_state"], state["prev_action"]])
+        concat1 = tf.concat(1, [fc1, state["prev_reward"], state["vehicle_state"], state["prev_action"]])
 
-    fc2 = DenseLayer(
-        input=concat1,
-        num_outputs=256,
-        nonlinearity="relu",
-        name="fc2")
+        fc2 = DenseLayer(
+            input=concat1,
+            num_outputs=256,
+            nonlinearity="relu",
+            name="fc2")
 
-    concat2 = tf.concat(1, [fc1, fc2, state["prev_reward"], state["vehicle_state"], state["prev_action"]])
+        concat2 = tf.concat(1, [fc1, fc2, state["prev_reward"], state["vehicle_state"], state["prev_action"]])
 
-    fc3 = DenseLayer(
-        input=concat2,
-        num_outputs=512,
-        nonlinearity="relu",
-        name="fc3")
+        fc3 = DenseLayer(
+            input=concat2,
+            num_outputs=512,
+            nonlinearity="relu",
+            name="fc3")
 
     if add_summaries:
-        tf.contrib.layers.summarize_activation(conv1)
-        tf.contrib.layers.summarize_activation(conv2)
-        tf.contrib.layers.summarize_activation(fc1)
-        tf.contrib.layers.summarize_activation(fc2)
-        tf.contrib.layers.summarize_activation(fc3)
-        tf.contrib.layers.summarize_activation(concat1)
-        tf.contrib.layers.summarize_activation(concat2)
+        with tf.name_scope("summaries"):
+            tf.contrib.layers.summarize_activation(conv1)
+            tf.contrib.layers.summarize_activation(conv2)
+            tf.contrib.layers.summarize_activation(fc1)
+            tf.contrib.layers.summarize_activation(fc2)
+            tf.contrib.layers.summarize_activation(fc3)
+            tf.contrib.layers.summarize_activation(concat1)
+            tf.contrib.layers.summarize_activation(concat2)
 
     return fc3
 
@@ -90,55 +94,61 @@ class PolicyValueEstimator():
     Policy Function approximator. 
     """
 
-    def __init__(self, reuse=False):
+    def __init__(self, add_summaries=False):
 
-        self.advantage = tf.placeholder(tf.float32, [batch_size, 1], "advantage")
-        self.r = tf.placeholder(tf.float32, [batch_size, 1], "r")
+        with tf.name_scope("inputs"):
+            self.state = get_state_placeholder()
 
-        # Graph shared with Value Net
-        self.state = get_state_placeholder()
-        with tf.variable_scope("shared", reuse=reuse):
-            shared = build_shared_network(self.state, add_summaries=(not reuse))
+        with tf.name_scope("outputs"):
+            self.advantages = tf.placeholder(tf.float32, [batch_size, 1], "advantages")
+            self.rewards = tf.placeholder(tf.float32, [batch_size, 1], "rewards")
+            self.actions_ext = tf.placeholder(tf.float32, [batch_size, 2], "actions_ext")
 
-        '''
-        with tf.variable_scope("shared_policy", reuse=reuse):
-            shared_policy = build_shared_network(self.state, add_summaries=(not reuse))
+        with tf.name_scope("shared"):
+            shared = build_shared_network(self.state, add_summaries=add_summaries)
 
-        with tf.variable_scope("shared_value", reuse=reuse):
-            shared_value = build_shared_network(self.state, add_summaries=(not reuse))
-        '''
-        shared_policy = shared
-        shared_value = shared
-
-        with tf.variable_scope("local"):
-            self.mu, self.sigma = self.policy_network(shared_policy, 2)
+        with tf.name_scope("policy_network"):
+            self.mu, self.sigma = self.policy_network(shared, 2)
 
             normal_dist = self.get_normal_dist(self.mu, self.sigma)
 
             self.actions = self.sample_actions(normal_dist)
 
             # Compute log probabilities
-            self.log_prob = self.compute_log_prob(normal_dist, self.actions)
+            self.log_prob = self.compute_log_prob(normal_dist, self.actions_ext)
 
-            # loss of policy (policy gradient)
-            self.pi_loss = -tf.reduce_mean(self.log_prob * self.advantage)
+            with tf.name_scope("policy_loss"):
+                # loss of policy (policy gradient)
+                self.pi_loss = -tf.reduce_mean(self.log_prob * self.advantages)
 
-            # Add entropy cost to encourage exploration
-            self.entropy = tf.reduce_mean(normal_dist.entropy())
+            with tf.name_scope("exploration_entropy"):
+                # Add entropy cost to encourage exploration
+                self.entropy = tf.reduce_mean(normal_dist.entropy())
 
-            # loss of value function
-            self.logits = self.value_network(shared_value)
-            self.vf_loss = 0.5 * tf.reduce_mean(tf.square(self.logits - self.r))
+        with tf.name_scope("value_network"):
+            self.logits = self.value_network(shared)
 
+            with tf.name_scope("value_loss"):
+                # loss of value function
+                self.vf_loss = 0.5 * tf.reduce_mean(tf.square(self.logits - self.rewards))
+
+        with tf.name_scope("total_loss"):
             self.loss = self.pi_loss + self.vf_loss + FLAGS.entropy_cost_mult * self.entropy
 
+        with tf.name_scope("grads_and_optimizer"):
             self.optimizer = tf.train.AdamOptimizer(FLAGS.learning_rate)
             grads_and_vars = self.optimizer.compute_gradients(self.loss)
             self.grads_and_vars = [(g, v) for g, v in grads_and_vars if g is not None]
+            # self.g_mu = tf.gradients(self.pi_loss, [self.mu])[0]
 
-        self.summarize_policy_estimator()
-        self.summarize_value_estimator()
-        self.summaries = self.get_summaries()
+        if add_summaries:
+            with tf.name_scope("summaries"):
+                self.summarize_gradient_norm()
+                self.summarize_policy_estimator()
+                self.summarize_value_estimator()
+                tf.summary.scalar("total_loss", self.loss)
+
+            self.summaries = tf.summary.merge_all()
 
     def get_normal_dist(self, mu, sigma):
 
@@ -166,27 +176,41 @@ class PolicyValueEstimator():
 
         # Extract steer from actions (2rd column), turn it to yawrate, and
         # concatenate it back
-        vf = actions[:, 0:1]
-        steer = actions[:, 1:2]
-        yawrate = self.steer_to_yawrate(steer)
-        actions = tf.concat(1, [vf, yawrate])
+        with tf.name_scope("steer_to_yawrate"):
+            vf = actions[:, 0:1]
+            steer = actions[:, 1:2]
+            yawrate = self.steer_to_yawrate(steer)
+            actions = tf.concat(1, [vf, yawrate])
 
         return actions
 
     def compute_log_prob(self, dist, actions):
         # Extract yawrate from actions (2rd column), turn it to steer, and
         # concatenate it back
-        vf = actions[:, 0:1]
-        yawrate = actions[:, 1:2]
-        # yawrate = tf_print(yawrate, "yawrate = ")
-        steer = self.yawrate_to_steer(yawrate)
-        # steer = tf_print(steer, "steer = ")
-        actions = tf.concat(1, [vf, steer])
+        with tf.name_scope("yawrate_to_steer"):
+            vf = actions[:, 0:1]
+            yawrate = actions[:, 1:2]
+            # yawrate = tf_print(yawrate, "yawrate = ")
+            steer = self.yawrate_to_steer(yawrate)
+            # steer = tf_print(steer, "steer = ")
+            actions = tf.concat(1, [vf, steer])
 
-        reshaped_actions = tf.reshape(actions, [-1])
-        log_prob = dist.log_prob(reshaped_actions)
-        # log_prob = tf_print(log_prob, "log_prob = ")
-        log_prob = tf.reshape(log_prob, [-1, 2])
+        with tf.name_scope("compute_log_prob"):
+            reshaped_actions = tf.reshape(actions, [-1])
+            log_prob = dist.log_prob(reshaped_actions)
+            # log_prob = tf_print(log_prob, "log_prob = ")
+            log_prob = tf.reshape(log_prob, [-1, 2])
+
+        # Compute z-score for debugging
+        '''
+        self.z = (actions - self.mu) / self.sigma
+        self.z_mean = tf.reduce_mean(self.z)
+        self.z_rms = tf.reduce_mean(tf.square(self.z))
+
+        const = -0.5 * np.log(2 * np.pi)
+        self.log_prob2 = const - tf.log(self.sigma) - 0.5 * tf.square(self.z)
+        self.log_prob_diff = tf.reduce_sum(tf.square(self.log_prob2 - log_prob))
+        '''
 
         return log_prob
 
@@ -208,15 +232,6 @@ class PolicyValueEstimator():
 
     def policy_network(self, input, num_outputs):
 
-        min_mu = tf.constant([[FLAGS.min_mu_vf, FLAGS.min_mu_steer]], dtype=tf.float32)
-        max_mu = tf.constant([[FLAGS.max_mu_vf, FLAGS.max_mu_steer]], dtype=tf.float32)
-
-        min_sigma = tf.constant([[FLAGS.min_sigma_vf, FLAGS.min_sigma_steer]], dtype=tf.float32)
-        max_sigma = tf.constant([[FLAGS.max_sigma_vf, FLAGS.max_sigma_steer]], dtype=tf.float32)
-
-        def clip(x, min_v, max_v):
-            return tf.maximum(tf.minimum(x, max_v), min_v)
-        
         input = DenseLayer(
             input=input,
             num_outputs=256,
@@ -234,9 +249,20 @@ class PolicyValueEstimator():
             num_outputs=num_outputs,
             name="policy-sigma")
 
-        # Clip mu by min and max, use softplus and capping for sigma
-        mu = clip(mu, min_mu, max_mu)
-        sigma = tf.minimum(tf.nn.softplus(sigma) + min_sigma, max_sigma)
+        with tf.name_scope("mu_sigma_constraints"):
+            min_mu = tf.constant([[FLAGS.min_mu_vf, FLAGS.min_mu_steer]], dtype=tf.float32)
+            max_mu = tf.constant([[FLAGS.max_mu_vf, FLAGS.max_mu_steer]], dtype=tf.float32)
+
+            min_sigma = tf.constant([[FLAGS.min_sigma_vf, FLAGS.min_sigma_steer]], dtype=tf.float32)
+            max_sigma = tf.constant([[FLAGS.max_sigma_vf, FLAGS.max_sigma_steer]], dtype=tf.float32)
+
+            # Clip mu by min and max, use softplus and capping for sigma
+            # mu = clip(mu, min_mu, max_mu)
+            # sigma = tf.minimum(tf.nn.softplus(sigma) + min_sigma, max_sigma)
+            # sigma = tf.nn.sigmoid(sigma) * 1e-20 + max_sigma
+
+            mu = (max_mu + min_mu) / 2 + tf.nn.tanh(mu) * (max_mu - min_mu) / 2
+            sigma = (max_sigma + min_sigma) / 2 + tf.nn.tanh(sigma) * (max_sigma - min_sigma) / 2
 
         return mu, sigma
 
@@ -282,7 +308,7 @@ class PolicyValueEstimator():
     def predict_values(self, state, sess=None, debug=False):
         tensors = [self.logits]
         if debug:
-            tensors += [self.mu, self.mu_steer, self.sigma, self.log_prob]
+            tensors += [self.mu, self.sigma]
         return self.predict(state, tensors, sess)
 
     def predict_actions(self, state, sess=None):
@@ -291,23 +317,29 @@ class PolicyValueEstimator():
 
     def summarize_policy_estimator(self):
         tf.summary.scalar("pi_loss", self.pi_loss)
-        tf.summary.scalar("entropy", self.entropy)
-        tf.summary.scalar("mean(sigma_vf)", tf.reduce_mean(self.sigma[:, 0]))
-        tf.summary.scalar("mean(sigma_steer)", tf.reduce_mean(self.sigma[:, 1]))
 
-    def get_summaries(self):
-        var_scope_name = tf.get_variable_scope().name
-        summary_ops = tf.get_collection(tf.GraphKeys.SUMMARIES)
-        summaries = [s for s in summary_ops if var_scope_name in s.name]
-        return tf.summary.merge(summaries)
+        tf.summary.scalar("entropy", self.entropy)
+
+        tf.summary.scalar("mean_mu_vf", tf.reduce_mean(self.mu[:, 0]) / 3.6)
+        tf.summary.scalar("mean_mu_steer", tf.reduce_mean(self.mu[:, 1]) / np.pi * 180)
+
+        tf.summary.scalar("mean_sigma_vf", tf.reduce_mean(self.sigma[:, 0]) / 3.6)
+        tf.summary.scalar("mean_sigma_steer", tf.reduce_mean(self.sigma[:, 1]) / np.pi * 180)
+
+    def summarize_gradient_norm(self):
+        with tf.variable_scope("gradient"):
+            for g, v in self.grads_and_vars:
+                tf.summary.scalar("gradient/" + v.name, tf.reduce_sum(g * g))
+
+            # tf.summary.scalar("gradient/clipped_mu", tf.reduce_mean(self.g_mu))
 
     def summarize_value_estimator(self):
-        tf.summary.scalar("loss", self.vf_loss)
+        tf.summary.scalar("vf_loss", self.vf_loss)
 
-        tf.summary.scalar("max(value)", tf.reduce_max(self.logits))
-        tf.summary.scalar("min(value)", tf.reduce_min(self.logits))
-        tf.summary.scalar("mean(value)", tf.reduce_mean(self.logits))
+        tf.summary.scalar("max_value", tf.reduce_max(self.logits))
+        tf.summary.scalar("min_value", tf.reduce_min(self.logits))
+        tf.summary.scalar("mean_value", tf.reduce_mean(self.logits))
 
-        tf.summary.scalar("max(advantage)", tf.reduce_max(self.advantage))
-        tf.summary.scalar("min(advantage)", tf.reduce_min(self.advantage))
-        tf.summary.scalar("mean(advantage)", tf.reduce_mean(self.advantage))
+        tf.summary.scalar("max_advantage", tf.reduce_max(self.advantages))
+        tf.summary.scalar("min_advantage", tf.reduce_min(self.advantages))
+        tf.summary.scalar("mean_advantage", tf.reduce_mean(self.advantages))
