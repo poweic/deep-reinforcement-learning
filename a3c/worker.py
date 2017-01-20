@@ -112,16 +112,16 @@ class Worker(object):
         with tf.variable_scope(name):
             self.local_net = PolicyValueEstimator(add_summaries)
 
-        # Operation to copy params from global net to local net
-        global_vars = tf.contrib.slim.get_variables(scope="global", collection=tf.GraphKeys.TRAINABLE_VARIABLES)
-        local_vars = tf.contrib.slim.get_variables(scope=self.name, collection=tf.GraphKeys.TRAINABLE_VARIABLES)
-        self.copy_params_op = make_copy_params_op(global_vars, local_vars)
-
         self.state = None
         self.action = None
         self.max_return = 0
 
     def set_global_net(self, global_net):
+        # Operation to copy params from global net to local net
+        global_vars = tf.contrib.slim.get_variables(scope="global", collection=tf.GraphKeys.TRAINABLE_VARIABLES)
+        local_vars = tf.contrib.slim.get_variables(scope=self.name, collection=tf.GraphKeys.TRAINABLE_VARIABLES)
+        self.copy_params_op = make_copy_params_op(global_vars, local_vars)
+
         self.global_net = global_net
         self.net_train_op = make_train_op(self.local_net, self.global_net)
 
@@ -339,7 +339,7 @@ class Worker(object):
             global_step, loss, pi_loss, vf_loss, _ = self.sess.run(ops, feed_dict)
         else:
             ops += [self.local_net.summaries]
-            global_step, loss, pi_loss, vf_loss, summaries, _ = self.sess.run(ops, feed_dict)
+            global_step, loss, pi_loss, vf_loss, _, summaries = self.sess.run(ops, feed_dict)
 
         print "\33[33m#{:04d}\33[0m update (from {}), returns = {:.2f}, batch_size = {},".format(
             global_step, self.name, np.mean(returns[:, 0]), batch_size),

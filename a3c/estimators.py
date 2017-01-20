@@ -20,65 +20,66 @@ def get_state_placeholder():
 
     return state
 
+from math import sqrt
+
+def put_kernels_on_grid (kernel, pad = 1):
+
+    '''Visualize conv. features as an image (mostly for the 1st layer).
+    Place kernel into a grid, with some paddings between adjacent filters.
+    Args:
+      kernel:            tensor of shape [Y, X, NumChannels, NumKernels]
+      (grid_Y, grid_X):  shape of the grid. Require: NumKernels == grid_Y * grid_X
+                           User is responsible of how to break into two multiples.
+      pad:               number of black pixels around each filter (between them)
+    Return:
+      Tensor of shape [(Y+2*pad)*grid_Y, (X+2*pad)*grid_X, NumChannels, 1].
+    '''
+    # get shape of the grid. NumKernels == grid_Y * grid_X
+    def factorization(n):
+        for i in range(int(sqrt(float(n))), 0, -1):
+            if n % i == 0:
+                if i == 1: print('Who would enter a prime number of filters')
+                return (i, int(n / i))
+    (grid_Y, grid_X) = factorization (kernel.get_shape()[3].value)
+    print 'grid: %d = (%d, %d)' % (kernel.get_shape()[3].value, grid_Y, grid_X)
+
+    '''
+    x_min = tf.reduce_min(kernel)
+    x_max = tf.reduce_max(kernel)
+    kernel = (kernel - x_min) / (x_max - x_min)
+    '''
+
+    # pad X and Y
+    x1 = tf.pad(kernel, tf.constant( [[pad,pad],[pad, pad],[0,0],[0,0]] ), mode = 'CONSTANT')
+
+    # X and Y dimensions, w.r.t. padding
+    Y = kernel.get_shape()[0] + 2 * pad
+    X = kernel.get_shape()[1] + 2 * pad
+
+    channels = kernel.get_shape()[2]
+
+    # put NumKernels to the 1st dimension
+    x2 = tf.transpose(x1, (3, 0, 1, 2))
+    # organize grid on Y axis
+    x3 = tf.reshape(x2, tf.pack([grid_X, Y * grid_Y, X, channels]))
+
+    # switch X and Y axes
+    x4 = tf.transpose(x3, (0, 2, 1, 3))
+    # organize grid on X axis
+    x5 = tf.reshape(x4, tf.pack([1, X * grid_X, Y * grid_Y, channels]))
+
+    # back to normal order (not combining with the next step for clarity)
+    x6 = tf.transpose(x5, (2, 1, 3, 0))
+
+    # to tf.image_summary order [batch_size, height, width, channels],
+    #   where in this case batch_size == 1
+    x7 = tf.transpose(x6, (3, 0, 1, 2))
+
+    # scaling to [0, 255] is not necessary for tensorboard
+    return x7
+
 def clip(x, min_v, max_v):
     return tf.maximum(tf.minimum(x, max_v), min_v)
-
-def build_shared_network(state, add_summaries=False):
-    """
-    Builds a 3-layer network conv -> conv -> fc as described
-    in the A3C paper. This network is shared by both the policy and value net.
-    Args:
-    state: Input state contains rewards, vehicle_state, prev_reward, prev_action
-    add_summaries: If true, add layer summaries to Tensorboard.
-    Returns:
-    Final layer activations.
-    """
-    X = state["front_view"]
-
-    with tf.name_scope("conv"):
-        # Three convolutional layers
-        conv1 = tf.contrib.layers.conv2d(
-            X, 32, 5, 2, activation_fn=tf.nn.relu, scope="conv1")
-        conv2 = tf.contrib.layers.conv2d(
-            conv1, 32, 3, 2, activation_fn=tf.nn.relu, scope="conv2")
-        conv3 = tf.contrib.layers.conv2d(
-            conv2, 32, 3, 2, activation_fn=tf.nn.relu, scope="conv3")
-
-    with tf.name_scope("dense"):
-        # Fully connected layer
-        fc1 = DenseLayer(
-            input=tf.contrib.layers.flatten(conv3),
-            num_outputs=256,
-            nonlinearity="relu",
-            name="fc1")
-
-        concat1 = tf.concat(1, [fc1, state["prev_reward"], state["vehicle_state"], state["prev_action"]])
-
-        fc2 = DenseLayer(
-            input=concat1,
-            num_outputs=256,
-            nonlinearity="relu",
-            name="fc2")
-
-        concat2 = tf.concat(1, [fc1, fc2, state["prev_reward"], state["vehicle_state"], state["prev_action"]])
-
-        fc3 = DenseLayer(
-            input=concat2,
-            num_outputs=512,
-            nonlinearity="relu",
-            name="fc3")
-
-    if add_summaries:
-        with tf.name_scope("summaries"):
-            tf.contrib.layers.summarize_activation(conv1)
-            tf.contrib.layers.summarize_activation(conv2)
-            tf.contrib.layers.summarize_activation(fc1)
-            tf.contrib.layers.summarize_activation(fc2)
-            tf.contrib.layers.summarize_activation(fc3)
-            tf.contrib.layers.summarize_activation(concat1)
-            tf.contrib.layers.summarize_activation(concat2)
-
-    return fc3
 
 def tf_print(x, message):
     if not FLAGS.debug:
@@ -105,34 +106,20 @@ class PolicyValueEstimator():
             self.actions_ext = tf.placeholder(tf.float32, [batch_size, 2], "actions_ext")
 
         with tf.name_scope("shared"):
-            shared = build_shared_network(self.state, add_summaries=add_summaries)
+            shared = self.build_shared_network(add_summaries=add_summaries)
 
         with tf.name_scope("policy_network"):
             self.mu, self.sigma = self.policy_network(shared, 2)
-
             normal_dist = self.get_normal_dist(self.mu, self.sigma)
-
             self.actions = self.sample_actions(normal_dist)
-
-            # Compute log probabilities
-            self.log_prob = self.compute_log_prob(normal_dist, self.actions_ext)
-
-            with tf.name_scope("policy_loss"):
-                # loss of policy (policy gradient)
-                self.pi_loss = -tf.reduce_mean(self.log_prob * self.advantages)
-
-            with tf.name_scope("exploration_entropy"):
-                # Add entropy cost to encourage exploration
-                self.entropy = tf.reduce_mean(normal_dist.entropy())
 
         with tf.name_scope("value_network"):
             self.logits = self.value_network(shared)
 
-            with tf.name_scope("value_loss"):
-                # loss of value function
-                self.vf_loss = 0.5 * tf.reduce_mean(tf.square(self.logits - self.rewards))
-
-        with tf.name_scope("total_loss"):
+        with tf.name_scope("losses"):
+            self.pi_loss = self.get_policy_loss(normal_dist)
+            self.entropy = self.get_exploration_loss(normal_dist)
+            self.vf_loss = self.get_value_loss()
             self.loss = self.pi_loss + self.vf_loss + FLAGS.entropy_cost_mult * self.entropy
 
         with tf.name_scope("grads_and_optimizer"):
@@ -142,13 +129,98 @@ class PolicyValueEstimator():
             # self.g_mu = tf.gradients(self.pi_loss, [self.mu])[0]
 
         if add_summaries:
-            with tf.name_scope("summaries"):
-                self.summarize_gradient_norm()
-                self.summarize_policy_estimator()
-                self.summarize_value_estimator()
-                tf.summary.scalar("total_loss", self.loss)
+            self.summaries = self.summarize()
 
-            self.summaries = tf.summary.merge_all()
+    def build_shared_network(self, add_summaries=False):
+        """
+        Builds a 3-layer network conv -> conv -> fc as described
+        in the A3C paper. This network is shared by both the policy and value net.
+        Args:
+        add_summaries: If true, add layer summaries to Tensorboard.
+        Returns:
+        Final layer activations.
+        """
+        state = self.state
+
+        front_view = state["front_view"]
+        vehicle_state = state["vehicle_state"]
+        prev_action = state["prev_action"]
+        prev_reward = state["prev_reward"]
+
+        input = front_view
+
+        with tf.name_scope("conv"):
+            # Three convolutional layers
+            conv1 = tf.contrib.layers.conv2d(
+                input, 32, 7, 2, activation_fn=tf.nn.relu, scope="conv1")
+            conv2 = tf.contrib.layers.conv2d(
+                conv1, 32, 3, 2, activation_fn=tf.nn.relu, scope="conv2")
+            conv3 = tf.contrib.layers.conv2d(
+                conv2, 32, 3, 2, activation_fn=tf.nn.relu, scope="conv3")
+
+        with tf.name_scope("dense"):
+            # Fully connected layer
+            fc1 = DenseLayer(
+                input=tf.contrib.layers.flatten(conv3),
+                num_outputs=256,
+                nonlinearity="relu",
+                name="fc1")
+
+            concat1 = tf.concat(1, [fc1, prev_reward, vehicle_state, prev_action])
+
+            fc2 = DenseLayer(
+                input=concat1,
+                num_outputs=256,
+                nonlinearity="relu",
+                name="fc2")
+
+            concat2 = tf.concat(1, [fc1, fc2, prev_reward, vehicle_state, prev_action])
+
+            fc3 = DenseLayer(
+                input=concat2,
+                num_outputs=512,
+                nonlinearity="relu",
+                name="fc3")
+
+        if add_summaries:
+            with tf.name_scope("summaries"):
+                conv1_w = [v for v in tf.trainable_variables() if "conv1/weights"][0]
+                grid = put_kernels_on_grid(conv1_w)
+                tf.summary.image("conv1/weights", grid)
+
+                tf.summary.image("front_view", front_view, max_outputs=100)
+
+                tf.contrib.layers.summarize_activation(conv1)
+                tf.contrib.layers.summarize_activation(conv2)
+                tf.contrib.layers.summarize_activation(fc1)
+                tf.contrib.layers.summarize_activation(fc2)
+                tf.contrib.layers.summarize_activation(fc3)
+                tf.contrib.layers.summarize_activation(concat1)
+                tf.contrib.layers.summarize_activation(concat2)
+
+        return fc3
+
+    def get_policy_loss(self, normal_dist):
+        # policy loss is the negative of log_prob times advantages
+        with tf.name_scope("policy_loss"):
+            self.log_prob = self.compute_log_prob(normal_dist, self.actions_ext)
+            pi_loss = -tf.reduce_mean(self.log_prob * self.advantages)
+
+        return pi_loss
+
+    def get_value_loss(self):
+        # loss of value function (L2-norm)
+        with tf.name_scope("value_loss"):
+            vf_loss = 0.5 * tf.reduce_mean(tf.square(self.logits - self.rewards))
+
+        return vf_loss
+
+    def get_exploration_loss(self, normal_dist):
+        with tf.name_scope("exploration_entropy"):
+            # Add entropy cost to encourage exploration
+            entropy = tf.reduce_mean(normal_dist.entropy())
+
+        return entropy
 
     def get_normal_dist(self, mu, sigma):
 
@@ -315,6 +387,15 @@ class PolicyValueEstimator():
         tensors = [self.actions]
         return self.predict(state, tensors, sess)
 
+    def summarize(self):
+        with tf.name_scope("summaries"):
+            self.summarize_gradient_norm()
+            self.summarize_policy_estimator()
+            self.summarize_value_estimator()
+            tf.summary.scalar("total_loss", self.loss)
+
+        return tf.summary.merge_all()
+
     def summarize_policy_estimator(self):
         tf.summary.scalar("pi_loss", self.pi_loss)
 
@@ -329,7 +410,7 @@ class PolicyValueEstimator():
     def summarize_gradient_norm(self):
         with tf.variable_scope("gradient"):
             for g, v in self.grads_and_vars:
-                tf.summary.scalar("gradient/" + v.name, tf.reduce_sum(g * g))
+                tf.summary.scalar("gradient/" + v.name, tf.reduce_mean(g * g))
 
             # tf.summary.scalar("gradient/clipped_mu", tf.reduce_mean(self.g_mu))
 

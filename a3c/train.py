@@ -35,12 +35,12 @@ tf.flags.DEFINE_integer("max_global_steps", None, "Stop training after this many
 tf.flags.DEFINE_integer("eval_every", 30, "Evaluate the policy every N seconds")
 tf.flags.DEFINE_integer("parallelism", 6, "Number of threads to run. If not set we run [num_cpu_cores] threads.")
 tf.flags.DEFINE_integer("downsample", 10, "Downsample transitions to reduce sample correlation")
-tf.flags.DEFINE_integer("n_agents_per_worker", 16, "Downsample transitions to reduce sample correlation")
+tf.flags.DEFINE_integer("n_agents_per_worker", 32, "Downsample transitions to reduce sample correlation")
 
 tf.flags.DEFINE_boolean("reset", False, "If set, delete the existing model directory and start training from scratch.")
 tf.flags.DEFINE_boolean("debug", False, "If set, turn on the debug flag")
 
-tf.flags.DEFINE_float("learning_rate", 1e-4, "Learning rate for policy net and value net")
+tf.flags.DEFINE_float("learning_rate", 1e-2, "Learning rate for policy net and value net")
 tf.flags.DEFINE_float("max_gradient", 40, "Threshold for gradient clipping used by tf.clip_by_global_norm")
 tf.flags.DEFINE_float("timestep", 0.025, "Simulation timestep")
 tf.flags.DEFINE_float("wheelbase", 2.00, "Wheelbase of the vehicle in meters")
