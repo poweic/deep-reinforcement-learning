@@ -42,13 +42,14 @@ tf.flags.DEFINE_boolean("debug", False, "If set, turn on the debug flag")
 
 tf.flags.DEFINE_float("command_freq", 30, "How frequent we send command to vehicle (in Hz)")
 
-tf.flags.DEFINE_float("learning_rate", 1e-4, "Learning rate for policy net and value net")
+tf.flags.DEFINE_float("learning_rate", 1e-5, "Learning rate for policy net and value net")
+tf.flags.DEFINE_float("l2_reg", 1e-4, "L2 regularization multiplier")
 tf.flags.DEFINE_float("max_gradient", 40, "Threshold for gradient clipping used by tf.clip_by_global_norm")
 tf.flags.DEFINE_float("timestep", 0.003333, "Simulation timestep")
 tf.flags.DEFINE_float("wheelbase", 2.00, "Wheelbase of the vehicle in meters")
 tf.flags.DEFINE_float("vehicle_model_noise_level", 0.05, "level of white noise (variance) in vehicle model")
 tf.flags.DEFINE_float("entropy_cost_mult", 1e-2, "multiplier used by entropy regularization")
-tf.flags.DEFINE_float("discount_factor", 0.99, "discount factor in Markov decision process (MDP)")
+tf.flags.DEFINE_float("discount_factor", 0.5, "discount factor in Markov decision process (MDP)")
 tf.flags.DEFINE_float("lambda_", 0.99, "lambda in TD-Lambda (temporal difference learning)")
 
 tf.flags.DEFINE_float("min_mu_vf", 5  / 3.6, "Minimum forward velocity of vehicle (m/s)")
@@ -56,9 +57,9 @@ tf.flags.DEFINE_float("max_mu_vf", 40 / 3.6, "Maximum forward velocity of vehicl
 tf.flags.DEFINE_float("min_mu_steer", -30 * np.pi / 180, "Minimum steering angle (rad)")
 tf.flags.DEFINE_float("max_mu_steer", +30 * np.pi / 180, "Maximum steering angle (rad)")
 
-tf.flags.DEFINE_float("min_sigma_vf", 2  / 3.6 , "Minimum variance of forward velocity")
+tf.flags.DEFINE_float("min_sigma_vf", 5  / 3.6 , "Minimum variance of forward velocity")
 tf.flags.DEFINE_float("max_sigma_vf", 10 / 3.6, "Maximum variance of forward velocity")
-tf.flags.DEFINE_float("min_sigma_steer", 2  * np.pi / 180, "Minimum variance of steering angle (rad)")
+tf.flags.DEFINE_float("min_sigma_steer", 5  * np.pi / 180, "Minimum variance of steering angle (rad)")
 tf.flags.DEFINE_float("max_sigma_steer", 10 * np.pi / 180, "Maximum variance of steering angle (rad)")
 
 '''

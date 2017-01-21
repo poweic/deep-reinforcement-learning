@@ -126,6 +126,10 @@ class PolicyValueEstimator():
 
             self.loss = self.pi_loss + self.vf_loss + FLAGS.entropy_cost_mult * self.entropy
 
+        with tf.name_scope("regularization"):
+            self.reg_loss = self.get_reg_loss()
+            self.loss += FLAGS.l2_reg * self.reg_loss
+
         with tf.name_scope("grads_and_optimizer"):
             self.optimizer = tf.train.AdamOptimizer(FLAGS.learning_rate)
             grads_and_vars = self.optimizer.compute_gradients(self.loss)
@@ -227,6 +231,15 @@ class PolicyValueEstimator():
             entropy = tf.reduce_mean(normal_dist.entropy())
 
         return entropy
+
+    def get_reg_loss(self):
+        vscope = tf.get_variable_scope().name
+        weights = [
+            v for v in tf.trainable_variables()
+            if vscope in v.name and ("W" in v.name or "weights" in v.name)
+        ]
+        reg_losses = tf.add_n([tf.reduce_sum(w * w) for w in weights])
+        return reg_losses
 
     def get_normal_dist(self, mu, sigma):
 
@@ -361,13 +374,11 @@ class PolicyValueEstimator():
             nonlinearity="relu",
             name="value-input-dense")
 
-        '''
         input = DenseLayer(
             input=input,
             num_outputs=256,
             nonlinearity="relu",
             name="value-input-dense-2")
-        '''
 
         # This is just linear classifier
         value = DenseLayer(
