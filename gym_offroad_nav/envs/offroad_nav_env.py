@@ -10,7 +10,7 @@ FLAGS = tf.flags.FLAGS
 
 class OffRoadNavEnv(gym.Env):
 
-    def __init__(self, rewards, vehicle_model, name):
+    def __init__(self, rewards, vehicle_model):
         self.viewer = None
 
         # A tf.tensor (or np) containing rewards, we need a constant version and 
@@ -23,8 +23,6 @@ class OffRoadNavEnv(gym.Env):
         self.state = None
 
         self.prev_action = np.zeros((2, 1))
-
-        self.name = name
 
         self.front_view_disp = np.zeros((400, 400, 3), np.uint8)
 
@@ -183,7 +181,6 @@ class OffRoadNavEnv(gym.Env):
         worker = info["worker"]
 
         if self.state is None:
-            # print "\33[93m{} not initialized yet\33[0m".format(self.name)
             return
 
         x, y = self.state[:2]
