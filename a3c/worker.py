@@ -29,20 +29,16 @@ def discount(x, gamma):
     else:
         return scipy.signal.lfilter([1], [1, -gamma], x[:, ::-1], axis=1)[:, ::-1]
 
-'''
-def timer_decorate(func):
-    def func_wrapper(*args, **kwargs):
-        timer = time()
-        result = func(*args, **kwargs)
-        print "\33[2m{} took {:.4f} seconds\33[0m".format(func.__name__, time() - timer)
-        return result
-    return func_wrapper
-'''
+def flatten(x): # flatten the first 2 axes
+    return x.reshape((-1,) + x.shape[2:])
+
+def deflatten(x, n): # de-flatten the first axes
+    return x.reshape((n, -1,) + x.shape[1:])
 
 Transition = collections.namedtuple("Transition", ["mdp_state", "state", "action", "reward", "next_state", "done"])
 def form_mdp_state(env, state, prev_action, prev_reward):
     return {
-        "front_view": env.get_front_view(state),
+        "front_view": env.get_front_view(state).copy(),
         "vehicle_state": state.copy().T,
         "prev_action": prev_action.copy().T,
         "prev_reward": prev_reward.copy().T
@@ -73,7 +69,7 @@ def make_train_op(local_estimator, global_estimator):
 
     # Clip gradients
     max_grad = FLAGS.max_gradient
-    # local_grads, _ = tf.clip_by_global_norm(local_grads, max_grad)
+    local_grads, _ = tf.clip_by_global_norm(local_grads, max_grad)
 
     # Zip clipped local grads with global variables
     local_grads_global_vars = list(zip(local_grads, global_vars))
@@ -146,8 +142,6 @@ class Worker(object):
 
                     # Update the global networks
                     self.update(transitions)
-
-                print "\33[91mEnd of for loop\33[0m"
             
             except tf.errors.CancelledError:
                 return
@@ -155,9 +149,10 @@ class Worker(object):
                 traceback.print_exc()
 
     def reset_env(self):
-        self.state = np.array([+7.4, 9.15, 0, 0, 0, 0])
+        self.state = np.array([0.5, 3, 0, 0, 0.001, 0])
 
         '''
+        # self.state = np.array([+7.4, 8.15, 0, 0, 0, 0])
         theta = np.random.rand(self.n_agents) * np.pi * 2
         phi = np.random.rand(self.n_agents) * np.pi * 2
         self.state = np.zeros((6, self.n_agents))
@@ -175,7 +170,7 @@ class Worker(object):
         self.current_reward = np.zeros((1, self.n_agents))
 
         # Add some noise to have diverse start points
-        noise = np.random.rand(6, self.n_agents).astype(np.float32) * 0.1
+        noise = np.random.rand(6, self.n_agents).astype(np.float32) * 0.05
         self.state = self.state + noise
 
         self.env._reset(self.state)
@@ -191,26 +186,26 @@ class Worker(object):
         for i in range(n):
 
             mdp_state = form_mdp_state(self.env, self.state, self.action, reward)
-            time.sleep(0.01)
 
+            # Predict an action
             self.action = self.local_net.predict_actions(mdp_state, self.sess).T
+            '''
+            if i == 1:
+                mean_yaw = np.mean(self.action[1, :])
+                steer = np.arctan(2.0 * self.action[1, :] / self.state[4, :]) / np.pi * 180
+                print "mean(steer) = \33[33m{}\33[0m deg".format(np.mean(steer))
+            '''
             assert not np.any(np.isnan(self.action)), "i = {}, self.action = {}, mdp_state = {}".format(i, self.action, mdp_state)
-            '''
-            if self.counter < 1000:
-                self.action[0, 0] = 2
-                self.action[1, 0] = -np.pi / 11.2
-            '''
 
-            # Take a step
-            next_state, reward, done, _ = self.env.step(self.action)
+            # Take several steps in environment
+            n_steps = int(1. / FLAGS.command_freq / FLAGS.timestep)
+            for j in range(n_steps):
+                next_state, reward, done, _ = self.env.step(self.action)
+
             self.current_reward = reward
             self.total_return += reward
             if np.max(self.total_return) > self.max_return:
                 self.max_return = np.max(self.total_return)
-                '''
-                print "{}'s max_return = {} (step #{:05d}, action = {})".format(
-                    self.name, self.max_return, i, self.action.flatten())
-                '''
 
             # Store transition
             # Down-sample transition to reduce correlation between samples
@@ -219,8 +214,8 @@ class Worker(object):
                 state=self.state.copy(),
                 action=self.action.copy(),
                 next_state=next_state.copy(),
-                reward=reward,
-                done=done
+                reward=reward.copy(),
+                done=done.copy()
             ))
 
             # Increase local and global counters
@@ -237,6 +232,53 @@ class Worker(object):
 
         return transitions, local_t, global_t
 
+    def get_rewards_and_returns(self, transitions):
+        # If an episode ends, the return is 0. If not, we estimate return
+        # by bootstrapping the value from the last state (using value net)
+        last = transitions[-1]
+        mdp_state = form_mdp_state(self.env, last.next_state, last.action, last.reward)
+        v = self.local_net.predict_values(mdp_state, self.sess)
+        v[last.done] = 0
+
+        # Collect rewards from transitions, append v to rewards, and compute
+        # the total discounted returns
+        rewards = [t.reward.T for t in transitions]
+        rewards_plus_v = np.concatenate(rewards + [v], axis=1)
+        rewards = rewards_plus_v[:, :-1]
+        returns = discount(rewards_plus_v, self.discount_factor)[:, :-1]
+
+        '''
+        print "v.shape = {}, rewards.shape = {}, returns.shape = {}".format(
+            v.shape, rewards.shape, returns.shape)
+        '''
+
+        return v, rewards, returns
+
+    def get_values_and_td_targets(self, mdp_states, v, rewards):
+        T = rewards.shape[1]
+
+        values = self.local_net.predict_values(mdp_states, self.sess)
+        values = np.concatenate([values.reshape(-1, T), v], axis=1)
+
+        delta_t = rewards + self.discount_factor * values[:, 1:] - values[:, :-1]
+
+        values = values[:, :-1]
+
+        '''
+        print "values.shape = {}, delta_t.shape = {}".format(
+            values.shape, delta_t.shape)
+        '''
+
+        return values, delta_t
+
+    def get_mdp_states(self, transitions):
+        return {
+            key: flatten(np.concatenate([
+                trans.mdp_state[key][:, None, :] for trans in transitions
+            ], axis=1))
+            for key in transitions[0].mdp_state.keys()
+        }
+
     # @timer_decorate
     def update(self, transitions):
         """
@@ -247,51 +289,28 @@ class Worker(object):
           sess: A Tensorflow session
         """
 
-        # If we episode was not done we bootstrap the value from the last state
-        last = transitions[-1]
-        mdp_state = form_mdp_state(self.env, last.next_state, last.action, last.reward)
-        reward = self.local_net.predict_values(mdp_state, self.sess)
-        reward[last.done] = -100.
-
-        rewards = np.concatenate([trans.reward.T for trans in transitions] + [reward], axis=1)
-        returns = discount(rewards, self.discount_factor)[:, :-1]
-        rewards = rewards[:, :-1]
-        # print "returns.shape = ", returns.shape
-
-        # Accumulate minibatch exmaples
+        # T is the number of transitions
         T = len(transitions)
 
-        def flatten(x): # flatten the first 2 axes
-            return x.reshape((-1,) + x.shape[2:])
+        mdp_states = self.get_mdp_states(transitions)
 
-        def deflatten(x, n): # de-flatten the first axes
-            return x.reshape((n, -1,) + x.shape[1:])
+        v, rewards, returns = self.get_rewards_and_returns(transitions)
 
-        mdp_states = {
-            key: flatten(np.concatenate([
-                transitions[t].mdp_state[key][:, None, :] for t in range(T)
-            ], axis=1))
-            for key in transitions[0].mdp_state.keys()
-        }
-
-        '''
-        for key in mdp_states:
-            print "mdp_states[{}].shape = {}".format(key, mdp_states[key].shape)
-        '''
-
-        values, mu, sigma = self.local_net.predict_values(mdp_states, self.sess, debug=True)
-        values = np.concatenate([values.reshape(-1, T), reward], axis=1)
-
-        delta_t = rewards + self.discount_factor * values[:, 1:] - values[:, :-1]
-        # print "delta_t.shape = ", delta_t.shape
+        values, delta_t = self.get_values_and_td_targets(mdp_states, v, rewards)
 
         # advantages = rewards
         # advantages = delta_t
+        # prev_rewards = mdp_states["prev_reward"].reshape(self.n_agents, -1)
+        # advantages = rewards - prev_rewards
         advantages = discount(delta_t, self.discount_factor * FLAGS.lambda_)
         # print "advantages.shape = ", advantages.shape
 
-        values = values[:, :-1]
-        # print "values.shape = ", values.shape
+        '''
+        print "np.mean(advantages, axis=1) = {}".format(np.mean(advantages, axis=1))
+        adv = data['advantages'][:, 0]
+        print "advantages[:, 0] = {}".format(adv)
+        print "min(adv) = {}, max(adv) = {}, mean(adv) = {}".format(np.min(adv), np.max(adv), np.mean(adv))
+        '''
 
         actions = np.concatenate([
             trans.action.T[:, None, :] for trans in transitions
@@ -300,14 +319,14 @@ class Worker(object):
 
         # Add TD Target, TD Error, and actions to data
         data = dict(
-            rewards = rewards[..., None],
+            returns = returns[..., None],
             advantages = advantages[..., None],
             actions = actions,
         )
         data.update({k: deflatten(v, self.n_agents) for k, v in mdp_states.viewitems()})
 
         # Downsample experiences
-        start_idx = 0 # np.random.randint(FLAGS.downsample)
+        start_idx = np.random.randint(FLAGS.downsample)
         s = slice(start_idx, None, FLAGS.downsample)
         for k in data.keys():
             data[k] = flatten(data[k][:, s, ...])
@@ -315,9 +334,11 @@ class Worker(object):
 
         # The 1st dimension is batch_size, get batch_size after down-sampling
         batch_size = len(data[k])
+        for k in data.keys():
+            assert batch_size == len(data[k])
 
         feed_dict = {
-            self.local_net.rewards: data['rewards'],
+            self.local_net.returns: data['returns'],
             self.local_net.advantages: data['advantages'],
             self.local_net.actions_ext: data['actions'],
             self.local_net.state["front_view"]: data['front_view'],
@@ -360,12 +381,12 @@ class Worker(object):
                 mu = mu.reshape(-1, T, 2)[:, s, ...],
                 sigma = sigma.reshape(-1, T, 2)[:, s, ...],
                 values = values[:, s],
-                log_prob = deflatten(log_prob, self.n_agents),
-                g_mu = deflatten(g_mu, self.n_agents)
+                # log_prob = deflatten(log_prob, self.n_agents),
+                # g_mu = deflatten(g_mu, self.n_agents)
             ))
 
-            for k in data.keys():
-                print "data[{}].shape = {}".format(k, data[k].shape)
+            # for k in data.keys():
+            #     print "data[{}].shape = {}".format(k, data[k].shape)
 
             scipy.io.savemat(fn, data)
             print "{} saved.".format(fn)

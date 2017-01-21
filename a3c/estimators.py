@@ -81,12 +81,15 @@ def put_kernels_on_grid (kernel, pad = 1):
 def clip(x, min_v, max_v):
     return tf.maximum(tf.minimum(x, max_v), min_v)
 
+def softclip(x, min_v, max_v):
+    return (max_v + min_v) / 2 + tf.nn.tanh(x) * (max_v - min_v) / 2
+
 def tf_print(x, message):
     if not FLAGS.debug:
         return x
 
     step = tf.contrib.framework.get_global_step()
-    cond = tf.equal(tf.mod(step, 10), 0)
+    cond = tf.equal(tf.mod(step, 1), 0)
     message = "\33[93m" + message + "\33[0m"
     return tf.cond(cond, lambda: tf.Print(x, [x], message=message, summarize=100), lambda: x)
 
@@ -102,7 +105,7 @@ class PolicyValueEstimator():
 
         with tf.name_scope("outputs"):
             self.advantages = tf.placeholder(tf.float32, [batch_size, 1], "advantages")
-            self.rewards = tf.placeholder(tf.float32, [batch_size, 1], "rewards")
+            self.returns = tf.placeholder(tf.float32, [batch_size, 1], "returns")
             self.actions_ext = tf.placeholder(tf.float32, [batch_size, 2], "actions_ext")
 
         with tf.name_scope("shared"):
@@ -120,6 +123,7 @@ class PolicyValueEstimator():
             self.pi_loss = self.get_policy_loss(normal_dist)
             self.entropy = self.get_exploration_loss(normal_dist)
             self.vf_loss = self.get_value_loss()
+
             self.loss = self.pi_loss + self.vf_loss + FLAGS.entropy_cost_mult * self.entropy
 
         with tf.name_scope("grads_and_optimizer"):
@@ -211,7 +215,9 @@ class PolicyValueEstimator():
     def get_value_loss(self):
         # loss of value function (L2-norm)
         with tf.name_scope("value_loss"):
-            vf_loss = 0.5 * tf.reduce_mean(tf.square(self.logits - self.rewards))
+            logits = tf_print(self.logits, "logits = ")
+            returns = tf_print(self.returns, "returns = ")
+            vf_loss = 0.5 * tf.reduce_mean(tf.square(logits - returns))
 
         return vf_loss
 
@@ -225,18 +231,21 @@ class PolicyValueEstimator():
     def get_normal_dist(self, mu, sigma):
 
         '''
-        # Make it deterministic for debugging
-        self.mu = self.mu * 1e-7 + (max_a + min_a) / 2.
-        self.sigma = self.sigma * 1e-7
+        # Add some initial bias for debugging (to see whether it can recover from it)
+        mu_steer    =    mu[:, 1:2] + 15. * np.pi / 180 * np.sign(np.random.rand() - 0.5)
+        mu_steer = tf_print(mu_steer, "mu_steer = ")
+        mu    = tf.concat(1, [   mu[:, 0:1],    mu_steer])
         '''
-
-        # For debugging
-        mu = tf_print(mu, "mu = ")
-        sigma = tf_print(sigma, "sigma = ")
 
         # Reshape and sample
         mu = tf.reshape(mu, [-1])
         sigma = tf.reshape(sigma, [-1])
+
+        '''
+        # For debugging
+        mu = tf_print(mu, "mu = ")
+        sigma = tf_print(sigma, "sigma = ")
+        '''
 
         # Create normal distribution and sample some actions
         normal_dist = tf.contrib.distributions.Normal(mu, sigma)
@@ -251,7 +260,9 @@ class PolicyValueEstimator():
         with tf.name_scope("steer_to_yawrate"):
             vf = actions[:, 0:1]
             steer = actions[:, 1:2]
+            # steer = tf_print(steer, "steer = ")
             yawrate = self.steer_to_yawrate(steer)
+            # yawrate = tf_print(yawrate, "yawrate = ")
             actions = tf.concat(1, [vf, yawrate])
 
         return actions
@@ -268,6 +279,7 @@ class PolicyValueEstimator():
             actions = tf.concat(1, [vf, steer])
 
         with tf.name_scope("compute_log_prob"):
+            # actions = tf_print(actions, "actions = ")
             reshaped_actions = tf.reshape(actions, [-1])
             log_prob = dist.log_prob(reshaped_actions)
             # log_prob = tf_print(log_prob, "log_prob = ")
@@ -298,8 +310,12 @@ class PolicyValueEstimator():
         # Use Ackerman formula to compute steering angle from yawrate and
         # forward velocity (4-th element of vehicle_state)
         v = self.state["vehicle_state"][:, 4:5]
+        # v = tf_print(v, "v[:, 4:5] = ")
+        # omega = tf_print(omega, "omega = ")
         radius = v / omega
+        # radius = tf_print(radius, "radius = ")
         steer = tf.atan(FLAGS.wheelbase / radius)
+        # steer = tf_print(steer, "steer = ")
         return steer
 
     def policy_network(self, input, num_outputs):
@@ -333,8 +349,8 @@ class PolicyValueEstimator():
             # sigma = tf.minimum(tf.nn.softplus(sigma) + min_sigma, max_sigma)
             # sigma = tf.nn.sigmoid(sigma) * 1e-20 + max_sigma
 
-            mu = (max_mu + min_mu) / 2 + tf.nn.tanh(mu) * (max_mu - min_mu) / 2
-            sigma = (max_sigma + min_sigma) / 2 + tf.nn.tanh(sigma) * (max_sigma - min_sigma) / 2
+            mu = softclip(mu, min_mu, max_mu)
+            sigma = softclip(sigma, min_sigma, max_sigma)
 
         return mu, sigma
 

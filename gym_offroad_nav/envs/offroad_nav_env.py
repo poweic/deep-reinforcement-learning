@@ -218,7 +218,7 @@ class OffRoadNavEnv(gym.Env):
             # Put return, reward, and vehicle states on image for debugging
             font = cv2.FONT_HERSHEY_PLAIN
             font_size = 1
-            color = (255, 255, 255)
+            color = (0, 216, 255)
             text = "reward = {:.3f}, return = {:.3f} / {:.3f}".format(current_reward, total_return, worker.max_return)
             cv2.putText(disp_img, text, (5, 20), font, font_size, color, 1, cv2.CV_AA)
 
