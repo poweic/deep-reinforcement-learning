@@ -22,7 +22,7 @@ from gym_offroad_nav.vehicle_model import VehicleModel
 tf.flags.DEFINE_string("model_dir", "/Data3/a3c-offroad/", "Directory to write Tensorboard summaries and models to.")
 tf.flags.DEFINE_string("game", "line", "Game environment")
 
-tf.flags.DEFINE_integer("t_max", 60, "Number of steps before performing an update")
+tf.flags.DEFINE_integer("t_max", 5, "Maximum elasped time per simulation (in seconds)")
 tf.flags.DEFINE_integer("max_global_steps", None, "Stop training after this many steps in the environment. Defaults to running indefinitely.")
 tf.flags.DEFINE_integer("eval_every", 30, "Evaluate the policy every N seconds")
 tf.flags.DEFINE_integer("parallelism", 1, "Number of threads to run. If not set we run [num_cpu_cores] threads.")
@@ -33,7 +33,7 @@ tf.flags.DEFINE_integer("save_every_n_minutes", 10, "Save model every N minutes"
 tf.flags.DEFINE_boolean("reset", False, "If set, delete the existing model directory and start training from scratch.")
 tf.flags.DEFINE_boolean("debug", False, "If set, turn on the debug flag")
 
-tf.flags.DEFINE_float("command_freq", 10, "How frequent we send command to vehicle (in Hz)")
+tf.flags.DEFINE_float("command_freq", 30, "How frequent we send command to vehicle (in Hz)")
 
 tf.flags.DEFINE_float("learning_rate", 1e-4, "Learning rate for policy net and value net")
 tf.flags.DEFINE_float("l2_reg", 1e-4, "L2 regularization multiplier")
@@ -68,8 +68,8 @@ tf.flags.DEFINE_float("max_sigma_steer", 15 * np.pi / 180 + 0.001, "Maximum vari
 
 # Parse command line arguments, add some additional flags, and print them out
 FLAGS = tf.flags.FLAGS
-FLAGS.checkpoint_dir = os.path.join(FLAGS.model_dir, "checkpoints")
-FLAGS.save_path = os.path.join(FLAGS.checkpoint_dir, FLAGS.game)
+FLAGS.checkpoint_dir = FLAGS.model_dir + "/checkpoints/" + FLAGS.game
+FLAGS.save_path = FLAGS.checkpoint_dir + "/model"
 pprint(FLAGS.__flags)
 
 W = 400
@@ -109,10 +109,9 @@ def save_model_every_nth_minutes(sess, saver):
     mkdir_p(FLAGS.checkpoint_dir)
 
     def save_model():
-        fn = FLAGS.save_path
         step = sess.run(tf.contrib.framework.get_global_step())
-        saver.save(sess, fn, global_step=step)
-        print time.strftime('[%H:%M:%S %Y/%m/%d] model saved.')
+        fn = saver.save(sess, FLAGS.save_path, global_step=step)
+        print time.strftime('[%H:%M:%S %Y/%m/%d] model saved to '), fn
 
     schedule.every(FLAGS.save_every_n_minutes).minutes.do(save_model)
 

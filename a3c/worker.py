@@ -122,7 +122,8 @@ class Worker(object):
                     sess.run(self.copy_params_op)
 
                     # Collect 1 episodes of experience (multiple agents)
-                    transitions, local_t, global_t = self.run_n_steps(t_max)
+                    n = int(np.ceil(t_max * FLAGS.command_freq))
+                    transitions, local_t, global_t = self.run_n_steps(n)
 
                     if self.max_global_steps is not None and global_t >= self.max_global_steps:
                         tf.logging.info("Reached global step {}. Stopping.".format(global_t))
@@ -138,9 +139,14 @@ class Worker(object):
                 traceback.print_exc()
 
     def reset_env(self):
-        self.state = np.array([0.5, 2, 0, 0, 0.001, 0])
+        # maze2
+        self.state = np.array([0, 0, 0, 0, 0, 0])
 
         '''
+        # line
+        self.state = np.array([0.5, 2, 0, 0, 0.001, 0])
+
+        # circle
         # self.state = np.array([+7.4, 8.15, 0, 0, 0, 0])
         theta = np.random.rand(self.n_agents) * np.pi * 2
         phi = np.random.rand(self.n_agents) * np.pi * 2
@@ -159,12 +165,13 @@ class Worker(object):
         self.current_reward = np.zeros((1, self.n_agents))
 
         # Add some noise to have diverse start points
-        noise = np.random.rand(6, self.n_agents).astype(np.float32) * 0.5
+        noise = np.random.randn(6, self.n_agents).astype(np.float32) * 0.2
         self.state = self.state + noise
+        self.state[1, :] = np.max(self.state[1, :], 0)
 
         self.env._reset(self.state)
 
-    def run_n_steps(self, n):
+    def run_n_steps(self, n_steps):
 
         transitions = []
 
@@ -172,7 +179,7 @@ class Worker(object):
         self.reset_env()
 
         reward = np.zeros((1, self.n_agents), dtype=np.float32)
-        for i in range(n):
+        for i in range(n_steps):
 
             mdp_state = form_mdp_state(self.env, self.state, self.action, reward)
 
@@ -186,9 +193,10 @@ class Worker(object):
             '''
             assert not np.any(np.isnan(self.action)), "i = {}, self.action = {}, mdp_state = {}".format(i, self.action, mdp_state)
 
-            # Take several steps in environment
-            n_steps = int(1. / FLAGS.command_freq / FLAGS.timestep)
-            for j in range(n_steps):
+            # Take several sub-steps in environment (the smaller the timestep,
+            # the smaller each sub-step, the more accurate the simulation
+            n_sub_steps = int(1. / FLAGS.command_freq / FLAGS.timestep)
+            for j in range(n_sub_steps):
                 next_state, reward, done, _ = self.env.step(self.action)
 
             self.current_reward = reward
