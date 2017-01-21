@@ -185,12 +185,6 @@ class Worker(object):
 
             # Predict an action
             self.action = self.local_net.predict_actions(mdp_state, self.sess).T
-            '''
-            if i == 1:
-                mean_yaw = np.mean(self.action[1, :])
-                steer = np.arctan(2.0 * self.action[1, :] / self.state[4, :]) / np.pi * 180
-                print "mean(steer) = \33[33m{}\33[0m deg".format(np.mean(steer))
-            '''
             assert not np.any(np.isnan(self.action)), "i = {}, self.action = {}, mdp_state = {}".format(i, self.action, mdp_state)
 
             # Take several sub-steps in environment (the smaller the timestep,

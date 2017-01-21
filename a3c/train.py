@@ -22,7 +22,6 @@ from gym_offroad_nav.vehicle_model import VehicleModel
 tf.flags.DEFINE_string("model_dir", "/Data3/a3c-offroad/", "Directory to write Tensorboard summaries and models to.")
 tf.flags.DEFINE_string("game", "line", "Game environment")
 
-tf.flags.DEFINE_integer("t_max", 5, "Maximum elasped time per simulation (in seconds)")
 tf.flags.DEFINE_integer("max_global_steps", None, "Stop training after this many steps in the environment. Defaults to running indefinitely.")
 tf.flags.DEFINE_integer("eval_every", 30, "Evaluate the policy every N seconds")
 tf.flags.DEFINE_integer("parallelism", 1, "Number of threads to run. If not set we run [num_cpu_cores] threads.")
@@ -33,7 +32,8 @@ tf.flags.DEFINE_integer("save_every_n_minutes", 10, "Save model every N minutes"
 tf.flags.DEFINE_boolean("reset", False, "If set, delete the existing model directory and start training from scratch.")
 tf.flags.DEFINE_boolean("debug", False, "If set, turn on the debug flag")
 
-tf.flags.DEFINE_float("command_freq", 30, "How frequent we send command to vehicle (in Hz)")
+tf.flags.DEFINE_float("t_max", 5, "Maximum elasped time per simulation (in seconds)")
+tf.flags.DEFINE_float("command_freq", 25, "How frequent we send command to vehicle (in Hz)")
 
 tf.flags.DEFINE_float("learning_rate", 1e-4, "Learning rate for policy net and value net")
 tf.flags.DEFINE_float("l2_reg", 1e-4, "L2 regularization multiplier")
