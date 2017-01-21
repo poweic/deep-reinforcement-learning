@@ -217,19 +217,19 @@ class OffRoadNavEnv(gym.Env):
             font_size = 1
             color = (0, 216, 255)
             text = "reward = {:.3f}, return = {:.3f} / {:.3f}".format(current_reward, total_return, worker.max_return)
-            cv2.putText(disp_img, text, (5, 20), font, font_size, color, 1, cv2.CV_AA)
+            cv2.putText(disp_img, text, (10, 20), font, font_size, color, 1, cv2.CV_AA)
 
             text = "action = ({:+.2f}, {:+.2f})".format(
                 prev_action[0], prev_action[1])
-            cv2.putText(disp_img, text, (5, 350), font, font_size, color, 1, cv2.CV_AA)
+            cv2.putText(disp_img, text, (10, 350), font, font_size, color, 1, cv2.CV_AA)
 
             text = "(x, y, theta)  = ({:+.2f}, {:+.2f}, {:+.2f})".format(
                 state[0], state[1], np.mod(state[2] * 180 / np.pi, 360))
-            cv2.putText(disp_img, text, (5, 370), font, font_size, color, 1, cv2.CV_AA)
+            cv2.putText(disp_img, text, (10, 370), font, font_size, color, 1, cv2.CV_AA)
 
             text = "(x', y', theta') = ({:+.2f}, {:+.2f}, {:+.2f})".format(
                 state[3], state[4], state[5] * 180 / np.pi)
-            cv2.putText(disp_img, text, (5, 390), font, font_size, color, 1, cv2.CV_AA)
+            cv2.putText(disp_img, text, (10, 390), font, font_size, color, 1, cv2.CV_AA)
 
         idx = int(worker.name[-1])
         cv2.imshow4(idx, disp_img)

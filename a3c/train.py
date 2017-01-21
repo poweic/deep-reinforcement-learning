@@ -153,7 +153,7 @@ with tf.Session() as sess:
 
     saver = tf.train.Saver(max_to_keep=10, var_list=[
         v for v in tf.trainable_variables() if "global" in v.name
-    ])
+    ] + [global_step])
 
     # Used to occasionally save videos for our policy net
     # and write episode rewards to Tensorboard
