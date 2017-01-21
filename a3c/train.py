@@ -1,7 +1,6 @@
 #!/usr/bin/python
 import colored_traceback.always
 
-import sys
 import os
 import cv2
 import scipy.io
@@ -14,16 +13,9 @@ import time
 import schedule
 from pprint import pprint
 
-from inspect import getsourcefile
-current_path = os.path.dirname(os.path.abspath(getsourcefile(lambda:0)))
-import_path = os.path.abspath(os.path.join(current_path, "../.."))
-
-if import_path not in sys.path:
-    sys.path.append(import_path)
-
 from a3c.estimators import PolicyValueEstimator
 from a3c.policy_monitor import PolicyMonitor
-from worker import Worker
+from a3c.worker import Worker
 from gym_offroad_nav.envs import OffRoadNavEnv
 from gym_offroad_nav.vehicle_model import VehicleModel
 
@@ -160,7 +152,9 @@ with tf.Session() as sess:
     for worker in workers:
         worker.set_global_net(global_net)
 
-    saver = tf.train.Saver(max_to_keep=10)
+    saver = tf.train.Saver(max_to_keep=10, var_list=[
+        v for v in tf.trainable_variables() if "global" in v.name
+    ])
 
     # Used to occasionally save videos for our policy net
     # and write episode rewards to Tensorboard

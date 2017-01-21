@@ -1,6 +1,6 @@
 import numpy as np
 import tensorflow as tf
-from tensorflow_helnet.layers import DenseLayer, Conv2DLayer
+from tensorflow_helnet.layers import DenseLayer
 FLAGS = tf.flags.FLAGS
 batch_size = None
 
@@ -20,9 +20,7 @@ def get_state_placeholder():
 
     return state
 
-from math import sqrt
-
-def put_kernels_on_grid (kernel, pad = 1):
+def put_kernels_on_grid(kernel, pad = 1):
 
     '''Visualize conv. features as an image (mostly for the 1st layer).
     Place kernel into a grid, with some paddings between adjacent filters.
@@ -35,19 +33,14 @@ def put_kernels_on_grid (kernel, pad = 1):
       Tensor of shape [(Y+2*pad)*grid_Y, (X+2*pad)*grid_X, NumChannels, 1].
     '''
     # get shape of the grid. NumKernels == grid_Y * grid_X
-    def factorization(n):
-        for i in range(int(sqrt(float(n))), 0, -1):
+    def factorize(n):
+        for i in range(int(np.sqrt(float(n))), 0, -1):
             if n % i == 0:
-                if i == 1: print('Who would enter a prime number of filters')
+                if i == 1: print('Who would enter a prime number of filters?')
                 return (i, int(n / i))
-    (grid_Y, grid_X) = factorization (kernel.get_shape()[3].value)
-    print 'grid: %d = (%d, %d)' % (kernel.get_shape()[3].value, grid_Y, grid_X)
 
-    '''
-    x_min = tf.reduce_min(kernel)
-    x_max = tf.reduce_max(kernel)
-    kernel = (kernel - x_min) / (x_max - x_min)
-    '''
+    (grid_Y, grid_X) = factorize(kernel.get_shape()[3].value)
+    # print 'grid: %d = (%d, %d)' % (kernel.get_shape()[3].value, grid_Y, grid_X)
 
     # pad X and Y
     x1 = tf.pad(kernel, tf.constant( [[pad,pad],[pad, pad],[0,0],[0,0]] ), mode = 'CONSTANT')

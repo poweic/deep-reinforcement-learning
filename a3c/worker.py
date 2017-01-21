@@ -1,6 +1,3 @@
-import gym
-import sys
-import os
 import cv2
 import itertools
 import collections
@@ -9,15 +6,7 @@ import tensorflow as tf
 import scipy.io
 import scipy.signal
 import traceback
-# from time import time
 import time
-
-from inspect import getsourcefile
-current_path = os.path.dirname(os.path.abspath(getsourcefile(lambda:0)))
-import_path = os.path.abspath(os.path.join(current_path, "../.."))
-
-if import_path not in sys.path:
-    sys.path.append(import_path)
 
 from estimators import PolicyValueEstimator
 
