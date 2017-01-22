@@ -174,17 +174,17 @@ class PolicyValueEstimator():
         with tf.name_scope("conv"):
             # Three convolutional layers
             conv1 = tf.contrib.layers.conv2d(
-                input, 8, 3, 2, activation_fn=tf.nn.relu, scope="conv1")
+                input, 16, 3, 2, activation_fn=tf.nn.relu, scope="conv1")
             conv2 = tf.contrib.layers.conv2d(
-                conv1, 8, 3, 2, activation_fn=tf.nn.relu, scope="conv2")
+                conv1, 16, 3, 2, activation_fn=tf.nn.relu, scope="conv2")
             conv3 = tf.contrib.layers.conv2d(
-                conv2, 8, 3, 2, activation_fn=tf.nn.relu, scope="conv3")
+                conv2, 16, 3, 2, activation_fn=tf.nn.relu, scope="conv3")
 
         with tf.name_scope("dense"):
             # Fully connected layer
             fc1 = DenseLayer(
                 input=tf.contrib.layers.flatten(conv3),
-                num_outputs=64,
+                num_outputs=128,
                 nonlinearity="relu",
                 name="fc1")
 
@@ -192,7 +192,7 @@ class PolicyValueEstimator():
 
             fc2 = DenseLayer(
                 input=concat1,
-                num_outputs=64,
+                num_outputs=128,
                 nonlinearity="relu",
                 name="fc2")
 
@@ -200,9 +200,11 @@ class PolicyValueEstimator():
 
             fc3 = DenseLayer(
                 input=concat2,
-                num_outputs=64,
+                num_outputs=128,
                 nonlinearity="relu",
                 name="fc3")
+
+            concat3 = tf.concat(1, [fc1, fc2, fc3, prev_reward, vehicle_state, prev_action])
 
         if add_summaries:
             with tf.name_scope("summaries"):
@@ -220,7 +222,7 @@ class PolicyValueEstimator():
                 tf.contrib.layers.summarize_activation(concat1)
                 tf.contrib.layers.summarize_activation(concat2)
 
-        return fc3
+        return concat3
 
     def get_policy_loss(self, normal_dist):
         # policy loss is the negative of log_prob times advantages

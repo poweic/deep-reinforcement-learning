@@ -8,7 +8,8 @@ import scipy.signal
 import traceback
 import time
 
-from estimators import PolicyValueEstimator
+from a3c.estimators import PolicyValueEstimator
+from a3c.utils import inverse_transform_sampling_2d
 
 FLAGS = tf.flags.FLAGS
 
@@ -140,7 +141,26 @@ class Worker(object):
 
     def reset_env(self):
         # maze2
-        self.state = np.array([0, 0, 0, 0, 0, 0])
+        self.state = np.array([0, 1, 0, 0, 0, 0])
+
+        '''
+        self.state = self.state.reshape((6, 1)) + np.zeros((6, self.n_agents))
+        prob = (self.env.rewards - np.min(self.env.rewards)) * 20 + 1e-10
+        N = int(self.n_agents * 0.3)
+        x, y = inverse_transform_sampling_2d(prob, N)
+        self.state[0, :N] = np.clip((x - 20) * 0.5, -5, 10)
+        self.state[1, :N] = np.clip(20 - y * 0.5, 0, 20)
+        self.state[2, :N] = np.random.rand(len(x)) * np.pi * 2
+
+        near_top = self.state[1, :N] > 16
+        self.state[2, near_top] = np.random.rand(np.sum(near_top)) * np.pi + np.pi / 2
+
+        near_bottom = self.state[1, :N] < 4
+        self.state[2, near_bottom] = np.random.rand(np.sum(near_bottom)) * (+np.pi) - np.pi / 2
+
+        near_right = self.state[0, :N] > 6
+        self.state[2, near_right] = np.random.rand(np.sum(near_right)) * (+np.pi)
+        '''
 
         '''
         # line
@@ -165,9 +185,9 @@ class Worker(object):
         self.current_reward = np.zeros((1, self.n_agents))
 
         # Add some noise to have diverse start points
-        noise = np.random.randn(6, self.n_agents).astype(np.float32) * 0.2
+        noise = np.random.randn(6, self.n_agents).astype(np.float32) * 0.5
+
         self.state = self.state + noise
-        self.state[1, :] = np.max(self.state[1, :], 0)
 
         self.env._reset(self.state)
 
@@ -186,6 +206,9 @@ class Worker(object):
             # Predict an action
             self.action = self.local_net.predict_actions(mdp_state, self.sess).T
             assert not np.any(np.isnan(self.action)), "i = {}, self.action = {}, mdp_state = {}".format(i, self.action, mdp_state)
+            self.env.highlight = True
+            time.sleep(0.05)
+            self.env.highlight = False
 
             # Take several sub-steps in environment (the smaller the timestep,
             # the smaller each sub-step, the more accurate the simulation
@@ -295,8 +318,8 @@ class Worker(object):
         values, delta_t = self.get_values_and_td_targets(mdp_states, v, rewards)
 
         # advantages = rewards
+        advantages = returns
         # advantages = delta_t
-        advantages = delta_t
 
         actions = np.concatenate([
             trans.action.T[:, None, :] for trans in transitions
@@ -321,7 +344,7 @@ class Worker(object):
         # advantages *= np.power(0.01, range(T)).reshape(1, -1)
         # =================== DEBUG ===================
 
-        advantages = discount(advantages, self.discount_factor * FLAGS.lambda_)
+        # advantages = discount(advantages, self.discount_factor * FLAGS.lambda_)
 
         # Add TD Target, TD Error, and actions to data
         data = dict(
@@ -333,8 +356,8 @@ class Worker(object):
 
         # Downsample experiences
         start_idx = np.random.randint(min(FLAGS.downsample, T))
-        s = slice(start_idx, None, FLAGS.downsample)
-        # s = slice(0, 4)
+        # s = slice(start_idx, None, FLAGS.downsample)
+        s = slice(0, 8)
         for k in data.keys():
             data[k] = flatten(data[k][:, s, ...])
             # print "data[{}].shape = {}".format(k, data[k].shape)
@@ -362,48 +385,60 @@ class Worker(object):
             self.net_train_op
         ]
 
-        '''
         ops += [
             self.local_net.mu,
             self.local_net.sigma,
             self.local_net.g_mu,
         ]
-        '''
 
         # Train the global estimators using local gradients
         if self.summary_writer is None:
-            global_step, loss, pi_loss, vf_loss, _ = self.sess.run(ops, feed_dict)
-            # global_step, loss, pi_loss, vf_loss, _, mu, sigma, g_mu = self.sess.run(ops, feed_dict)
+            # global_step, loss, pi_loss, vf_loss, _ = self.sess.run(ops, feed_dict)
+            global_step, loss, pi_loss, vf_loss, _, mu, sigma, g_mu = self.sess.run(ops, feed_dict)
         else:
             ops += [self.local_net.summaries]
-            global_step, loss, pi_loss, vf_loss, _, summaries = self.sess.run(ops, feed_dict)
-            # global_step, loss, pi_loss, vf_loss, _, mu, sigma, g_mu, summaries = self.sess.run(ops, feed_dict)
+            # global_step, loss, pi_loss, vf_loss, _, summaries = self.sess.run(ops, feed_dict)
+            global_step, loss, pi_loss, vf_loss, _, mu, sigma, g_mu, summaries = self.sess.run(ops, feed_dict)
 
         # =================== DEBUG ===================
-        '''
         mu = mu.reshape(self.n_agents, -1, 2)[:, :, 1]
         sigma = sigma.reshape(self.n_agents, -1, 2)[:, :, 1]
         g_loss_wrt_mu_from_tf = g_mu[:, -1].reshape(self.n_agents, -1)
         g_gain_wrt_mu_from_tf = -g_loss_wrt_mu_from_tf
         adv = advantages[:, s]
 
+        line_no = np.arange(0, self.n_agents).reshape(self.n_agents, 1)
+        def add_line_no(x):
+            return np.concatenate([line_no, x], axis=1)
+
         mu_and_adv = np.concatenate([mu, adv], axis=1)
 
-        np.set_printoptions(precision=6, linewidth=120, suppress=True)
-        print "mu_and_adv = \n{}".format(mu_and_adv)
+        np.set_printoptions(precision=4, linewidth=500, suppress=True, formatter={
+            'float': lambda x: "#{:02d}".format(int(x)) if x.is_integer() else ("\33[92m" if x > 0 else "\33[91m") + ("{:9.4f}".format(x)) + "\33[0m"
+        })
+
+        print (" " * 32) + "mu" + (" " * 31) + "|" + (" " * 32) + "adv"
+        print ("-" * 32) + "--" + ("-" * 31) + "." + ("-" * 66)
+        print "{}\33[0m".format(add_line_no(mu_and_adv))
         print "==========================================================="
-        print " {} (  mean   of mu_and_adv)".format(np.mean(mu_and_adv, axis=0))
-        print " {} (variance of mu_and_adv)".format(np.std(mu_and_adv, axis=0))
+        print " {} (  mean   of mu_and_adv)".format(np.mean(mu_and_adv[:, 1:], axis=0))
+        print " {} (variance of mu_and_adv)".format( np.std(mu_and_adv[:, 1:], axis=0))
 
         vf = mdp_states['vehicle_state'].reshape(self.n_agents, -1, 6)[:, s, 4]
-        steer = np.arctan(FLAGS.wheelbase * actions[..., s, 1] / vf)
+        steer = np.arctan(FLAGS.wheelbase * actions[..., s, 1] / vf).astype(np.float)
+
+        # print "steer.shape = {} [{}, {}], mu_and_adv.shape = {} [{}, {}]".format(steer.shape, steer.dtype, type(steer), mu_and_adv.shape, mu_and_adv.dtype, type(mu_and_adv))
+        print "steer = \n{}".format(add_line_no(steer))
 
         g_gain_wrt_mu = ((steer - mu) * adv / (sigma ** 2)) / batch_size
-        # print "gradients of expected return w.r.t g_gain_wrt_mu = \n{}".format(g_gain_wrt_mu)
+        print "gradients of expected return w.r.t g_gain_wrt_mu = \n{}".format(add_line_no(g_gain_wrt_mu))
         print "==========================================================="
-        print " {} (  mean   of g_gain_wrt_mu)".format(np.mean(g_gain_wrt_mu, axis=0))
-        print " {} (variance of g_gain_wrt_mu)".format(np.std(g_gain_wrt_mu, axis=0))
+        print " {} (  mean   of g_gain_wrt_mu)".format(np.mean(g_gain_wrt_mu[:, 1:], axis=0))
+        print " {} (variance of g_gain_wrt_mu)".format( np.std(g_gain_wrt_mu[:, 1:], axis=0))
 
+        import ipdb; ipdb.set_trace()
+
+        '''
         a0 = np.mean(adv, axis=0)[0]
         mu0 = np.mean(mu, axis=0)[0]
         g0 = np.mean(g_gain_wrt_mu, axis=0)[0]
@@ -422,10 +457,10 @@ class Worker(object):
         '''
         # =================== DEBUG ===================
 
-        print "\33[33m#{:04d}\33[0m update (from {}), returns = {:.2f}, batch_size = {},".format(
+        print "\33[33m#{:04d}\33[0m update (from {}), returns = {:+6.2f}, batch_size = {},".format(
             global_step, self.name, np.mean(returns[:, 0]), batch_size),
 
-        print "pi_loss = {:+.5f}, vf_loss = {:+.5f}, total_loss = {:+.5f}".format(
+        print "pi_loss = {:+9.4f}, vf_loss = {:+9.4f}, total_loss = {:+9.4f}".format(
             pi_loss, vf_loss, loss)
 
         # =================== DEBUG ===================

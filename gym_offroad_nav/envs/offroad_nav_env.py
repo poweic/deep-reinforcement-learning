@@ -18,13 +18,15 @@ class OffRoadNavEnv(gym.Env):
 
         self.vehicle_model = vehicle_model
 
-        self.K = 10
+        self.K = 20
 
         self.state = None
 
         self.prev_action = np.zeros((2, 1))
 
         self.front_view_disp = np.zeros((400, 400, 3), np.uint8)
+
+        self.highlight = False
 
     def _step(self, action):
         ''' Take one step in the environment
@@ -132,7 +134,7 @@ class OffRoadNavEnv(gym.Env):
         if value_range != 0:
             R = (R - np.min(R)) / value_range * 255.
         R = np.clip(R, 0, 255).astype(np.uint8)
-        R = cv2.resize(R, (400, 400), interpolation=interpolation)[..., None]
+        R = cv2.resize(R, (40 * K, 40 * K), interpolation=interpolation)[..., None]
         R = np.concatenate([R, R, R], axis=2)
         return R
 
@@ -190,6 +192,11 @@ class OffRoadNavEnv(gym.Env):
         # Turn ix, iy to image coordinate on disp_img (reward)
         xs, ys = 40*self.K/2-1 + ix, 40*self.K-1-iy
 
+        # Font family, size, and color
+        font = cv2.FONT_HERSHEY_PLAIN
+        font_size = 1
+        color = (44, 65, 221)
+
         # Copy the image before drawing vehicle heading (only when i == 0)
         disp_img = np.copy(self.disp_img)
 
@@ -201,35 +208,35 @@ class OffRoadNavEnv(gym.Env):
                 )):
 
             # Draw vehicle on image without copying it first to leave a trajectory
-            cv2.circle(self.disp_img, (x, y), 0, (169, 255, 0), 0)
+            vcolor = (169, 255, 0) if not self.highlight else (0, 0, 255)
+            size = 0 if not self.highlight else 1
+            cv2.circle(self.disp_img, (x, y), size, vcolor, size)
 
             pt1 = (x, y)
             cv2.circle(disp_img, pt1, 2, (0, 0, 255), 2)
             dx, dy = -int(50 * np.sin(theta)), int(50 * np.cos(theta))
             pt2 = (x + dx, y - dy)
             cv2.arrowedLine(disp_img, pt1, pt2, (0, 0, 255), tipLength=0.2)
+            cv2.putText(disp_img, str(i), pt1, font, 1, (255, 255, 0), 1, cv2.CV_AA)
 
             if i != 0:
                 continue
 
             # Put return, reward, and vehicle states on image for debugging
-            font = cv2.FONT_HERSHEY_PLAIN
-            font_size = 1
-            color = (0, 216, 255)
             text = "reward = {:.3f}, return = {:.3f} / {:.3f}".format(current_reward, total_return, worker.max_return)
             cv2.putText(disp_img, text, (10, 20), font, font_size, color, 1, cv2.CV_AA)
 
             text = "action = ({:+.2f}, {:+.2f})".format(
                 prev_action[0], prev_action[1])
-            cv2.putText(disp_img, text, (10, 350), font, font_size, color, 1, cv2.CV_AA)
+            cv2.putText(disp_img, text, (10, 40 * self.K - 50), font, font_size, color, 1, cv2.CV_AA)
 
             text = "(x, y, theta)  = ({:+.2f}, {:+.2f}, {:+.2f})".format(
                 state[0], state[1], np.mod(state[2] * 180 / np.pi, 360))
-            cv2.putText(disp_img, text, (10, 370), font, font_size, color, 1, cv2.CV_AA)
+            cv2.putText(disp_img, text, (10, 40 * self.K - 30), font, font_size, color, 1, cv2.CV_AA)
 
             text = "(x', y', theta') = ({:+.2f}, {:+.2f}, {:+.2f})".format(
                 state[3], state[4], state[5] * 180 / np.pi)
-            cv2.putText(disp_img, text, (10, 390), font, font_size, color, 1, cv2.CV_AA)
+            cv2.putText(disp_img, text, (10, 40 * self.K - 10), font, font_size, color, 1, cv2.CV_AA)
 
         idx = int(worker.name[-1])
         cv2.imshow4(idx, disp_img)

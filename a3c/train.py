@@ -25,35 +25,35 @@ tf.flags.DEFINE_string("game", "line", "Game environment")
 tf.flags.DEFINE_integer("max_global_steps", None, "Stop training after this many steps in the environment. Defaults to running indefinitely.")
 tf.flags.DEFINE_integer("eval_every", 30, "Evaluate the policy every N seconds")
 tf.flags.DEFINE_integer("parallelism", 1, "Number of threads to run. If not set we run [num_cpu_cores] threads.")
-tf.flags.DEFINE_integer("downsample", 10, "Downsample transitions to reduce sample correlation")
-tf.flags.DEFINE_integer("n_agents_per_worker", 32, "Downsample transitions to reduce sample correlation")
+tf.flags.DEFINE_integer("downsample", 5, "Downsample transitions to reduce sample correlation")
+tf.flags.DEFINE_integer("n_agents_per_worker", 16, "Downsample transitions to reduce sample correlation")
 tf.flags.DEFINE_integer("save_every_n_minutes", 10, "Save model every N minutes")
 
 tf.flags.DEFINE_boolean("reset", False, "If set, delete the existing model directory and start training from scratch.")
 tf.flags.DEFINE_boolean("debug", False, "If set, turn on the debug flag")
 
 tf.flags.DEFINE_float("t_max", 5, "Maximum elasped time per simulation (in seconds)")
-tf.flags.DEFINE_float("command_freq", 25, "How frequent we send command to vehicle (in Hz)")
+tf.flags.DEFINE_float("command_freq", 5, "How frequent we send command to vehicle (in Hz)")
 
-tf.flags.DEFINE_float("learning_rate", 1e-4, "Learning rate for policy net and value net")
+tf.flags.DEFINE_float("learning_rate", 1e-3, "Learning rate for policy net and value net")
 tf.flags.DEFINE_float("l2_reg", 1e-4, "L2 regularization multiplier")
 tf.flags.DEFINE_float("max_gradient", 40, "Threshold for gradient clipping used by tf.clip_by_global_norm")
-tf.flags.DEFINE_float("timestep", 0.02, "Simulation timestep")
+tf.flags.DEFINE_float("timestep", 0.0001, "Simulation timestep")
 tf.flags.DEFINE_float("wheelbase", 2.00, "Wheelbase of the vehicle in meters")
-tf.flags.DEFINE_float("vehicle_model_noise_level", 0.01, "level of white noise (variance) in vehicle model")
+tf.flags.DEFINE_float("vehicle_model_noise_level", 0.1, "level of white noise (variance) in vehicle model")
 tf.flags.DEFINE_float("entropy_cost_mult", 1e-3, "multiplier used by entropy regularization")
 tf.flags.DEFINE_float("discount_factor", 0.99, "discount factor in Markov decision process (MDP)")
 tf.flags.DEFINE_float("lambda_", 0.90, "lambda in TD-Lambda (temporal difference learning)")
 
-tf.flags.DEFINE_float("min_mu_vf", 7. / 3.6, "Minimum forward velocity of vehicle (m/s)")
-tf.flags.DEFINE_float("max_mu_vf", 40 / 3.6, "Maximum forward velocity of vehicle (m/s)")
+tf.flags.DEFINE_float("min_mu_vf", 10. / 3.6, "Minimum forward velocity of vehicle (m/s)")
+tf.flags.DEFINE_float("max_mu_vf", 11. / 3.6, "Maximum forward velocity of vehicle (m/s)")
 tf.flags.DEFINE_float("min_mu_steer", -30 * np.pi / 180, "Minimum steering angle (rad)")
 tf.flags.DEFINE_float("max_mu_steer", +30 * np.pi / 180, "Maximum steering angle (rad)")
 
-tf.flags.DEFINE_float("min_sigma_vf", 1. / 3.6, "Minimum variance of forward velocity")
-tf.flags.DEFINE_float("max_sigma_vf", 5. / 3.6, "Maximum variance of forward velocity")
-tf.flags.DEFINE_float("min_sigma_steer", 1. * np.pi / 180, "Minimum variance of steering angle (rad)")
-tf.flags.DEFINE_float("max_sigma_steer", 10 * np.pi / 180, "Maximum variance of steering angle (rad)")
+tf.flags.DEFINE_float("min_sigma_vf", 3. / 3.6, "Minimum variance of forward velocity")
+tf.flags.DEFINE_float("max_sigma_vf", 7. / 3.6, "Maximum variance of forward velocity")
+tf.flags.DEFINE_float("min_sigma_steer", 3. * np.pi / 180, "Minimum variance of steering angle (rad)")
+tf.flags.DEFINE_float("max_sigma_steer", 7 * np.pi / 180, "Maximum variance of steering angle (rad)")
 '''
 tf.flags.DEFINE_float("min_mu_vf", 7  / 3.6 - 0.0001, "Minimum forward velocity of vehicle (m/s)")
 tf.flags.DEFINE_float("max_mu_vf", 7  / 3.6 + 0.0001, "Maximum forward velocity of vehicle (m/s)")
@@ -80,7 +80,10 @@ def imshow4(idx, img):
     x = idx / 4
     y = idx % 4
     with disp_lock:
-        disp_img[x*W:(x+1)*W, y*W:(y+1)*W, :] = np.copy(img)
+        if img.shape[0] == W:
+            disp_img[x*W:(x+1)*W, y*W:(y+1)*W, :] = np.copy(img)
+        else:
+            disp_img[x*W:(x+2)*W, y*W:(y+2)*W, :] = np.copy(img)
 
 cv2.imshow4 = imshow4
 
@@ -91,7 +94,7 @@ def make_env():
     # rewards -= 100
     # rewards -= 15
     rewards = (rewards - np.min(rewards)) / (np.max(rewards) - np.min(rewards))
-    rewards = (rewards - 0.5)
+    rewards = (rewards - 0.6) * 2
     # rewards[rewards < 0.1] = -1
     env = OffRoadNavEnv(rewards, vehicle_model)
     return env
