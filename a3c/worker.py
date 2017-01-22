@@ -332,7 +332,7 @@ class Worker(object):
         data.update({k: deflatten(v, self.n_agents) for k, v in mdp_states.viewitems()})
 
         # Downsample experiences
-        start_idx = np.random.randint(FLAGS.downsample)
+        start_idx = np.random.randint(min(FLAGS.downsample, T))
         s = slice(start_idx, None, FLAGS.downsample)
         # s = slice(0, 4)
         for k in data.keys():
