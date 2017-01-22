@@ -108,16 +108,19 @@ class PolicyValueEstimator():
             self.returns = tf.placeholder(tf.float32, [batch_size, 1], "returns")
             self.actions_ext = tf.placeholder(tf.float32, [batch_size, 2], "actions_ext")
 
-        with tf.name_scope("shared"):
-            shared = self.build_shared_network(add_summaries=add_summaries)
+        with tf.variable_scope("shared_p"):
+            shared_p = self.build_shared_network(add_summaries=add_summaries)
+
+        with tf.variable_scope("shared_v"):
+            shared_v = self.build_shared_network(add_summaries=add_summaries)
 
         with tf.name_scope("policy_network"):
-            self.mu, self.sigma = self.policy_network(shared, 2)
+            self.mu, self.sigma = self.policy_network(shared_p, 2)
             normal_dist = self.get_normal_dist(self.mu, self.sigma)
             self.actions = self.sample_actions(normal_dist)
 
         with tf.name_scope("value_network"):
-            self.logits = self.value_network(shared)
+            self.logits = self.value_network(shared_v)
 
         with tf.name_scope("losses"):
             self.pi_loss = self.get_policy_loss(normal_dist)
@@ -134,9 +137,27 @@ class PolicyValueEstimator():
             self.optimizer = tf.train.AdamOptimizer(FLAGS.learning_rate)
             grads_and_vars = self.optimizer.compute_gradients(self.loss)
             self.grads_and_vars = [(g, v) for g, v in grads_and_vars if g is not None]
-            # self.g_mu = tf.gradients(self.pi_loss, [self.mu])[0]
+            self.g_mu = tf.gradients(self.pi_loss, [self.mu])[0]
 
         if add_summaries:
+
+            # ====== DEBUG ======
+            '''
+            g_mu_mean = tf.reduce_mean(tf.reshape(self.g_mu[:, 1], (FLAGS.n_agents_per_worker, -1)), axis=0)
+            mu_mean = tf.reduce_mean(tf.reshape(self.mu[:, 1], (FLAGS.n_agents_per_worker, -1)), axis=0)
+
+            tf.summary.scalar("g_mu_mean_0", tf.reduce_sum(g_mu_mean[0]))
+            tf.summary.scalar("g_mu_mean_1", tf.reduce_sum(g_mu_mean[1]))
+            tf.summary.scalar("g_mu_mean_2", tf.reduce_sum(g_mu_mean[2]))
+            tf.summary.scalar("g_mu_mean_3", tf.reduce_sum(g_mu_mean[3]))
+
+            tf.summary.scalar("mu_mean_0", tf.reduce_sum(mu_mean[0]))
+            tf.summary.scalar("mu_mean_1", tf.reduce_sum(mu_mean[1]))
+            tf.summary.scalar("mu_mean_2", tf.reduce_sum(mu_mean[2]))
+            tf.summary.scalar("mu_mean_3", tf.reduce_sum(mu_mean[3]))
+            '''
+            # ====== DEBUG ======
+
             self.summaries = self.summarize()
 
     def build_shared_network(self, add_summaries=False):
@@ -160,17 +181,17 @@ class PolicyValueEstimator():
         with tf.name_scope("conv"):
             # Three convolutional layers
             conv1 = tf.contrib.layers.conv2d(
-                input, 32, 7, 2, activation_fn=tf.nn.relu, scope="conv1")
+                input, 8, 3, 2, activation_fn=tf.nn.relu, scope="conv1")
             conv2 = tf.contrib.layers.conv2d(
-                conv1, 32, 3, 2, activation_fn=tf.nn.relu, scope="conv2")
+                conv1, 8, 3, 2, activation_fn=tf.nn.relu, scope="conv2")
             conv3 = tf.contrib.layers.conv2d(
-                conv2, 32, 3, 2, activation_fn=tf.nn.relu, scope="conv3")
+                conv2, 8, 3, 2, activation_fn=tf.nn.relu, scope="conv3")
 
         with tf.name_scope("dense"):
             # Fully connected layer
             fc1 = DenseLayer(
                 input=tf.contrib.layers.flatten(conv3),
-                num_outputs=256,
+                num_outputs=64,
                 nonlinearity="relu",
                 name="fc1")
 
@@ -178,7 +199,7 @@ class PolicyValueEstimator():
 
             fc2 = DenseLayer(
                 input=concat1,
-                num_outputs=256,
+                num_outputs=64,
                 nonlinearity="relu",
                 name="fc2")
 
@@ -186,7 +207,7 @@ class PolicyValueEstimator():
 
             fc3 = DenseLayer(
                 input=concat2,
-                num_outputs=512,
+                num_outputs=64,
                 nonlinearity="relu",
                 name="fc3")
 
@@ -243,11 +264,12 @@ class PolicyValueEstimator():
 
     def get_normal_dist(self, mu, sigma):
 
-        '''
         # Add some initial bias for debugging (to see whether it can recover from it)
-        mu_steer    =    mu[:, 1:2] + 15. * np.pi / 180 * np.sign(np.random.rand() - 0.5)
-        mu_steer = tf_print(mu_steer, "mu_steer = ")
-        mu    = tf.concat(1, [   mu[:, 0:1],    mu_steer])
+        '''
+        mu_steer = mu[:, 1:2] + 15. * np.pi / 180 * np.sign(np.random.rand() - 0.5)
+        # mu_steer = tf_print(mu_steer, "mu_steer = ")
+        mu = tf.concat(1, [mu[:, 0:1], mu_steer])
+        self.mu = mu
         '''
 
         # Reshape and sample

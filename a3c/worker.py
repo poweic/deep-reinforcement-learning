@@ -149,7 +149,7 @@ class Worker(object):
                 traceback.print_exc()
 
     def reset_env(self):
-        self.state = np.array([0.5, 3, 0, 0, 0.001, 0])
+        self.state = np.array([0.5, 2, 0, 0, 0.001, 0])
 
         '''
         # self.state = np.array([+7.4, 8.15, 0, 0, 0, 0])
@@ -170,7 +170,7 @@ class Worker(object):
         self.current_reward = np.zeros((1, self.n_agents))
 
         # Add some noise to have diverse start points
-        noise = np.random.rand(6, self.n_agents).astype(np.float32) * 0.05
+        noise = np.random.rand(6, self.n_agents).astype(np.float32) * 0.5
         self.state = self.state + noise
 
         self.env._reset(self.state)
@@ -238,7 +238,9 @@ class Worker(object):
         last = transitions[-1]
         mdp_state = form_mdp_state(self.env, last.next_state, last.action, last.reward)
         v = self.local_net.predict_values(mdp_state, self.sess)
-        v[last.done] = 0
+        # print last.done
+        # v[last.done] = 0
+        v *= 0
 
         # Collect rewards from transitions, append v to rewards, and compute
         # the total discounted returns
@@ -295,27 +297,40 @@ class Worker(object):
         mdp_states = self.get_mdp_states(transitions)
 
         v, rewards, returns = self.get_rewards_and_returns(transitions)
+        '''
+        print "returns = \n{}".format(returns)
+        '''
 
         values, delta_t = self.get_values_and_td_targets(mdp_states, v, rewards)
 
         # advantages = rewards
         # advantages = delta_t
-        # prev_rewards = mdp_states["prev_reward"].reshape(self.n_agents, -1)
-        # advantages = rewards - prev_rewards
-        advantages = discount(delta_t, self.discount_factor * FLAGS.lambda_)
-        # print "advantages.shape = ", advantages.shape
-
-        '''
-        print "np.mean(advantages, axis=1) = {}".format(np.mean(advantages, axis=1))
-        adv = data['advantages'][:, 0]
-        print "advantages[:, 0] = {}".format(adv)
-        print "min(adv) = {}, max(adv) = {}, mean(adv) = {}".format(np.min(adv), np.max(adv), np.mean(adv))
-        '''
+        advantages = delta_t
 
         actions = np.concatenate([
             trans.action.T[:, None, :] for trans in transitions
         ], axis=1)
-        # print "actions.shape = ", actions.shape
+
+        # =================== DEBUG ===================
+        '''
+        # prev_rewards = mdp_states["prev_reward"].reshape(self.n_agents, -1)
+        # adv = rewards - prev_rewards
+        adv = rewards + self.discount_factor * returns[:, 1:] - returns[:, :-1]
+        print "returns = \n{}".format(returns)
+        print " {} [np.mean(returns)]".format(np.mean(returns, axis=0))
+        print " {} [np.std(returns) ]".format(np.std(returns, axis=0))
+        returns = returns[:, :-1]
+
+        print "rewards = \n{}".format(rewards)
+        print " {} [np.mean(rewards)]".format(np.mean(rewards, axis=0))
+        print " {} [np.std(rewards) ]".format(np.std(rewards, axis=0))
+
+        advantages = adv
+        '''
+        # advantages *= np.power(0.01, range(T)).reshape(1, -1)
+        # =================== DEBUG ===================
+
+        advantages = discount(advantages, self.discount_factor * FLAGS.lambda_)
 
         # Add TD Target, TD Error, and actions to data
         data = dict(
@@ -328,6 +343,7 @@ class Worker(object):
         # Downsample experiences
         start_idx = np.random.randint(FLAGS.downsample)
         s = slice(start_idx, None, FLAGS.downsample)
+        # s = slice(0, 4)
         for k in data.keys():
             data[k] = flatten(data[k][:, s, ...])
             # print "data[{}].shape = {}".format(k, data[k].shape)
@@ -355,12 +371,65 @@ class Worker(object):
             self.net_train_op
         ]
 
+        '''
+        ops += [
+            self.local_net.mu,
+            self.local_net.sigma,
+            self.local_net.g_mu,
+        ]
+        '''
+
         # Train the global estimators using local gradients
         if self.summary_writer is None:
             global_step, loss, pi_loss, vf_loss, _ = self.sess.run(ops, feed_dict)
+            # global_step, loss, pi_loss, vf_loss, _, mu, sigma, g_mu = self.sess.run(ops, feed_dict)
         else:
             ops += [self.local_net.summaries]
             global_step, loss, pi_loss, vf_loss, _, summaries = self.sess.run(ops, feed_dict)
+            # global_step, loss, pi_loss, vf_loss, _, mu, sigma, g_mu, summaries = self.sess.run(ops, feed_dict)
+
+        # =================== DEBUG ===================
+        '''
+        mu = mu.reshape(self.n_agents, -1, 2)[:, :, 1]
+        sigma = sigma.reshape(self.n_agents, -1, 2)[:, :, 1]
+        g_loss_wrt_mu_from_tf = g_mu[:, -1].reshape(self.n_agents, -1)
+        g_gain_wrt_mu_from_tf = -g_loss_wrt_mu_from_tf
+        adv = advantages[:, s]
+
+        mu_and_adv = np.concatenate([mu, adv], axis=1)
+
+        np.set_printoptions(precision=6, linewidth=120, suppress=True)
+        print "mu_and_adv = \n{}".format(mu_and_adv)
+        print "==========================================================="
+        print " {} (  mean   of mu_and_adv)".format(np.mean(mu_and_adv, axis=0))
+        print " {} (variance of mu_and_adv)".format(np.std(mu_and_adv, axis=0))
+
+        vf = mdp_states['vehicle_state'].reshape(self.n_agents, -1, 6)[:, s, 4]
+        steer = np.arctan(FLAGS.wheelbase * actions[..., s, 1] / vf)
+
+        g_gain_wrt_mu = ((steer - mu) * adv / (sigma ** 2)) / batch_size
+        # print "gradients of expected return w.r.t g_gain_wrt_mu = \n{}".format(g_gain_wrt_mu)
+        print "==========================================================="
+        print " {} (  mean   of g_gain_wrt_mu)".format(np.mean(g_gain_wrt_mu, axis=0))
+        print " {} (variance of g_gain_wrt_mu)".format(np.std(g_gain_wrt_mu, axis=0))
+
+        a0 = np.mean(adv, axis=0)[0]
+        mu0 = np.mean(mu, axis=0)[0]
+        g0 = np.mean(g_gain_wrt_mu, axis=0)[0]
+        # if there's no advantage but g0 is in the direction of moving away from 0
+        '''
+
+        '''
+        if mu0 * g0 > 0:
+            import ipdb; ipdb.set_trace()
+        '''
+        
+        '''
+        # print g_gain_wrt_mu, g_gain_wrt_mu_from_tf
+        ratio = g_gain_wrt_mu / g_gain_wrt_mu_from_tf
+        print "mean(ratio) = {}, std(ratio) = {}".format(np.mean(ratio), np.std(ratio))
+        '''
+        # =================== DEBUG ===================
 
         print "\33[33m#{:04d}\33[0m update (from {}), returns = {:.2f}, batch_size = {},".format(
             global_step, self.name, np.mean(returns[:, 0]), batch_size),

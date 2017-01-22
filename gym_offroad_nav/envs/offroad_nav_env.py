@@ -193,6 +193,9 @@ class OffRoadNavEnv(gym.Env):
         # Turn ix, iy to image coordinate on disp_img (reward)
         xs, ys = 40*self.K/2-1 + ix, 40*self.K-1-iy
 
+        # Copy the image before drawing vehicle heading (only when i == 0)
+        disp_img = np.copy(self.disp_img)
+
         for i, (x, y, theta, prev_action, state, current_reward, total_return) in enumerate(
                 zip(
                     xs, ys, thetas, self.prev_action.T, self.state.T,
@@ -203,17 +206,14 @@ class OffRoadNavEnv(gym.Env):
             # Draw vehicle on image without copying it first to leave a trajectory
             cv2.circle(self.disp_img, (x, y), 0, (169, 255, 0), 0)
 
-            if i != 0:
-                continue
-
-            # Copy the image before drawing vehicle heading (only when i == 0)
-            disp_img = np.copy(self.disp_img)
-
             pt1 = (x, y)
             cv2.circle(disp_img, pt1, 2, (0, 0, 255), 2)
             dx, dy = -int(50 * np.sin(theta)), int(50 * np.cos(theta))
             pt2 = (x + dx, y - dy)
             cv2.arrowedLine(disp_img, pt1, pt2, (0, 0, 255), tipLength=0.2)
+
+            if i != 0:
+                continue
 
             # Put return, reward, and vehicle states on image for debugging
             font = cv2.FONT_HERSHEY_PLAIN
