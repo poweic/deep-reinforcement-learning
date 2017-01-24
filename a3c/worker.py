@@ -7,6 +7,7 @@ import scipy.io
 import scipy.signal
 import traceback
 import time
+# from a3c.monitor import server
 
 from a3c.estimators import PolicyValueEstimator
 from a3c.utils import inverse_transform_sampling_2d
@@ -206,9 +207,6 @@ class Worker(object):
             # Predict an action
             self.action = self.local_net.predict_actions(mdp_state, self.sess).T
             assert not np.any(np.isnan(self.action)), "i = {}, self.action = {}, mdp_state = {}".format(i, self.action, mdp_state)
-            self.env.highlight = True
-            time.sleep(0.05)
-            self.env.highlight = False
 
             # Take several sub-steps in environment (the smaller the timestep,
             # the smaller each sub-step, the more accurate the simulation
@@ -311,15 +309,12 @@ class Worker(object):
         mdp_states = self.get_mdp_states(transitions)
 
         v, rewards, returns = self.get_rewards_and_returns(transitions)
-        '''
-        print "returns = \n{}".format(returns)
-        '''
 
         values, delta_t = self.get_values_and_td_targets(mdp_states, v, rewards)
 
         # advantages = rewards
-        advantages = returns
-        # advantages = delta_t
+        # advantages = returns
+        advantages = delta_t
 
         actions = np.concatenate([
             trans.action.T[:, None, :] for trans in transitions
@@ -344,7 +339,7 @@ class Worker(object):
         # advantages *= np.power(0.01, range(T)).reshape(1, -1)
         # =================== DEBUG ===================
 
-        # advantages = discount(advantages, self.discount_factor * FLAGS.lambda_)
+        advantages = discount(advantages, self.discount_factor * FLAGS.lambda_)
 
         # Add TD Target, TD Error, and actions to data
         data = dict(
@@ -359,6 +354,7 @@ class Worker(object):
         # s = slice(start_idx, None, FLAGS.downsample)
         s = slice(0, 8)
         for k in data.keys():
+            # server.set_data(k, data[k])
             data[k] = flatten(data[k][:, s, ...])
             # print "data[{}].shape = {}".format(k, data[k].shape)
 
@@ -385,22 +381,25 @@ class Worker(object):
             self.net_train_op
         ]
 
+        '''
         ops += [
             self.local_net.mu,
             self.local_net.sigma,
             self.local_net.g_mu,
         ]
+        '''
 
         # Train the global estimators using local gradients
         if self.summary_writer is None:
-            # global_step, loss, pi_loss, vf_loss, _ = self.sess.run(ops, feed_dict)
-            global_step, loss, pi_loss, vf_loss, _, mu, sigma, g_mu = self.sess.run(ops, feed_dict)
+            global_step, loss, pi_loss, vf_loss, _ = self.sess.run(ops, feed_dict)
+            # global_step, loss, pi_loss, vf_loss, _, mu, sigma, g_mu = self.sess.run(ops, feed_dict)
         else:
             ops += [self.local_net.summaries]
-            # global_step, loss, pi_loss, vf_loss, _, summaries = self.sess.run(ops, feed_dict)
-            global_step, loss, pi_loss, vf_loss, _, mu, sigma, g_mu, summaries = self.sess.run(ops, feed_dict)
+            global_step, loss, pi_loss, vf_loss, _, summaries = self.sess.run(ops, feed_dict)
+            # global_step, loss, pi_loss, vf_loss, _, mu, sigma, g_mu, summaries = self.sess.run(ops, feed_dict)
 
         # =================== DEBUG ===================
+        '''
         mu = mu.reshape(self.n_agents, -1, 2)[:, :, 1]
         sigma = sigma.reshape(self.n_agents, -1, 2)[:, :, 1]
         g_loss_wrt_mu_from_tf = g_mu[:, -1].reshape(self.n_agents, -1)
@@ -414,7 +413,7 @@ class Worker(object):
         mu_and_adv = np.concatenate([mu, adv], axis=1)
 
         np.set_printoptions(precision=4, linewidth=500, suppress=True, formatter={
-            'float': lambda x: "#{:02d}".format(int(x)) if x.is_integer() else ("\33[92m" if x > 0 else "\33[91m") + ("{:9.4f}".format(x)) + "\33[0m"
+            'float_kind': lambda x: "#{:02d}".format(int(x)) if x.is_integer() else ("\33[92m" if x > 0 else "\33[91m") + ("{:9.4f}".format(x)) + "\33[0m"
         })
 
         print (" " * 32) + "mu" + (" " * 31) + "|" + (" " * 32) + "adv"
@@ -435,8 +434,7 @@ class Worker(object):
         print "==========================================================="
         print " {} (  mean   of g_gain_wrt_mu)".format(np.mean(g_gain_wrt_mu[:, 1:], axis=0))
         print " {} (variance of g_gain_wrt_mu)".format( np.std(g_gain_wrt_mu[:, 1:], axis=0))
-
-        import ipdb; ipdb.set_trace()
+        '''
 
         '''
         a0 = np.mean(adv, axis=0)[0]

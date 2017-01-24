@@ -1,0 +1,26 @@
+<!DOCTYPE HTML>
+<html>
+  <head>
+    <title>RL Monitor</title>
+    <script src="/js/jquery-3.1.1.min.js"></script>
+    <script src="/js/sprintf.min.js"></script>
+    <script src="/js/snap.svg-min.js"></script>
+    <script src="/js/vivus.min.js"></script>
+    <link rel="stylesheet" href="/css/app.css">
+  </head>
+  <body>
+    <div class="container">
+      <img src="/images/maze3.png" width=4000 height=4000 />
+      <svg class="canvas" width=4000 height=4000>
+	<marker xmlns="http://www.w3.org/2000/svg" id="pose-arrow" viewBox="0 0 10 10" refX="8" refY="5" markerUnits="strokeWidth" markerWidth="10" markerHeight="5" orient="auto">
+	  <path d="M 0 0 L 10 5 L 0 10 L 0 8 L 8 5 L 0 2z"/>
+	</marker>
+	<marker xmlns="http://www.w3.org/2000/svg" id="action-arrow" viewBox="0 0 10 10" refX="8" refY="5" markerUnits="strokeWidth" markerWidth="10" markerHeight="5" orient="auto">
+	  <path d="M 0 0 L 10 5 L 0 10 L 0 8 L 8 5 L 0 2z"/>
+	</marker>
+      </svg>
+    </div>
+    <svg id="frontview" width=400 height=400> </svg>
+    <script src="/js/app.js"></script>
+  </body>
+</html>

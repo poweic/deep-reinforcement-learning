@@ -13,9 +13,10 @@ import time
 import schedule
 from pprint import pprint
 
+from a3c.worker import Worker
 from a3c.estimators import PolicyValueEstimator
 from a3c.policy_monitor import PolicyMonitor
-from a3c.worker import Worker
+# from a3c.monitor import server
 from gym_offroad_nav.envs import OffRoadNavEnv
 from gym_offroad_nav.vehicle_model import VehicleModel
 
@@ -81,10 +82,7 @@ def imshow4(idx, img):
     x = idx / 4
     y = idx % 4
     with disp_lock:
-        if img.shape[0] == W:
-            disp_img[x*W:(x+1)*W, y*W:(y+1)*W, :] = np.copy(img)
-        else:
-            disp_img[x*W:(x+2)*W, y*W:(y+2)*W, :] = np.copy(img)
+        disp_img[x*W:x*W+img.shape[0], y*W:y*W+img.shape[1], :] = np.copy(img)
 
 cv2.imshow4 = imshow4
 
@@ -195,6 +193,8 @@ with tf.Session() as sess:
     monitor_thread = threading.Thread(target=lambda: pe.continuous_eval(FLAGS.eval_every, sess, coord))
     monitor_thread.start()
     '''
+
+    # server.start()
 
     # Show how agent behaves in envs in main thread
     counter = 0

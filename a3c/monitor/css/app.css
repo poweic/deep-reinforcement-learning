@@ -1,0 +1,87 @@
+.container {
+  position: relative;
+}
+
+.container > svg.canvas, .container > img {
+  position: absolute;
+}
+
+svg {
+  pointer-events: stroke;
+}
+
+svg path, svg line {
+  transition: 0.15s ease;
+}
+
+svg g.agent path.trajectory {
+  opacity: 0.3;
+}
+
+svg g.agent path.trajectory:hover {
+  stroke: rgba(81, 255, 203, 0.8);
+  opacity: 1 !important;
+}
+
+svg g.agent path.trajectory {
+  fill: transparent;
+  stroke: #51d0ff;
+  stroke-width: 20;
+}
+
+svg g.agent circle.pose-xy {
+  fill: blue;
+}
+
+svg g.agent path.trajectory:hover ~ * {
+  opacity: 1 !important;
+}
+
+svg #pose-arrow { fill: #FF9800; }
+
+svg g.agent path.action, svg g.agent line.pose, svg g.agent path.pose {
+  opacity: 0;
+  stroke-width: 0.3vh;
+}
+
+/* CSS styles for vehicle pose */
+svg g.agent line.pose, svg g.agent path.pose {
+  stroke: #FF9800;
+  marker-end: url(#pose-arrow);
+  stroke-dasharray: 10, 5;
+}
+svg g.agent line.pose { }
+svg g.agent path.pose { fill: transparent; }
+
+/* CSS styles for vehicle control (action) */
+svg #action-arrow { fill: red; }
+svg g.agent path.action  {
+  fill: transparent;
+  stroke: red;
+  marker-end: url(#action-arrow);
+}
+
+/* CSS styles for agent name-tag */
+svg g.agent text.agent-name {
+  opacity: 0.5;
+  fill: #ecda27;
+  font-size: 1em;
+}
+
+svg#frontview {
+  position: fixed;
+  top: 400px;
+  border: 1px solid white;
+  border-left: 0;
+}
+
+.minimap {
+  transform: scale(0.1);
+  transform-origin: left;
+  position: fixed;
+  top: 0;
+}
+
+svg circle.mouse {
+  fill: red;
+}

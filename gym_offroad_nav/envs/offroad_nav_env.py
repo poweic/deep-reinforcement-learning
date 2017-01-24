@@ -18,7 +18,7 @@ class OffRoadNavEnv(gym.Env):
 
         self.vehicle_model = vehicle_model
 
-        self.K = 20
+        self.K = 10
 
         self.state = None
 
