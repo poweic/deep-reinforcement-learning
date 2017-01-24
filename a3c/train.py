@@ -29,6 +29,7 @@ tf.flags.DEFINE_integer("downsample", 5, "Downsample transitions to reduce sampl
 tf.flags.DEFINE_integer("n_agents_per_worker", 16, "Downsample transitions to reduce sample correlation")
 tf.flags.DEFINE_integer("save_every_n_minutes", 10, "Save model every N minutes")
 
+tf.flags.DEFINE_boolean("drift", False, "If set, turn on drift")
 tf.flags.DEFINE_boolean("reset", False, "If set, delete the existing model directory and start training from scratch.")
 tf.flags.DEFINE_boolean("debug", False, "If set, turn on the debug flag")
 

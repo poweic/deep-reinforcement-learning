@@ -3,7 +3,7 @@ import numpy as np
 
 class VehicleModel():
 
-    def __init__(self, timestep, noise_level=0.):
+    def __init__(self, timestep, noise_level=0., drift=False):
         model = scipy.io.loadmat("../vehicle_modeling/vehicle_model_ABCD.mat")
         self.A = model["A"]
         self.B = model["B"]
@@ -11,6 +11,11 @@ class VehicleModel():
         self.D = model["D"]
         self.timestep = timestep
         self.noise_level = noise_level
+
+        if not drift:
+            self.A[0][0] = 0
+            self.C[0][0] = 0
+            self.D[0][1] = 0
 
         # x = Ax + Bu, y = Cx + Du
         # Turn cm/s, degree/s to m/s and rad/s
