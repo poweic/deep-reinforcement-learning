@@ -32,29 +32,30 @@ tf.flags.DEFINE_integer("save_every_n_minutes", 10, "Save model every N minutes"
 
 tf.flags.DEFINE_boolean("drift", False, "If set, turn on drift")
 tf.flags.DEFINE_boolean("reset", False, "If set, delete the existing model directory and start training from scratch.")
+tf.flags.DEFINE_boolean("resume", False, "If set, resume training from the corresponding last checkpoint file")
 tf.flags.DEFINE_boolean("debug", False, "If set, turn on the debug flag")
 
-tf.flags.DEFINE_float("t_max", 5, "Maximum elasped time per simulation (in seconds)")
-tf.flags.DEFINE_float("command_freq", 5, "How frequent we send command to vehicle (in Hz)")
+tf.flags.DEFINE_float("t_max", 30, "Maximum elasped time per simulation (in seconds)")
+tf.flags.DEFINE_float("command_freq", 20, "How frequent we send command to vehicle (in Hz)")
 
-tf.flags.DEFINE_float("learning_rate", 1e-3, "Learning rate for policy net and value net")
+tf.flags.DEFINE_float("learning_rate", 2e-4, "Learning rate for policy net and value net")
 tf.flags.DEFINE_float("l2_reg", 1e-4, "L2 regularization multiplier")
 tf.flags.DEFINE_float("max_gradient", 40, "Threshold for gradient clipping used by tf.clip_by_global_norm")
-tf.flags.DEFINE_float("timestep", 0.0001, "Simulation timestep")
+tf.flags.DEFINE_float("timestep", 0.025, "Simulation timestep")
 tf.flags.DEFINE_float("wheelbase", 2.00, "Wheelbase of the vehicle in meters")
 tf.flags.DEFINE_float("vehicle_model_noise_level", 0.1, "level of white noise (variance) in vehicle model")
 tf.flags.DEFINE_float("entropy_cost_mult", 1e-3, "multiplier used by entropy regularization")
-tf.flags.DEFINE_float("discount_factor", 0.99, "discount factor in Markov decision process (MDP)")
-tf.flags.DEFINE_float("lambda_", 0.90, "lambda in TD-Lambda (temporal difference learning)")
+tf.flags.DEFINE_float("discount_factor", 0.995, "discount factor in Markov decision process (MDP)")
+tf.flags.DEFINE_float("lambda_", 0.50, "lambda in TD-Lambda (temporal difference learning)")
 
-tf.flags.DEFINE_float("min_mu_vf", 10. / 3.6, "Minimum forward velocity of vehicle (m/s)")
-tf.flags.DEFINE_float("max_mu_vf", 11. / 3.6, "Maximum forward velocity of vehicle (m/s)")
+tf.flags.DEFINE_float("min_mu_vf", 6. / 3.6, "Minimum forward velocity of vehicle (m/s)")
+tf.flags.DEFINE_float("max_mu_vf", 40. / 3.6, "Maximum forward velocity of vehicle (m/s)")
 tf.flags.DEFINE_float("min_mu_steer", -30 * np.pi / 180, "Minimum steering angle (rad)")
 tf.flags.DEFINE_float("max_mu_steer", +30 * np.pi / 180, "Maximum steering angle (rad)")
 
-tf.flags.DEFINE_float("min_sigma_vf", 3. / 3.6, "Minimum variance of forward velocity")
+tf.flags.DEFINE_float("min_sigma_vf", 1. / 3.6, "Minimum variance of forward velocity")
 tf.flags.DEFINE_float("max_sigma_vf", 7. / 3.6, "Maximum variance of forward velocity")
-tf.flags.DEFINE_float("min_sigma_steer", 3. * np.pi / 180, "Minimum variance of steering angle (rad)")
+tf.flags.DEFINE_float("min_sigma_steer", 1. * np.pi / 180, "Minimum variance of steering angle (rad)")
 tf.flags.DEFINE_float("max_sigma_steer", 7 * np.pi / 180, "Maximum variance of steering angle (rad)")
 '''
 tf.flags.DEFINE_float("min_mu_vf", 7  / 3.6 - 0.0001, "Minimum forward velocity of vehicle (m/s)")
@@ -99,8 +100,10 @@ def make_env():
     return env
 
 # Optionally empty model directory
+'''
 if FLAGS.reset:
     shutil.rmtree(FLAGS.model_dir, ignore_errors=True)
+'''
 
 def mkdir_p(dirname):
     if not os.path.exists(dirname):
@@ -174,10 +177,11 @@ with tf.Session() as sess:
     coord = tf.train.Coordinator()
 
     # Load a previous checkpoint if it exists
-    latest_checkpoint = tf.train.latest_checkpoint(FLAGS.checkpoint_dir)
-    if latest_checkpoint:
-        print("Loading model checkpoint: {}".format(latest_checkpoint))
-        saver.restore(sess, latest_checkpoint)
+    if FLAGS.resume:
+        latest_checkpoint = tf.train.latest_checkpoint(FLAGS.checkpoint_dir)
+        if latest_checkpoint:
+            print("Loading model checkpoint: {}".format(latest_checkpoint))
+            saver.restore(sess, latest_checkpoint)
 
     # Start worker threads
     worker_threads = []

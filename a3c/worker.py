@@ -67,7 +67,7 @@ def make_train_op(local_estimator, global_estimator):
     global_step = tf.contrib.framework.get_global_step()
 
     return global_estimator.optimizer.apply_gradients(
-        local_grads_global_vars, global_step=global_step)
+        local_grads_global_vars)
 
 class Worker(object):
     """
@@ -110,7 +110,7 @@ class Worker(object):
         self.copy_params_op = make_copy_params_op(global_vars, local_vars)
 
         self.global_net = global_net
-        self.net_train_op = make_train_op(self.local_net, self.global_net)
+        self.train_op = make_train_op(self.local_net, self.global_net)
 
     def run(self, sess, coord, t_max):
 
@@ -142,7 +142,7 @@ class Worker(object):
 
     def reset_env(self):
         # maze2
-        self.state = np.array([0, 1, 0, 0, 0, 0])
+        self.state = np.array([0, 2, 0, 0, 0, 0])
 
         '''
         self.state = self.state.reshape((6, 1)) + np.zeros((6, self.n_agents))
@@ -187,6 +187,7 @@ class Worker(object):
 
         # Add some noise to have diverse start points
         noise = np.random.randn(6, self.n_agents).astype(np.float32) * 0.5
+        noise[2, :] /= 5
 
         self.state = self.state + noise
 
@@ -206,6 +207,11 @@ class Worker(object):
 
             # Predict an action
             self.action = self.local_net.predict_actions(mdp_state, self.sess).T
+            '''
+            rand_mask = np.random.rand(self.n_agents) > 0.5
+            rand_steer = ((np.random.rand(len(rand_mask.nonzero()[0])) * 60) - 30) * np.pi / 180
+            self.action[1, rand_mask] = self.state[4:5, rand_mask] * np.tan(rand_steer).reshape(1, -1) / FLAGS.wheelbase
+            '''
             assert not np.any(np.isnan(self.action)), "i = {}, self.action = {}, mdp_state = {}".format(i, self.action, mdp_state)
 
             # Take several sub-steps in environment (the smaller the timestep,
@@ -293,6 +299,37 @@ class Worker(object):
             for key in transitions[0].mdp_state.keys()
         }
 
+    def parse_transitions(self, transitions):
+        # T is the number of transitions
+        T = len(transitions)
+
+        mdp_states = self.get_mdp_states(transitions)
+
+        v, rewards, returns = self.get_rewards_and_returns(transitions)
+
+        values, delta_t = self.get_values_and_td_targets(mdp_states, v, rewards)
+
+        actions = np.concatenate([
+            trans.action.T[:, None, :] for trans in transitions
+        ], axis=1)
+
+        # advantages = rewards
+        # advantages = returns
+        advantages = delta_t
+        advantages = discount(advantages, self.discount_factor * FLAGS.lambda_)
+
+        return T, mdp_states, v, rewards, returns, values, delta_t, actions, advantages
+
+    def downsample_data(self, data, T):
+        start_idx = np.random.randint(min(FLAGS.downsample, T))
+        s = slice(start_idx, None, FLAGS.downsample)
+        for k in data.keys():
+            # server.set_data(k, data[k])
+            data[k] = flatten(data[k][:, s, ...])
+            print "data[{}].shape = {}".format(k, data[k].shape)
+
+        return data, s
+
     # @timer_decorate
     def update(self, transitions):
         """
@@ -303,43 +340,42 @@ class Worker(object):
           sess: A Tensorflow session
         """
 
-        # T is the number of transitions
-        T = len(transitions)
+        # Parse transitions (rollouts) to get all MDP states, returns ..., etc.
+        T, mdp_states, v, rewards, returns, values, delta_t, actions, advantages = self.parse_transitions(transitions)
 
-        mdp_states = self.get_mdp_states(transitions)
+        # Once we parse the data, we reshape
+        data = self.prepare_data(mdp_states, returns, advantages, actions)
 
-        v, rewards, returns = self.get_rewards_and_returns(transitions)
+        # Downsample experiences
+        data, s = self.downsample_data(data, T)
 
-        values, delta_t = self.get_values_and_td_targets(mdp_states, v, rewards)
+        # Get batch_size after down-sampling
+        batch_size = self.get_batch_size(data)
 
-        # advantages = rewards
-        # advantages = returns
-        advantages = delta_t
+        # Feed data to the network and perform updates
+        global_step, results = self._update_(data, batch_size, FLAGS.debug)
 
-        actions = np.concatenate([
-            trans.action.T[:, None, :] for trans in transitions
-        ], axis=1)
+        if FLAGS.debug:
+            self._debug_(advantages, s, results)
 
-        # =================== DEBUG ===================
-        '''
-        # prev_rewards = mdp_states["prev_reward"].reshape(self.n_agents, -1)
-        # adv = rewards - prev_rewards
-        adv = rewards + self.discount_factor * returns[:, 1:] - returns[:, :-1]
-        print "returns = \n{}".format(returns)
-        print " {} [np.mean(returns)]".format(np.mean(returns, axis=0))
-        print " {} [np.std(returns) ]".format(np.std(returns, axis=0))
-        returns = returns[:, :-1]
+        print "\33[33m#{:04d}\33[0m update (from {}), returns = {:+6.2f}, batch_size = {},".format(
+            global_step, self.name, np.mean(returns[:, 0]), batch_size),
 
-        print "rewards = \n{}".format(rewards)
-        print " {} [np.mean(rewards)]".format(np.mean(rewards, axis=0))
-        print " {} [np.std(rewards) ]".format(np.std(rewards, axis=0))
+        print "pi_loss = {:+9.4f}, vf_loss = {:+9.4f}, total_loss = {:+9.4f}".format(
+            results['pi_loss'], results['vf_loss'], results['loss'])
 
-        advantages = adv
-        '''
-        # advantages *= np.power(0.01, range(T)).reshape(1, -1)
-        # =================== DEBUG ===================
+        # Make sure it's not NaN
+        assert results['loss'] == results['loss'], "pi_loss = {}, vf_loss = {}".format(
+            results['pi_loss'], results['vf_loss'])
 
-        advantages = discount(advantages, self.discount_factor * FLAGS.lambda_)
+        # Write summaries
+        if self.summary_writer is not None:
+            self.summary_writer.add_summary(results['summaries'][0], global_step)
+            self.summary_writer.flush()
+
+        self.counter += 1
+
+    def prepare_data(self, mdp_states, returns, advantages, actions):
 
         # Add TD Target, TD Error, and actions to data
         data = dict(
@@ -347,59 +383,103 @@ class Worker(object):
             advantages = advantages[..., None],
             actions = actions,
         )
+
         data.update({k: deflatten(v, self.n_agents) for k, v in mdp_states.viewitems()})
 
-        # Downsample experiences
-        start_idx = np.random.randint(min(FLAGS.downsample, T))
-        # s = slice(start_idx, None, FLAGS.downsample)
-        s = slice(0, 8)
-        for k in data.keys():
-            # server.set_data(k, data[k])
-            data[k] = flatten(data[k][:, s, ...])
-            # print "data[{}].shape = {}".format(k, data[k].shape)
+        return data
 
-        # The 1st dimension is batch_size, get batch_size after down-sampling
-        batch_size = len(data[k])
+    def get_batch_size(self, data):
+
+        # The 1st dimension is batch_size
+        batch_size = len(data[data.keys()[0]])
+
+        # It cannot be zero, but let's just make sure it doesn't
+        assert batch_size is not 0
+
+        # Make sure all data has the same batch_size
         for k in data.keys():
             assert batch_size == len(data[k])
 
-        feed_dict = {
-            self.local_net.returns: data['returns'],
-            self.local_net.advantages: data['advantages'],
-            self.local_net.actions_ext: data['actions'],
-            self.local_net.state["front_view"]: data['front_view'],
-            self.local_net.state["vehicle_state"]: data['vehicle_state'],
-            self.local_net.state["prev_action"]: data['prev_action'],
-            self.local_net.state["prev_reward"]: data['prev_reward']
+        print "batch_size = ", batch_size
+
+        return batch_size
+
+    def _update_(self, data, batch_size, debug=False):
+
+        # Maximum size we can feed into a GPU (a conservative estimate) without
+        # crashing (triggering stupid segfault bug in CuDNN)
+        MAX_MINI_BATCH_SIZE = 128
+
+        num_mini_batches = int(np.ceil(float(batch_size) / MAX_MINI_BATCH_SIZE))
+
+        results = []
+        for i in range(0, batch_size, MAX_MINI_BATCH_SIZE):
+            s = slice(i, i + MAX_MINI_BATCH_SIZE)
+
+            mini_batch_size, result = self._update_mini_batch(data, s, debug)
+
+            for key in ['loss', 'pi_loss', 'vf_loss']:
+                result[key] *= mini_batch_size
+
+            results.append(result)
+
+        def _reduce(x):
+            try:
+                np.concatenate(x, axis=0)
+            except:
+                return x
+
+        results = {
+            key: _reduce([result[key] for result in results])
+            for key in results[0].keys()
         }
 
-        ops = [
-            self.global_step,
-            self.local_net.loss,
-            self.local_net.pi_loss,
-            self.local_net.vf_loss,
-            self.net_train_op
-        ]
+        for key in ['loss', 'pi_loss', 'vf_loss']:
+            results[key] = np.sum(results[key]) / batch_size
 
-        '''
-        ops += [
-            self.local_net.mu,
-            self.local_net.sigma,
-            self.local_net.g_mu,
-        ]
-        '''
+        global_step = self.sess.run(tf.assign_add(self.global_step, 1))
 
-        # Train the global estimators using local gradients
-        if self.summary_writer is None:
-            global_step, loss, pi_loss, vf_loss, _ = self.sess.run(ops, feed_dict)
-            # global_step, loss, pi_loss, vf_loss, _, mu, sigma, g_mu = self.sess.run(ops, feed_dict)
-        else:
-            ops += [self.local_net.summaries]
-            global_step, loss, pi_loss, vf_loss, _, summaries = self.sess.run(ops, feed_dict)
-            # global_step, loss, pi_loss, vf_loss, _, mu, sigma, g_mu, summaries = self.sess.run(ops, feed_dict)
+        return global_step, results
 
-        # =================== DEBUG ===================
-        '''
+    def _update_mini_batch(self, data, s, debug=False):
+        net = self.local_net
+
+        feed_dict = {
+            net.returns: data['returns'][s, ...],
+            net.advantages: data['advantages'][s, ...],
+            net.actions_ext: data['actions'][s, ...],
+            net.state["front_view"]: data['front_view'][s, ...],
+            net.state["vehicle_state"]: data['vehicle_state'][s, ...],
+            net.state["prev_action"]: data['prev_action'][s, ...],
+            net.state["prev_reward"]: data['prev_reward'][s, ...]
+        }
+
+        ops = {
+            'loss': net.loss,
+            'pi_loss': net.pi_loss,
+            'vf_loss': net.vf_loss,
+        }
+
+        if debug:
+            ops.update({ 'mu': net.mu, 'sigma': net.sigma, 'g_mu': net.g_mu })
+
+        if self.summary_writer is not None:
+            ops.update({ 'summaries': net.summaries })
+
+        results = self.sess.run([ops, self.train_op], feed_dict)[0]
+
+        mini_batch_size = len(feed_dict[net.returns])
+
+        return mini_batch_size, results
+
+    def _debug_(self, advantages, s, results):
+
+        # Get mu, sigma, and the gradient of mu from the results
+        mu = results['mu']
+        sigma = results['sigma']
+        g_mu = results['g_mu']
+
+        # Reshape s.t. dimension matches
         mu = mu.reshape(self.n_agents, -1, 2)[:, :, 1]
         sigma = sigma.reshape(self.n_agents, -1, 2)[:, :, 1]
         g_loss_wrt_mu_from_tf = g_mu[:, -1].reshape(self.n_agents, -1)
@@ -434,64 +514,3 @@ class Worker(object):
         print "==========================================================="
         print " {} (  mean   of g_gain_wrt_mu)".format(np.mean(g_gain_wrt_mu[:, 1:], axis=0))
         print " {} (variance of g_gain_wrt_mu)".format( np.std(g_gain_wrt_mu[:, 1:], axis=0))
-        '''
-
-        '''
-        a0 = np.mean(adv, axis=0)[0]
-        mu0 = np.mean(mu, axis=0)[0]
-        g0 = np.mean(g_gain_wrt_mu, axis=0)[0]
-        # if there's no advantage but g0 is in the direction of moving away from 0
-        '''
-
-        '''
-        if mu0 * g0 > 0:
-            import ipdb; ipdb.set_trace()
-        '''
-        
-        '''
-        # print g_gain_wrt_mu, g_gain_wrt_mu_from_tf
-        ratio = g_gain_wrt_mu / g_gain_wrt_mu_from_tf
-        print "mean(ratio) = {}, std(ratio) = {}".format(np.mean(ratio), np.std(ratio))
-        '''
-        # =================== DEBUG ===================
-
-        print "\33[33m#{:04d}\33[0m update (from {}), returns = {:+6.2f}, batch_size = {},".format(
-            global_step, self.name, np.mean(returns[:, 0]), batch_size),
-
-        print "pi_loss = {:+9.4f}, vf_loss = {:+9.4f}, total_loss = {:+9.4f}".format(
-            pi_loss, vf_loss, loss)
-
-        # =================== DEBUG ===================
-        '''
-        worker_id = int(self.name[-1])
-        if worker_id == 0: # and self.counter % 10 == 0:
-            fn = "debug/{:04d}.mat".format(self.counter)
-
-            for k in data.keys():
-                data[k] = deflatten(data[k], self.n_agents)
-
-            data.update(dict(
-                mu = mu.reshape(-1, T, 2)[:, s, ...],
-                sigma = sigma.reshape(-1, T, 2)[:, s, ...],
-                values = values[:, s],
-                # log_prob = deflatten(log_prob, self.n_agents),
-                # g_mu = deflatten(g_mu, self.n_agents)
-            ))
-
-            # for k in data.keys():
-            #     print "data[{}].shape = {}".format(k, data[k].shape)
-
-            scipy.io.savemat(fn, data)
-            print "{} saved.".format(fn)
-            cv2.imwrite("disp_img.png", self.env.to_disp)
-        '''
-        # =================== DEBUG ===================
-
-        # Write summaries
-        if self.summary_writer is not None:
-            self.summary_writer.add_summary(summaries, global_step)
-            self.summary_writer.flush()
-
-        assert pi_loss == pi_loss, "pi_loss = {}, vf_loss = {}".format(pi_loss, vf_loss)
-
-        self.counter += 1

@@ -1,6 +1,6 @@
 import numpy as np
 import tensorflow as tf
-from tensorflow_helnet.layers import DenseLayer
+from tensorflow_helnet.layers import DenseLayer, Conv2DLayer, MaxPool2DLayer
 FLAGS = tf.flags.FLAGS
 batch_size = None
 
@@ -101,19 +101,16 @@ class PolicyValueEstimator():
             self.returns = tf.placeholder(tf.float32, [batch_size, 1], "returns")
             self.actions_ext = tf.placeholder(tf.float32, [batch_size, 2], "actions_ext")
 
-        with tf.variable_scope("shared_p"):
-            shared_p = self.build_shared_network(add_summaries=add_summaries)
-
-        with tf.variable_scope("shared_v"):
-            shared_v = self.build_shared_network(add_summaries=add_summaries)
+        with tf.variable_scope("shared"):
+            shared = self.build_shared_network(add_summaries=add_summaries)
 
         with tf.name_scope("policy_network"):
-            self.mu, self.sigma = self.policy_network(shared_p, 2)
+            self.mu, self.sigma = self.policy_network(shared, 2)
             normal_dist = self.get_normal_dist(self.mu, self.sigma)
             self.actions = self.sample_actions(normal_dist)
 
         with tf.name_scope("value_network"):
-            self.logits = self.value_network(shared_v)
+            self.logits = self.value_network(shared)
 
         with tf.name_scope("losses"):
             self.pi_loss = self.get_policy_loss(normal_dist)
@@ -127,7 +124,8 @@ class PolicyValueEstimator():
             self.loss += FLAGS.l2_reg * self.reg_loss
 
         with tf.name_scope("grads_and_optimizer"):
-            self.optimizer = tf.train.AdamOptimizer(FLAGS.learning_rate)
+            # self.optimizer = tf.train.AdamOptimizer(FLAGS.learning_rate)
+            self.optimizer = tf.train.RMSPropOptimizer(FLAGS.learning_rate)
             grads_and_vars = self.optimizer.compute_gradients(self.loss)
             self.grads_and_vars = [(g, v) for g, v in grads_and_vars if g is not None]
             self.g_mu = tf.gradients(self.pi_loss, [self.mu])[0]
@@ -172,19 +170,27 @@ class PolicyValueEstimator():
         input = front_view
 
         with tf.name_scope("conv"):
+            conv1 = Conv2DLayer(input, 32, 3, dilation=1, pad=1, nonlinearity="relu", name="conv1")
+            conv2 = Conv2DLayer(conv1, 32, 3, dilation=2, pad=2, nonlinearity="relu", name="conv2")
+            conv3 = Conv2DLayer(conv2, 32, 3, dilation=4, pad=4, nonlinearity="relu", name="conv3")
+            conv4 = Conv2DLayer(conv3, 32, 3, dilation=8, pad=8, nonlinearity="relu", name="conv4")
+            pool1 = MaxPool2DLayer(conv4, pool_size=3, stride=2, name='pool1')
+            pool2 = MaxPool2DLayer(pool1, pool_size=3, stride=2, name='pool2')
+            '''
             # Three convolutional layers
             conv1 = tf.contrib.layers.conv2d(
-                input, 16, 3, 2, activation_fn=tf.nn.relu, scope="conv1")
+                input, 128, 3, 2, activation_fn=tf.nn.relu, scope="conv1")
             conv2 = tf.contrib.layers.conv2d(
-                conv1, 16, 3, 2, activation_fn=tf.nn.relu, scope="conv2")
+                conv1, 128, 3, 2, activation_fn=tf.nn.relu, scope="conv2")
             conv3 = tf.contrib.layers.conv2d(
-                conv2, 16, 3, 2, activation_fn=tf.nn.relu, scope="conv3")
+                conv2, 128, 3, 2, activation_fn=tf.nn.relu, scope="conv3")
+            '''
 
         with tf.name_scope("dense"):
             # Fully connected layer
             fc1 = DenseLayer(
-                input=tf.contrib.layers.flatten(conv3),
-                num_outputs=128,
+                input=tf.contrib.layers.flatten(pool2),
+                num_outputs=256,
                 nonlinearity="relu",
                 name="fc1")
 
@@ -192,7 +198,7 @@ class PolicyValueEstimator():
 
             fc2 = DenseLayer(
                 input=concat1,
-                num_outputs=128,
+                num_outputs=256,
                 nonlinearity="relu",
                 name="fc2")
 
@@ -200,11 +206,12 @@ class PolicyValueEstimator():
 
             fc3 = DenseLayer(
                 input=concat2,
-                num_outputs=128,
+                num_outputs=256,
                 nonlinearity="relu",
                 name="fc3")
 
-            concat3 = tf.concat(1, [fc1, fc2, fc3, prev_reward, vehicle_state, prev_action])
+            concat3 = fc3
+            # concat3 = tf.concat(1, [fc1, fc2, fc3, prev_reward, vehicle_state, prev_action])
 
         if add_summaries:
             with tf.name_scope("summaries"):
