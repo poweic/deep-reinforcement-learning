@@ -136,6 +136,9 @@ with tf.Session() as sess:
     summary_writer_debug = tf.summary.FileWriter("/Data3/a3c-offroad/train-acer", sess.graph)
     sys.exit()
     """
+    # Global policy and value nets
+    with tf.variable_scope("global") as vs:
+        global_net = PolicyValueEstimator()
 
     # Global step iterator
     global_counter = itertools.count()
@@ -150,6 +153,7 @@ with tf.Session() as sess:
             name=name,
             env=make_env(),
             global_counter=global_counter,
+            global_net=global_net,
             add_summaries=(i == 0),
             n_agents=FLAGS.n_agents_per_worker,
             discount_factor=FLAGS.discount_factor,
@@ -160,13 +164,7 @@ with tf.Session() as sess:
     summary_dir = os.path.join(FLAGS.model_dir, "train")
     summary_writer = tf.summary.FileWriter(summary_dir, sess.graph)
 
-    # Global policy and value nets
-    with tf.variable_scope("global") as vs:
-        global_net = PolicyValueEstimator()
-
     workers[0].summary_writer = summary_writer
-    for worker in workers:
-        worker.set_global_net(global_net)
 
     saver = tf.train.Saver(max_to_keep=10, var_list=[
         v for v in tf.trainable_variables() if "global" in v.name

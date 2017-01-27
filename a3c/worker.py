@@ -82,7 +82,7 @@ class Worker(object):
     summary_writer: A tf.train.SummaryWriter for Tensorboard summaries
     max_global_steps: If set, stop coordinator when global_counter > max_global_steps
     """
-    def __init__(self, name, env, global_counter, add_summaries, n_agents=1, discount_factor=0.99, max_global_steps=None):
+    def __init__(self, name, env, global_counter, global_net, add_summaries, n_agents=1, discount_factor=0.99, max_global_steps=None):
         self.name = name
         self.discount_factor = discount_factor
         self.max_global_steps = max_global_steps
@@ -98,6 +98,8 @@ class Worker(object):
         # Create local policy/value nets that are not updated asynchronously
         with tf.variable_scope(name):
             self.local_net = PolicyValueEstimator(add_summaries)
+
+        self.set_global_net(global_net)
 
         self.state = None
         self.action = None
