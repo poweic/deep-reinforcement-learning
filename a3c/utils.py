@@ -56,6 +56,9 @@ def tf_print(x, message):
     message = "\33[93m" + message + "\33[0m"
     return tf.cond(cond, lambda: tf.Print(x, [x], message=message, summarize=100), lambda: x)
 
+def flatten(x):
+    return tf.reshape(x, [-1, x.get_shape()[-1].value])
+
 def multiply(list_a, list_b):
     return [a*b for a, b in zip(list_a, list_b)]
 

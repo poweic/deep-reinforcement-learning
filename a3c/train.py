@@ -2,6 +2,7 @@
 import colored_traceback.always
 
 import os
+import sys
 import cv2
 import scipy.io
 import numpy as np
@@ -14,7 +15,7 @@ import schedule
 from pprint import pprint
 
 from a3c.worker import Worker
-from a3c.estimators import PolicyValueEstimator
+from a3c.estimators import PolicyValueEstimator, AcerEstimator
 from a3c.policy_monitor import PolicyMonitor
 # from a3c.monitor import server
 from gym_offroad_nav.envs import OffRoadNavEnv
@@ -124,6 +125,17 @@ with tf.Session() as sess:
     # Keeps track of the number of updates we've performed
     global_step = tf.Variable(0, name="global_step", trainable=False)
     max_return = 0
+
+    """
+    # DEBUG just to see whether there's syntax error
+    with tf.variable_scope("global"):
+        acer_avg = AcerEstimator()
+    with tf.variable_scope("worker_0"):
+        acer = AcerEstimator(acer_avg, add_summaries=True)
+
+    summary_writer_debug = tf.summary.FileWriter("/Data3/a3c-offroad/train-acer", sess.graph)
+    sys.exit()
+    """
 
     # Global step iterator
     global_counter = itertools.count()
