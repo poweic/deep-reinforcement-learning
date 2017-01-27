@@ -13,40 +13,6 @@ from ac.utils import *
 
 FLAGS = tf.flags.FLAGS
 
-def make_copy_params_op(v1_list, v2_list):
-    """
-    Creates an operation that copies parameters from variable in v1_list to variables in v2_list.
-    The ordering of the variables in the lists must be identical.
-    """
-    v1_list = list(sorted(v1_list, key=lambda v: v.name))
-    v2_list = list(sorted(v2_list, key=lambda v: v.name))
-
-    update_ops = []
-    for v1, v2 in zip(v1_list, v2_list):
-        op = v2.assign(v1)
-        update_ops.append(op)
-
-    return update_ops
-
-def make_train_op(local_estimator, global_estimator):
-    """
-    Creates an op that applies local gradients to the global variables.
-    """
-    # Get local gradients and global variables
-    local_grads, _ = zip(*local_estimator.grads_and_vars)
-    _, global_vars = zip(*global_estimator.grads_and_vars)
-
-    # Clip gradients
-    max_grad = FLAGS.max_gradient
-    local_grads, _ = tf.clip_by_global_norm(local_grads, max_grad)
-
-    # Zip clipped local grads with global variables
-    local_grads_global_vars = list(zip(local_grads, global_vars))
-    global_step = tf.contrib.framework.get_global_step()
-
-    return global_estimator.optimizer.apply_gradients(
-        local_grads_global_vars)
-
 class Worker(object):
     """
     An A3C worker thread. Runs episodes locally and updates global shared value and policy nets.
@@ -69,22 +35,22 @@ class Worker(object):
         self.local_counter = itertools.count()
         self.n_agents = n_agents
         self.env = env
-        self.counter = 0
-
-        self.summary_writer = None
 
         # Create local policy/value nets that are not updated asynchronously
         with tf.variable_scope(name):
             self.local_net = ac.a3c.estimators.A3CEstimator(add_summaries)
-
         self.set_global_net(global_net)
 
-        self.state = None
-        self.action = None
+        # Initialize counter, maximum return of this worker, and summary_writer
+        self.counter = 0
         self.max_return = 0
+        self.summary_writer = None
+
+        self.reset_env()
 
     def set_global_net(self, global_net):
         # Operation to copy params from global net to local net
+        # FIXME change it to grads_and_vars[1]
         global_vars = tf.contrib.slim.get_variables(scope="global", collection=tf.GraphKeys.TRAINABLE_VARIABLES)
         local_vars = tf.contrib.slim.get_variables(scope=self.name, collection=tf.GraphKeys.TRAINABLE_VARIABLES)
         self.copy_params_op = make_copy_params_op(global_vars, local_vars)
@@ -92,7 +58,7 @@ class Worker(object):
         self.global_net = global_net
         self.train_op = make_train_op(self.local_net, self.global_net)
 
-    def run(self, sess, coord, t_max):
+    def run(self, sess, coord):
 
         self.sess = sess
 
@@ -104,7 +70,7 @@ class Worker(object):
                     sess.run(self.copy_params_op)
 
                     # Collect 1 episodes of experience (multiple agents)
-                    n = int(np.ceil(t_max * FLAGS.command_freq))
+                    n = int(np.ceil(FLAGS.t_max * FLAGS.command_freq))
                     transitions, local_t, global_t = self.run_n_steps(n)
 
                     if self.max_global_steps is not None and global_t >= self.max_global_steps:

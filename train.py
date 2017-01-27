@@ -67,6 +67,7 @@ import schedule
 from pprint import pprint
 
 from ac.estimators import get_estimator
+from ac.utils import make_copy_params_op
 # from ac.a3c.monitor import server
 
 from gym_offroad_nav.envs import OffRoadNavEnv
@@ -134,15 +135,6 @@ with tf.Session() as sess:
     with tf.variable_scope("global"):
         global_net = Estimator(trainable=False)
 
-    # ================== DEBUG ===================
-    '''
-    with tf.variable_scope("worker_0"):
-        acer = Estimator(add_summaries=True)
-    summary_writer_debug = tf.summary.FileWriter("/Data3/a3c-offroad/train-acer", sess.graph)
-    sys.exit()
-    '''
-    # ================== DEBUG ===================
-
     # Global step iterator
     global_counter = itertools.count()
 
@@ -189,7 +181,7 @@ with tf.Session() as sess:
     # Start worker threads
     worker_threads = []
     for i in range(len(workers)):
-        worker_fn = lambda j=i: workers[j].run(sess, coord, FLAGS.t_max)
+        worker_fn = lambda j=i: workers[j].run(sess, coord)
         t = threading.Thread(target=worker_fn)
         time.sleep(0.5)
         t.start()

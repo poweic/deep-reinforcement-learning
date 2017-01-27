@@ -5,6 +5,44 @@ import scipy.interpolate as interpolate
 import tensorflow as tf
 FLAGS = tf.flags.FLAGS
 
+def make_train_op(local_estimator, global_estimator):
+    """
+    Creates an op that applies local gradients to the global variables.
+    """
+    # Get local gradients and global variables
+    local_grads, _ = zip(*local_estimator.grads_and_vars)
+    _, global_vars = zip(*global_estimator.grads_and_vars)
+
+    # Clip gradients
+    max_grad = FLAGS.max_gradient
+    local_grads, _ = tf.clip_by_global_norm(local_grads, max_grad)
+
+    # Zip clipped local grads with global variables
+    local_grads_global_vars = list(zip(local_grads, global_vars))
+    # global_step = tf.contrib.framework.get_global_step()
+
+    return global_estimator.optimizer.apply_gradients(
+        local_grads_global_vars)
+
+def make_copy_params_op(v1_list, v2_list):
+    """
+    Creates an operation that copies parameters from variable in v1_list to variables in v2_list.
+    The ordering of the variables in the lists must be identical.
+    """
+    v1_list = list(sorted(v1_list, key=lambda v: v.name))
+    v2_list = list(sorted(v2_list, key=lambda v: v.name))
+
+    '''
+    for v1, v2 in zip(v1_list, v2_list):
+        print "\n\n================================================="
+        print "{}: {}".format(v1.name, v1)
+        print "{}: {}".format(v2.name, v2)
+
+    print "\33[93mlen(v1_list) = {}, len(v2_list) = {}\33[0m".format(len(v1_list), len(v2_list))
+    '''
+
+    return tf.group(*[v2.assign(v1) for v1, v2 in zip(v1_list, v2_list)])
+
 def discount(x, gamma):
     if x.ndim == 1:
         return scipy.signal.lfilter([1], [1, -gamma], x[::-1], axis=0)[::-1]

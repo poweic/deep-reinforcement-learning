@@ -10,6 +10,7 @@ def get_estimator(type):
     if type == "A3C":
         return A3CEstimator
     elif type == "ACER":
+        AcerEstimator.create_averge_network()
         return AcerEstimator
     else:
         raise TypeError("Unknown type " + type)

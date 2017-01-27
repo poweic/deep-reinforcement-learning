@@ -2,6 +2,8 @@ import tensorflow as tf
 from tensorflow_helnet.layers import DenseLayer, Conv2DLayer, MaxPool2DLayer
 from ac.utils import *
 from ac.models import *
+import ac.acer.worker
+
 FLAGS = tf.flags.FLAGS
 batch_size = FLAGS.batch_size
 
@@ -36,26 +38,34 @@ class AcerEstimator():
             self.adv = self.advantage_network(shared)
             self.Q_tilt = self.SDN_network(self.adv, self.value, self.pi)
 
-        if self.trainable:
-            self.avg_net = self.__create_averge_network()
-            with tf.name_scope("ACER"):
-                self.acer_g = self.compute_ACER_gradient(
-                    self.rho, self.pi, self.actions, self.Q_opc, self.value,
-                    self.rho_prime, self.Q_tilt, self.sampled_actions)
+        self.avg_net = getattr(AcerEstimator, "average_net", self)
 
-            with tf.name_scope("losses"):
-                self.pi_loss = self.get_policy_loss(self.pi, self.acer_g)
-                self.vf_loss = self.get_value_loss(
-                    self.Q_ret, self.Q_tilt, self.actions, self.rho, self.value)
+        with tf.name_scope("ACER"):
+            self.acer_g = self.compute_ACER_gradient(
+                self.rho, self.pi, self.actions, self.Q_opc, self.value,
+                self.rho_prime, self.Q_tilt, self.sampled_actions)
 
-                self.loss = tf.reduce_mean(self.pi_loss + self.vf_loss)
+        with tf.name_scope("losses"):
+            self.pi_loss = self.get_policy_loss(self.pi, self.acer_g)
+            self.vf_loss = self.get_value_loss(
+                self.Q_ret, self.Q_tilt, self.actions, self.rho, self.value)
 
-    def __create_averge_network(self):
-        if "average_net" not in AcerEstimator.__dict__:
-            with tf.variable_scope("acer_average_net"):
-                AcerEstimator.average_net = AcerEstimator(add_summaries=True, trainable=False)
+            self.loss = tf.reduce_mean(self.pi_loss + self.vf_loss)
 
-        return AcerEstimator.average_net
+        self.optimizer = tf.train.RMSPropOptimizer(FLAGS.learning_rate)
+        grads_and_vars = self.optimizer.compute_gradients(self.loss)
+        '''
+        print "grads_and_vars = \33[93m{}\33[0m".format(grads_and_vars)
+        '''
+        self.grads_and_vars = [(g, v) for g, v in grads_and_vars if g is not None]
+
+        # Get all trainable variables initialized in this
+        self.var_list = [v for g, v in self.grads_and_vars]
+        '''
+        print "var_list = \33[93m{}\33[0m".format(self.var_list)
+        self.var_list = tf.get_collection(tf.GraphKeys.TRAINABLE_VARIABLES,
+                                          tf.get_variable_scope().name)
+        '''
 
     def compute_trust_region_update(self, g, pi_avg, pi, delta=0.5):
         """
@@ -200,3 +210,13 @@ class AcerEstimator():
             return output
 
         return tf.make_template('advantage', advantage)
+
+    @staticmethod
+    def create_averge_network():
+        if "average_net" not in AcerEstimator.__dict__:
+            with tf.variable_scope("average_net"):
+                AcerEstimator.average_net = AcerEstimator(add_summaries=True, trainable=False)
+
+# AcerEstimator.create_averge_network = create_averge_network
+
+AcerEstimator.Worker = ac.acer.worker.Worker
