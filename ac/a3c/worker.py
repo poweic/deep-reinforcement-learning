@@ -1,39 +1,17 @@
 import cv2
 import itertools
-import collections
 import numpy as np
 import tensorflow as tf
 import scipy.io
-import scipy.signal
 import traceback
 import time
-# from a3c.monitor import server
-
-from a3c.estimators import PolicyValueEstimator
-from a3c.utils import inverse_transform_sampling_2d
+# from .estimators import *
+import ac.a3c.estimators
+# from estimators import A3CEstimator
+# from monitor import server
+from ac.utils import *
 
 FLAGS = tf.flags.FLAGS
-
-def discount(x, gamma):
-    if x.ndim == 1:
-        return scipy.signal.lfilter([1], [1, -gamma], x[::-1], axis=0)[::-1]
-    else:
-        return scipy.signal.lfilter([1], [1, -gamma], x[:, ::-1], axis=1)[:, ::-1]
-
-def flatten(x): # flatten the first 2 axes
-    return x.reshape((-1,) + x.shape[2:])
-
-def deflatten(x, n): # de-flatten the first axes
-    return x.reshape((n, -1,) + x.shape[1:])
-
-Transition = collections.namedtuple("Transition", ["mdp_state", "state", "action", "reward", "next_state", "done"])
-def form_mdp_state(env, state, prev_action, prev_reward):
-    return {
-        "front_view": env.get_front_view(state).copy(),
-        "vehicle_state": state.copy().T,
-        "prev_action": prev_action.copy().T,
-        "prev_reward": prev_reward.copy().T
-    }
 
 def make_copy_params_op(v1_list, v2_list):
     """
@@ -97,7 +75,7 @@ class Worker(object):
 
         # Create local policy/value nets that are not updated asynchronously
         with tf.variable_scope(name):
-            self.local_net = PolicyValueEstimator(add_summaries)
+            self.local_net = ac.a3c.estimators.A3CEstimator(add_summaries)
 
         self.set_global_net(global_net)
 
@@ -516,3 +494,4 @@ class Worker(object):
         print "==========================================================="
         print " {} (  mean   of g_gain_wrt_mu)".format(np.mean(g_gain_wrt_mu[:, 1:], axis=0))
         print " {} (variance of g_gain_wrt_mu)".format( np.std(g_gain_wrt_mu[:, 1:], axis=0))
+

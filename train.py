@@ -7,24 +7,13 @@ import cv2
 import scipy.io
 import numpy as np
 import tensorflow as tf
-import itertools
-import shutil
-import threading
-import time
-import schedule
-from pprint import pprint
-
-from a3c.worker import Worker
-from a3c.estimators import PolicyValueEstimator, AcerEstimator
-from a3c.policy_monitor import PolicyMonitor
-# from a3c.monitor import server
-from gym_offroad_nav.envs import OffRoadNavEnv
-from gym_offroad_nav.vehicle_model import VehicleModel
 
 tf.flags.DEFINE_string("model_dir", "/Data3/a3c-offroad/", "Directory to write Tensorboard summaries and models to.")
 tf.flags.DEFINE_string("game", "line", "Game environment")
+tf.flags.DEFINE_string("estimator_type", "A3C", "Choose A3C or ACER")
 
 tf.flags.DEFINE_integer("max_global_steps", None, "Stop training after this many steps in the environment. Defaults to running indefinitely.")
+tf.flags.DEFINE_integer("batch_size", None, "batch size used for construct TF graph")
 tf.flags.DEFINE_integer("eval_every", 30, "Evaluate the policy every N seconds")
 tf.flags.DEFINE_integer("parallelism", 1, "Number of threads to run. If not set we run [num_cpu_cores] threads.")
 tf.flags.DEFINE_integer("downsample", 5, "Downsample transitions to reduce sample correlation")
@@ -69,6 +58,19 @@ tf.flags.DEFINE_float("max_sigma_vf", 0.05 / 3.6 + 0.001, "Maximum variance of f
 tf.flags.DEFINE_float("min_sigma_steer", 1 * np.pi / 180 - 0.001, "Minimum variance of steering angle (rad)")
 tf.flags.DEFINE_float("max_sigma_steer", 15 * np.pi / 180 + 0.001, "Maximum variance of steering angle (rad)")
 '''
+
+import itertools
+import shutil
+import threading
+import time
+import schedule
+from pprint import pprint
+
+from ac.estimators import get_estimator
+# from ac.a3c.monitor import server
+
+from gym_offroad_nav.envs import OffRoadNavEnv
+from gym_offroad_nav.vehicle_model import VehicleModel
 
 # Parse command line arguments, add some additional flags, and print them out
 FLAGS = tf.flags.FLAGS
@@ -121,24 +123,25 @@ def save_model_every_nth_minutes(sess, saver):
 
     schedule.every(FLAGS.save_every_n_minutes).minutes.do(save_model)
 
+Estimator = get_estimator(FLAGS.estimator_type)
+
 with tf.Session() as sess:
     # Keeps track of the number of updates we've performed
     global_step = tf.Variable(0, name="global_step", trainable=False)
     max_return = 0
 
-    """
-    # DEBUG just to see whether there's syntax error
+    # Global policy and value nets
     with tf.variable_scope("global"):
-        acer_avg = AcerEstimator()
-    with tf.variable_scope("worker_0"):
-        acer = AcerEstimator(acer_avg, add_summaries=True)
+        global_net = Estimator(trainable=False)
 
+    # ================== DEBUG ===================
+    '''
+    with tf.variable_scope("worker_0"):
+        acer = Estimator(add_summaries=True)
     summary_writer_debug = tf.summary.FileWriter("/Data3/a3c-offroad/train-acer", sess.graph)
     sys.exit()
-    """
-    # Global policy and value nets
-    with tf.variable_scope("global") as vs:
-        global_net = PolicyValueEstimator()
+    '''
+    # ================== DEBUG ===================
 
     # Global step iterator
     global_counter = itertools.count()
@@ -149,7 +152,7 @@ with tf.Session() as sess:
         name = "worker_%d" % i
         print "Initializing {} ...".format(name)
 
-        worker = Worker(
+        worker = Estimator.Worker(
             name=name,
             env=make_env(),
             global_counter=global_counter,
@@ -169,16 +172,6 @@ with tf.Session() as sess:
     saver = tf.train.Saver(max_to_keep=10, var_list=[
         v for v in tf.trainable_variables() if "global" in v.name
     ] + [global_step])
-
-    # Used to occasionally save videos for our policy net
-    # and write episode rewards to Tensorboard
-    '''
-    pe = PolicyMonitor(
-        env=make_env("policy_monitor"),
-        global_net=global_net,
-        summary_writer=summary_writer,
-        saver=saver)
-    '''
 
     sess.run(tf.global_variables_initializer())
 
@@ -201,12 +194,6 @@ with tf.Session() as sess:
         time.sleep(0.5)
         t.start()
         worker_threads.append(t)
-
-    # Start a thread for policy eval task
-    '''
-    monitor_thread = threading.Thread(target=lambda: pe.continuous_eval(FLAGS.eval_every, sess, coord))
-    monitor_thread.start()
-    '''
 
     # server.start()
 

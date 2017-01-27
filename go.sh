@@ -1,7 +1,7 @@
 #!/bin/bash
-./a3c/train.py \
+./train.py \
   --parallelism 2 \
-  --game maze4 \
+  --game maze3 \
   --save_every_n_minutes 5 \
   --t_max 20 \
   --learning_rate 2e-4 \

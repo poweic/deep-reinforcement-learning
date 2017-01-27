@@ -1,0 +1,162 @@
+import tensorflow as tf
+from tensorflow_helnet.layers import DenseLayer, Conv2DLayer, MaxPool2DLayer
+from ac.utils import *
+FLAGS = tf.flags.FLAGS
+batch_size = FLAGS.batch_size
+
+def get_state_placeholder():
+    # Note that placeholder are tf.Tensor not tf.Variable
+    front_view = tf.placeholder(tf.float32, [batch_size, 20, 20, 1], "front_view")
+    vehicle_state = tf.placeholder(tf.float32, [batch_size, 6], "vehicle_state")
+    prev_action = tf.placeholder(tf.float32, [batch_size, 2], "prev_action")
+    prev_reward = tf.placeholder(tf.float32, [batch_size, 1], "prev_reward")
+
+    state = {
+        "front_view": front_view,
+        "vehicle_state": vehicle_state,
+        "prev_action": prev_action,
+        "prev_reward": prev_reward
+    }
+
+    return state
+
+def build_shared_network(state, add_summaries=False):
+    """
+    Builds a 3-layer network conv -> conv -> fc as described
+    in the A3C paper. This network is shared by both the policy and value net.
+    Args:
+    add_summaries: If true, add layer summaries to Tensorboard.
+    Returns:
+    Final layer activations.
+    """
+
+    front_view = state["front_view"]
+    vehicle_state = state["vehicle_state"]
+    prev_action = state["prev_action"]
+    prev_reward = state["prev_reward"]
+
+    input = front_view
+
+    with tf.name_scope("conv"):
+        conv1 = Conv2DLayer(input, 32, 3, dilation=1, pad=1, nonlinearity="relu", name="conv1")
+        conv2 = Conv2DLayer(conv1, 32, 3, dilation=2, pad=2, nonlinearity="relu", name="conv2")
+        conv3 = Conv2DLayer(conv2, 32, 3, dilation=4, pad=4, nonlinearity="relu", name="conv3")
+        conv4 = Conv2DLayer(conv3, 32, 3, dilation=8, pad=8, nonlinearity="relu", name="conv4")
+        pool1 = MaxPool2DLayer(conv4, pool_size=3, stride=2, name='pool1')
+        pool2 = MaxPool2DLayer(pool1, pool_size=3, stride=2, name='pool2')
+        '''
+        # Three convolutional layers
+        conv1 = tf.contrib.layers.conv2d(
+            input, 128, 3, 2, activation_fn=tf.nn.relu, scope="conv1")
+        conv2 = tf.contrib.layers.conv2d(
+            conv1, 128, 3, 2, activation_fn=tf.nn.relu, scope="conv2")
+        conv3 = tf.contrib.layers.conv2d(
+            conv2, 128, 3, 2, activation_fn=tf.nn.relu, scope="conv3")
+        '''
+
+    with tf.name_scope("dense"):
+        # Fully connected layer
+        fc1 = DenseLayer(
+            input=tf.contrib.layers.flatten(pool2),
+            num_outputs=256,
+            nonlinearity="relu",
+            name="fc1")
+
+        concat1 = tf.concat(1, [fc1, prev_reward, vehicle_state, prev_action])
+
+        fc2 = DenseLayer(
+            input=concat1,
+            num_outputs=256,
+            nonlinearity="relu",
+            name="fc2")
+
+        concat2 = tf.concat(1, [fc1, fc2, prev_reward, vehicle_state, prev_action])
+
+        fc3 = DenseLayer(
+            input=concat2,
+            num_outputs=256,
+            nonlinearity="relu",
+            name="fc3")
+
+        concat3 = fc3
+        # concat3 = tf.concat(1, [fc1, fc2, fc3, prev_reward, vehicle_state, prev_action])
+
+    if add_summaries:
+        with tf.name_scope("summaries"):
+            conv1_w = [v for v in tf.trainable_variables() if "conv1/weights"][0]
+            grid = put_kernels_on_grid(conv1_w)
+            tf.summary.image("conv1/weights", grid)
+
+            tf.summary.image("front_view", front_view, max_outputs=100)
+
+            tf.contrib.layers.summarize_activation(conv1)
+            tf.contrib.layers.summarize_activation(conv2)
+            tf.contrib.layers.summarize_activation(fc1)
+            tf.contrib.layers.summarize_activation(fc2)
+            tf.contrib.layers.summarize_activation(fc3)
+            tf.contrib.layers.summarize_activation(concat1)
+            tf.contrib.layers.summarize_activation(concat2)
+
+    return concat3
+
+def policy_network(input, num_outputs):
+
+    input = DenseLayer(
+        input=input,
+        num_outputs=256,
+        nonlinearity="relu",
+        name="policy-input-dense")
+
+    # Linear classifiers for mu and sigma
+    mu = DenseLayer(
+        input=input,
+        num_outputs=num_outputs,
+        name="policy-mu")
+
+    sigma = DenseLayer(
+        input=input,
+        num_outputs=num_outputs,
+        name="policy-sigma")
+
+    with tf.name_scope("mu_sigma_constraints"):
+        min_mu = tf.constant([[FLAGS.min_mu_vf, FLAGS.min_mu_steer]], dtype=tf.float32)
+        max_mu = tf.constant([[FLAGS.max_mu_vf, FLAGS.max_mu_steer]], dtype=tf.float32)
+
+        min_sigma = tf.constant([[FLAGS.min_sigma_vf, FLAGS.min_sigma_steer]], dtype=tf.float32)
+        max_sigma = tf.constant([[FLAGS.max_sigma_vf, FLAGS.max_sigma_steer]], dtype=tf.float32)
+
+        # Clip mu by min and max, use softplus and capping for sigma
+        # mu = clip(mu, min_mu, max_mu)
+        # sigma = tf.minimum(tf.nn.softplus(sigma) + min_sigma, max_sigma)
+        # sigma = tf.nn.sigmoid(sigma) * 1e-20 + max_sigma
+
+        mu = softclip(mu, min_mu, max_mu)
+        sigma = softclip(sigma, min_sigma, max_sigma)
+
+    return mu, sigma
+
+def state_value_network(input, num_outputs=1):
+    """
+    This is state-only value V
+    """
+    input = DenseLayer(
+        input=input,
+        num_outputs=256,
+        nonlinearity="relu",
+        name="value-input-dense")
+
+    input = DenseLayer(
+        input=input,
+        num_outputs=256,
+        nonlinearity="relu",
+        name="value-input-dense-2")
+
+    # This is just linear classifier
+    value = DenseLayer(
+        input=input,
+        num_outputs=num_outputs,
+        name="value-dense")
+
+    value = tf.reshape(value, [-1, 1], name="value")
+
+    return value

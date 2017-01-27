@@ -1,7 +1,30 @@
+import collections
 import numpy as np
+import scipy.signal
 import scipy.interpolate as interpolate
 import tensorflow as tf
 FLAGS = tf.flags.FLAGS
+
+def discount(x, gamma):
+    if x.ndim == 1:
+        return scipy.signal.lfilter([1], [1, -gamma], x[::-1], axis=0)[::-1]
+    else:
+        return scipy.signal.lfilter([1], [1, -gamma], x[:, ::-1], axis=1)[:, ::-1]
+
+def flatten(x): # flatten the first 2 axes
+    return x.reshape((-1,) + x.shape[2:])
+
+def deflatten(x, n): # de-flatten the first axes
+    return x.reshape((n, -1,) + x.shape[1:])
+
+Transition = collections.namedtuple("Transition", ["mdp_state", "state", "action", "reward", "next_state", "done"])
+def form_mdp_state(env, state, prev_action, prev_reward):
+    return {
+        "front_view": env.get_front_view(state).copy(),
+        "vehicle_state": state.copy().T,
+        "prev_action": prev_action.copy().T,
+        "prev_reward": prev_reward.copy().T
+    }
 
 def inverse_transform_sampling_2d(data, n_samples, version=2):
 
@@ -55,12 +78,6 @@ def tf_print(x, message):
     cond = tf.equal(tf.mod(step, 1), 0)
     message = "\33[93m" + message + "\33[0m"
     return tf.cond(cond, lambda: tf.Print(x, [x], message=message, summarize=100), lambda: x)
-
-def flatten(x):
-    return tf.reshape(x, [-1, x.get_shape()[-1].value])
-
-def multiply(list_a, list_b):
-    return [a*b for a, b in zip(list_a, list_b)]
 
 class AttrDict(dict):
     def __init__(self, *args, **kwargs):
