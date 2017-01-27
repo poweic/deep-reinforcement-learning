@@ -57,6 +57,7 @@ class Worker(object):
 
         self.global_net = global_net
         self.train_op = make_train_op(self.local_net, self.global_net)
+        self.inc_global_step = tf.assign_add(self.global_step, 1)
 
     def run(self, sess, coord):
 
@@ -383,7 +384,7 @@ class Worker(object):
         for key in ['loss', 'pi_loss', 'vf_loss']:
             results[key] = np.sum(results[key]) / batch_size
 
-        global_step = self.sess.run(tf.assign_add(self.global_step, 1))
+        global_step = self.sess.run(self.inc_global_step)
 
         return global_step, results
 

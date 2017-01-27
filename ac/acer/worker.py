@@ -1,7 +1,9 @@
 import itertools
 import tensorflow as tf
 import ac.acer.estimators
+import traceback
 from ac.utils import *
+import time
 
 class Worker(object):
     """
@@ -49,19 +51,24 @@ class Worker(object):
 
         self.global_net = global_net
 
-        avg_vars = ac.acer.estimators.AcerEstimator.average_net.var_list
-        copy_global_to_avg = make_copy_params_op(global_vars, avg_vars)
+        def copy_global_to_avg():
+            avg_vars = ac.acer.estimators.AcerEstimator.average_net.var_list
+            msg = "\33[93mInitialize average net when global_step = \33[0m"
+            disp_op = tf.Print(self.global_step, [self.global_step], msg)
+            copy_op = make_copy_params_op(global_vars, avg_vars)
+            return tf.group(*[copy_op, disp_op])
 
         init_avg_net = tf.cond(
             tf.equal(self.global_step, 0),
-            lambda: copy_global_to_avg,
+            copy_global_to_avg,
             lambda: tf.no_op()
         )
 
-        init_avg_net = tf.Print(init_avg_net, [tf.constant(0)], message="init_avg_net called")
-
         with tf.control_dependencies([init_avg_net]):
-            self.train_op = make_train_op(self.local_net, global_net)
+            self.train_op = tf.no_op()
+            # self.train_op = make_train_op(self.local_net, global_net)
+
+        self.inc_global_step = tf.assign_add(self.global_step, 1)
 
     def reset_env(self):
         # TODO
@@ -80,6 +87,7 @@ class Worker(object):
 
                     # TODO
                     # Resample experiences from memory
+                    # time.sleep(0.1)
 
                     if self.max_global_steps is not None and global_t >= self.max_global_steps:
                         tf.logging.info("Reached global step {}. Stopping.".format(global_t))
@@ -99,4 +107,9 @@ class Worker(object):
         # TODO
         # update the network
 
+        self.sess.run(self.train_op)
+
         self.counter += 1
+
+        print self.sess.run(self.global_step)
+        self.sess.run(self.inc_global_step)
