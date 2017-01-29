@@ -139,7 +139,7 @@ class A3CEstimator():
             vf = actions[:, 0:1]
             steer = actions[:, 1:2]
             # steer = tf_print(steer, "steer = ")
-            yawrate = self.steer_to_yawrate(steer)
+            yawrate = steer_to_yawrate(steer, self.state["vehicle_state"][:, 4:5])
             # yawrate = tf_print(yawrate, "yawrate = ")
             actions = tf.concat(1, [vf, yawrate])
 
@@ -152,7 +152,7 @@ class A3CEstimator():
             vf = actions[:, 0:1]
             yawrate = actions[:, 1:2]
             # yawrate = tf_print(yawrate, "yawrate = ")
-            steer = self.yawrate_to_steer(yawrate)
+            steer = yawrate_to_steer(yawrate, self.state["vehicle_state"][:, 4:5])
             # steer = tf_print(steer, "steer = ")
             actions = tf.concat(1, [vf, steer])
 
@@ -175,26 +175,6 @@ class A3CEstimator():
         '''
 
         return log_prob
-
-    def steer_to_yawrate(self, steer):
-        # Use Ackerman formula to compute yawrate from steering angle and
-        # forward velocity (4-th element of vehicle_state)
-        v = self.state["vehicle_state"][:, 4:5]
-        radius = FLAGS.wheelbase / tf.tan(steer)
-        omega = v / radius
-        return omega
-
-    def yawrate_to_steer(self, omega):
-        # Use Ackerman formula to compute steering angle from yawrate and
-        # forward velocity (4-th element of vehicle_state)
-        v = self.state["vehicle_state"][:, 4:5]
-        # v = tf_print(v, "v[:, 4:5] = ")
-        # omega = tf_print(omega, "omega = ")
-        radius = v / omega
-        # radius = tf_print(radius, "radius = ")
-        steer = tf.atan(FLAGS.wheelbase / radius)
-        # steer = tf_print(steer, "steer = ")
-        return steer
 
     def predict(self, state, tensors, sess=None):
         sess = sess or tf.get_default_session()
@@ -258,4 +238,4 @@ class A3CEstimator():
         tf.summary.scalar("min_advantage", tf.reduce_min(self.advantages))
         tf.summary.scalar("mean_advantage", tf.reduce_mean(self.advantages))
 
-A3CEstimator.Worker = ac.a3c.worker.Worker
+A3CEstimator.Worker = ac.a3c.worker.A3CWorker

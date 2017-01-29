@@ -4,6 +4,50 @@ import scipy.signal
 import scipy.interpolate as interpolate
 import tensorflow as tf
 FLAGS = tf.flags.FLAGS
+batch_size = FLAGS.batch_size
+seq_length = FLAGS.seq_length
+
+def tf_shape(x):
+    try:
+        return x.get_shape().as_list()
+    except:
+        return x.get_shape()
+
+def tf_concat(axis, tensors):
+    if axis == -1:
+        axis = get_rank(tensors[0]) - 1
+
+    return tf.concat(axis, tensors)
+
+def get_rank(x):
+    return len(x.get_shape())
+
+def get_seq_length_batch_size(x):
+    shape = tf.shape(x)
+    S = shape[0] if seq_length is None else seq_length
+    B = shape[1] if batch_size is None else batch_size
+    return S, B
+
+def steer_to_yawrate(steer, v):
+    assert steer.get_shape().as_list() == v.get_shape().as_list()
+    # Use Ackerman formula to compute yawrate from steering angle and
+    # forward velocity (4-th element of vehicle_state)
+    radius = FLAGS.wheelbase / tf.tan(steer)
+    omega = v / radius
+    return omega
+
+def yawrate_to_steer(omega, v):
+    assert omega.get_shape().as_list() == v.get_shape().as_list()
+
+    # Use Ackerman formula to compute steering angle from yawrate and
+    # forward velocity (4-th element of vehicle_state)
+    # v = tf_print(v, "v[:, 4:5] = ")
+    # omega = tf_print(omega, "omega = ")
+    radius = v / omega
+    # radius = tf_print(radius, "radius = ")
+    steer = tf.atan(FLAGS.wheelbase / radius)
+    # steer = tf_print(steer, "steer = ")
+    return steer
 
 def make_train_op(local_estimator, global_estimator):
     """
@@ -50,19 +94,35 @@ def discount(x, gamma):
         return scipy.signal.lfilter([1], [1, -gamma], x[:, ::-1], axis=1)[:, ::-1]
 
 def flatten(x): # flatten the first 2 axes
-    return x.reshape((-1,) + x.shape[2:])
+    try:
+        return x.reshape((-1,) + x.shape[2:])
+    except:
+        return tf.reshape(x, [-1] + x.get_shape().as_list()[2:])
 
-def deflatten(x, n): # de-flatten the first axes
-    return x.reshape((n, -1,) + x.shape[1:])
+def deflatten(x, n, m=-1): # de-flatten the first axes
+    try:
+        return x.reshape((n, -1,) + x.shape[1:])
+    except:
+        shape = tf.concat(0, [[n], [m], x.get_shape().as_list()[1:]])
+        return tf.reshape(x, shape)
 
-Transition = collections.namedtuple("Transition", ["mdp_state", "state", "action", "reward", "next_state", "done"])
-def form_mdp_state(env, state, prev_action, prev_reward):
+def get_mdp_states(transitions):
     return {
-        "front_view": env.get_front_view(state).copy(),
-        "vehicle_state": state.copy().T,
-        "prev_action": prev_action.copy().T,
-        "prev_reward": prev_reward.copy().T
+        key: flatten(np.concatenate([
+            trans.mdp_state[key][:, None, :] for trans in transitions
+        ], axis=1))
+        for key in transitions[0].mdp_state.keys()
     }
+
+# Transition = collections.namedtuple("Transition", ["mdp_state", "state", "action", "reward", "next_state", "done"])
+
+def form_mdp_state(env, state, prev_action, prev_reward):
+    return AttrDict(
+        front_view    = env.get_front_view(state).copy(),
+        vehicle_state = state.copy().T,
+        prev_action   = prev_action.copy().T,
+        prev_reward   = prev_reward.copy().T
+    )
 
 def inverse_transform_sampling_2d(data, n_samples, version=2):
 

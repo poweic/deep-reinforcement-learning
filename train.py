@@ -14,11 +14,16 @@ tf.flags.DEFINE_string("estimator_type", "A3C", "Choose A3C or ACER")
 
 tf.flags.DEFINE_integer("max_global_steps", None, "Stop training after this many steps in the environment. Defaults to running indefinitely.")
 tf.flags.DEFINE_integer("batch_size", None, "batch size used for construct TF graph")
+tf.flags.DEFINE_integer("seq_length", None, "sequence length used for construct TF graph")
+
 tf.flags.DEFINE_integer("eval_every", 30, "Evaluate the policy every N seconds")
 tf.flags.DEFINE_integer("parallelism", 1, "Number of threads to run. If not set we run [num_cpu_cores] threads.")
 tf.flags.DEFINE_integer("downsample", 5, "Downsample transitions to reduce sample correlation")
 tf.flags.DEFINE_integer("n_agents_per_worker", 16, "Downsample transitions to reduce sample correlation")
 tf.flags.DEFINE_integer("save_every_n_minutes", 10, "Save model every N minutes")
+
+tf.flags.DEFINE_integer("replay_ratio", 4, "off-policy memory replay ratio, choose a number from {0, 1, 4, 8}")
+tf.flags.DEFINE_integer("max_replay_buffer_size", 100, "off-policy memory replay buffer")
 
 tf.flags.DEFINE_boolean("drift", False, "If set, turn on drift")
 tf.flags.DEFINE_boolean("reset", False, "If set, delete the existing model directory and start training from scratch.")
@@ -150,9 +155,7 @@ with tf.Session() as sess:
             global_counter=global_counter,
             global_net=global_net,
             add_summaries=(i == 0),
-            n_agents=FLAGS.n_agents_per_worker,
-            discount_factor=FLAGS.discount_factor,
-            max_global_steps=FLAGS.max_global_steps)
+            n_agents=FLAGS.n_agents_per_worker)
 
         workers.append(worker)
 

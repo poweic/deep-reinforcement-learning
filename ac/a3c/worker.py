@@ -1,5 +1,4 @@
 import cv2
-import itertools
 import numpy as np
 import tensorflow as tf
 import scipy.io
@@ -9,11 +8,12 @@ import time
 import ac.a3c.estimators
 # from estimators import A3CEstimator
 # from monitor import server
+from ac.worker import Worker
 from ac.utils import *
 
 FLAGS = tf.flags.FLAGS
 
-class Worker(object):
+class A3CWorker(Worker):
     """
     An A3C worker thread. Runs episodes locally and updates global shared value and policy nets.
 
@@ -22,31 +22,11 @@ class Worker(object):
     env: The Gym environment used by this worker
     global_net: Instance of the globally shared network
     global_counter: Iterator that holds the global step
-    discount_factor: Reward discount factor
     summary_writer: A tf.train.SummaryWriter for Tensorboard summaries
-    max_global_steps: If set, stop coordinator when global_counter > max_global_steps
     """
-    def __init__(self, name, env, global_counter, global_net, add_summaries, n_agents=1, discount_factor=0.99, max_global_steps=None):
-        self.name = name
-        self.discount_factor = discount_factor
-        self.max_global_steps = max_global_steps
-        self.global_step = tf.contrib.framework.get_global_step()
-        self.global_counter = global_counter
-        self.local_counter = itertools.count()
-        self.n_agents = n_agents
-        self.env = env
-
-        # Create local policy/value nets that are not updated asynchronously
-        with tf.variable_scope(name):
-            self.local_net = ac.a3c.estimators.A3CEstimator(add_summaries)
-        self.set_global_net(global_net)
-
-        # Initialize counter, maximum return of this worker, and summary_writer
-        self.counter = 0
-        self.max_return = 0
-        self.summary_writer = None
-
-        self.reset_env()
+    def __init__(self, **kwargs):
+        self.Estimator = ac.a3c.estimators.A3CEstimator
+        super(A3CWorker, self).__init__(**kwargs)
 
     def set_global_net(self, global_net):
         # Operation to copy params from global net to local net
@@ -59,33 +39,21 @@ class Worker(object):
         self.train_op = make_train_op(self.local_net, self.global_net)
         self.inc_global_step = tf.assign_add(self.global_step, 1)
 
-    def run(self, sess, coord):
+    def _run(self):
+        # Copy Parameters from the global networks
+        self.sess.run(self.copy_params_op)
 
-        self.sess = sess
+        # Collect 1 episodes of experience (multiple agents)
+        n = int(np.ceil(FLAGS.t_max * FLAGS.command_freq))
+        transitions, local_t, global_t = self.run_n_steps(n)
 
-        with sess.as_default(), sess.graph.as_default():
+        if self.max_global_steps is not None and global_t >= self.max_global_steps:
+            tf.logging.info("Reached global step {}. Stopping.".format(global_t))
+            self.coord.request_stop()
+            return
 
-            try:
-                while not coord.should_stop():
-                    # Copy Parameters from the global networks
-                    sess.run(self.copy_params_op)
-
-                    # Collect 1 episodes of experience (multiple agents)
-                    n = int(np.ceil(FLAGS.t_max * FLAGS.command_freq))
-                    transitions, local_t, global_t = self.run_n_steps(n)
-
-                    if self.max_global_steps is not None and global_t >= self.max_global_steps:
-                        tf.logging.info("Reached global step {}. Stopping.".format(global_t))
-                        coord.request_stop()
-                        return
-
-                    # Update the global networks
-                    self.update(transitions)
-            
-            except tf.errors.CancelledError:
-                return
-            except:
-                traceback.print_exc()
+        # Update the global networks
+        self.update(transitions)
 
     def reset_env(self):
         # maze2
@@ -174,9 +142,9 @@ class Worker(object):
 
             # Store transition
             # Down-sample transition to reduce correlation between samples
-            transitions.append(Transition(
+            transitions.append(AttrDict(
                 mdp_state=mdp_state,
-                state=self.state.copy(),
+                # state=self.state.copy(),
                 action=self.action.copy(),
                 next_state=next_state.copy(),
                 reward=reward.copy(),
@@ -237,14 +205,6 @@ class Worker(object):
         '''
 
         return values, delta_t
-
-    def get_mdp_states(self, transitions):
-        return {
-            key: flatten(np.concatenate([
-                trans.mdp_state[key][:, None, :] for trans in transitions
-            ], axis=1))
-            for key in transitions[0].mdp_state.keys()
-        }
 
     def parse_transitions(self, transitions):
         # T is the number of transitions

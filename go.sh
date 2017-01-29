@@ -1,6 +1,6 @@
 #!/bin/bash
 ./train.py \
-  --parallelism 2 \
+  --parallelism 1 \
   --game maze3 \
   --save_every_n_minutes 5 \
   --t_max 20 \

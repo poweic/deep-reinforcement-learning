@@ -1,24 +1,26 @@
 import tensorflow as tf
 from tensorflow_helnet.layers import DenseLayer, Conv2DLayer, MaxPool2DLayer
+# from keras.layers import Dense, Flatten, Input, merge, Lambda, Convolution2D
+# from keras.models import Sequential, Model
 from ac.utils import *
 FLAGS = tf.flags.FLAGS
 batch_size = FLAGS.batch_size
+seq_length = FLAGS.seq_length
 
 def get_state_placeholder():
     # Note that placeholder are tf.Tensor not tf.Variable
-    front_view = tf.placeholder(tf.float32, [batch_size, 20, 20, 1], "front_view")
-    vehicle_state = tf.placeholder(tf.float32, [batch_size, 6], "vehicle_state")
-    prev_action = tf.placeholder(tf.float32, [batch_size, 2], "prev_action")
-    prev_reward = tf.placeholder(tf.float32, [batch_size, 1], "prev_reward")
+    front_view    = tf.placeholder(tf.float32, [seq_length, batch_size, 20, 20, 1], "front_view")
+    vehicle_state = tf.placeholder(tf.float32, [seq_length, batch_size, 6], "vehicle_state")
+    prev_action   = tf.placeholder(tf.float32, [seq_length, batch_size, 2], "prev_action")
+    prev_reward   = tf.placeholder(tf.float32, [seq_length, batch_size, 1], "prev_reward")
 
-    state = {
-        "front_view": front_view,
-        "vehicle_state": vehicle_state,
-        "prev_action": prev_action,
-        "prev_reward": prev_reward
-    }
+    return AttrDict(
+        front_view    = front_view,
+        vehicle_state = vehicle_state,
+        prev_action   = prev_action,
+        prev_reward   = prev_reward
+    )
 
-    return state
 
 def build_shared_network(state, add_summaries=False):
     """
@@ -30,14 +32,25 @@ def build_shared_network(state, add_summaries=False):
     Final layer activations.
     """
 
-    front_view = state["front_view"]
-    vehicle_state = state["vehicle_state"]
-    prev_action = state["prev_action"]
-    prev_reward = state["prev_reward"]
+    front_view = state.front_view
+    vehicle_state = state.vehicle_state
+    prev_action = state.prev_action
+    prev_reward = state.prev_reward
+
+    rank = get_rank(state.front_view)
+
+    # import ipdb; ipdb.set_trace()
+    if rank == 5:
+        S, B = get_seq_length_batch_size(front_view)
+        front_view = flatten(front_view)
+        vehicle_state = flatten(vehicle_state)
+        prev_action = flatten(prev_action)
+        prev_reward = flatten(prev_reward)
 
     input = front_view
 
     with tf.name_scope("conv"):
+
         conv1 = Conv2DLayer(input, 32, 3, dilation=1, pad=1, nonlinearity="relu", name="conv1")
         conv2 = Conv2DLayer(conv1, 32, 3, dilation=2, pad=2, nonlinearity="relu", name="conv2")
         conv3 = Conv2DLayer(conv2, 32, 3, dilation=4, pad=4, nonlinearity="relu", name="conv3")
@@ -78,8 +91,10 @@ def build_shared_network(state, add_summaries=False):
             nonlinearity="relu",
             name="fc3")
 
-        concat3 = fc3
-        # concat3 = tf.concat(1, [fc1, fc2, fc3, prev_reward, vehicle_state, prev_action])
+    output = fc3
+
+    if rank == 5:
+        output = deflatten(output, S, B)
 
     if add_summaries:
         with tf.name_scope("summaries"):
@@ -97,9 +112,15 @@ def build_shared_network(state, add_summaries=False):
             tf.contrib.layers.summarize_activation(concat1)
             tf.contrib.layers.summarize_activation(concat2)
 
-    return concat3
+    return output
 
 def policy_network(input, num_outputs):
+
+    rank = get_rank(input)
+
+    if rank == 3:
+        S, B = get_seq_length_batch_size(input)
+        input = flatten(input)
 
     input = DenseLayer(
         input=input,
@@ -133,12 +154,23 @@ def policy_network(input, num_outputs):
         mu = softclip(mu, min_mu, max_mu)
         sigma = softclip(sigma, min_sigma, max_sigma)
 
+    if rank == 3:
+        mu = deflatten(mu, S, B)
+        sigma = deflatten(sigma, S, B)
+
     return mu, sigma
 
 def state_value_network(input, num_outputs=1):
     """
     This is state-only value V
     """
+
+    rank = get_rank(input)
+
+    if rank == 3:
+        S, B = get_seq_length_batch_size(input)
+        input = flatten(input)
+
     input = DenseLayer(
         input=input,
         num_outputs=256,
@@ -158,5 +190,8 @@ def state_value_network(input, num_outputs=1):
         name="value-dense")
 
     value = tf.reshape(value, [-1, 1], name="value")
+
+    if rank == 3:
+        value = deflatten(value, S, B)
 
     return value
