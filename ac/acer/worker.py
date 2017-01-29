@@ -19,10 +19,9 @@ class AcerWorker(Worker):
         self.Estimator = ac.acer.estimators.AcerEstimator
         super(AcerWorker, self).__init__(**kwargs)
 
-        self.replay_buffer = []
-
     def set_global_net(self, global_net):
         # Get global, local, and the average net var_list
+        avg_vars = self.Estimator.average_net.var_list
         global_vars = global_net.var_list
         local_vars = self.local_net.var_list
 
@@ -32,7 +31,6 @@ class AcerWorker(Worker):
         self.global_net = global_net
 
         def copy_global_to_avg():
-            avg_vars = self.Estimator.average_net.var_list
             msg = "\33[94mInitialize average net when global_step = \33[0m"
             disp_op = tf.Print(self.global_step, [self.global_step], msg)
             copy_op = make_copy_params_op(global_vars, avg_vars)
@@ -45,8 +43,13 @@ class AcerWorker(Worker):
         )
 
         with tf.control_dependencies([init_avg_net]):
-            # self.train_op = tf.no_op()
-            self.train_op = make_train_op(self.local_net, global_net)
+            train_op = make_train_op(self.local_net, global_net)
+
+            with tf.control_dependencies([train_op]):
+
+                self.train_and_update_avgnet_op = make_copy_params_op(
+                    global_vars, avg_vars, alpha=FLAGS.avg_net_momentum
+                )
 
         self.inc_global_step = tf.assign_add(self.global_step, 1)
 
@@ -62,12 +65,16 @@ class AcerWorker(Worker):
         self.current_reward = np.zeros((1, self.n_agents))
 
         # Add some noise to have diverse start points
-        noise = np.random.randn(6, self.n_agents).astype(np.float32) * 0
+        noise = np.random.randn(6, self.n_agents).astype(np.float32) * 0.5
+        noise[2, :] /= 5
+
         self.state = self.state + noise
 
         self.env._reset(self.state)
 
     def _run(self):
+        replay_buffer = AcerWorker.replay_buffer
+
         # Copy Parameters from the global networks
         self.sess.run(self.copy_params_op)
 
@@ -81,16 +88,16 @@ class AcerWorker(Worker):
 
         # Store transitions in the replay buffer, discard the oldest by popping
         # the 1st element if it exceeds maximum buffer size
-        self.replay_buffer.append(transitions)
-        if len(self.replay_buffer) > FLAGS.max_replay_buffer_size:
-            self.replay_buffer.pop(0)
+        replay_buffer.append(transitions)
+        if len(replay_buffer) > FLAGS.max_replay_buffer_size:
+            replay_buffer.pop(0)
 
-        print "len(replay_buffer) = \33[93m{}\33[0m".format(len(self.replay_buffer))
+        print "len(replay_buffer) = \33[93m{}\33[0m".format(len(replay_buffer))
 
         # Off-policy ACER for N times
         for i in range(N):
-            idx = np.random.randint(len(self.replay_buffer))
-            self.update(self.replay_buffer[idx])
+            idx = np.random.randint(len(replay_buffer))
+            self.update(replay_buffer[idx])
 
         if self.max_global_steps is not None and global_t >= self.max_global_steps:
             tf.logging.info("Reached global step {}. Stopping.".format(global_t))
@@ -205,7 +212,7 @@ class AcerWorker(Worker):
             print "feed_dict[{}].shape = {}".format(k.name, v.shape)
         """
 
-        self.sess.run(self.train_op, feed_dict=feed_dict)
+        self.sess.run(self.train_and_update_avgnet_op, feed_dict=feed_dict)
 
         self.counter += 1
         print "global_step = ", self.sess.run(self.inc_global_step)
@@ -247,3 +254,5 @@ class AcerWorker(Worker):
             d = 2
             c[i, :] = np.minimum(1, rho ** (1. / d))
     """
+
+AcerWorker.replay_buffer = []

@@ -1,7 +1,8 @@
 #!/bin/bash
 ./train.py \
-  --parallelism 1 \
-  --game maze3 \
+  --model_dir /Data3/acer-offroad/ \
+  --parallelism 4 \
+  --game maze4 \
   --save_every_n_minutes 5 \
   --t_max 20 \
   --learning_rate 2e-4 \

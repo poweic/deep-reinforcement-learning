@@ -28,6 +28,12 @@ def get_seq_length_batch_size(x):
     B = shape[1] if batch_size is None else batch_size
     return S, B
 
+def get_var_list_wrt(loss):
+    optimizer = tf.train.GradientDescentOptimizer(0.1)
+    grads_and_vars = optimizer.compute_gradients(loss)
+    var_list = [v for g, v in grads_and_vars if g is not None]
+    return var_list
+
 def steer_to_yawrate(steer, v):
     assert steer.get_shape().as_list() == v.get_shape().as_list()
     # Use Ackerman formula to compute yawrate from steering angle and
@@ -68,7 +74,7 @@ def make_train_op(local_estimator, global_estimator):
     return global_estimator.optimizer.apply_gradients(
         local_grads_global_vars)
 
-def make_copy_params_op(v1_list, v2_list):
+def make_copy_params_op(v1_list, v2_list, alpha=0.):
     """
     Creates an operation that copies parameters from variable in v1_list to variables in v2_list.
     The ordering of the variables in the lists must be identical.
@@ -81,11 +87,15 @@ def make_copy_params_op(v1_list, v2_list):
         print "\n\n================================================="
         print "{}: {}".format(v1.name, v1)
         print "{}: {}".format(v2.name, v2)
-
     print "\33[93mlen(v1_list) = {}, len(v2_list) = {}\33[0m".format(len(v1_list), len(v2_list))
     '''
 
-    return tf.group(*[v2.assign(v1) for v1, v2 in zip(v1_list, v2_list)])
+    if alpha == 0.:
+        return tf.group(*[v2.assign(v1) for v1, v2 in zip(v1_list, v2_list)])
+    else:
+        a = tf.constant(alpha, tf.float32)
+        b = 1. - a
+        return tf.group(*[v2.assign(a * v2 + b * v1) for v1, v2 in zip(v1_list, v2_list)])
 
 def discount(x, gamma):
     if x.ndim == 1:

@@ -137,6 +137,8 @@ class AcerEstimator():
         # Get all trainable variables initialized in this
         self.var_list = [v for g, v in self.grads_and_vars]
 
+        # self.pi_var_list = get_var_list_wrt(self.pi.mu + self.pi.sigma)
+
     def compute_rho(self, a, a_prime, pi, mu):
         # rho = tf.zeros_like(self.value)
         # rho_prime = tf.zeros_like(self.value)
