@@ -66,43 +66,68 @@ class AcerWorker(Worker):
 
         # Add some noise to have diverse start points
         noise = np.random.randn(6, self.n_agents).astype(np.float32) * 0.5
-        noise[2, :] /= 5
+        noise[2, :] /= 10
 
         self.state = self.state + noise
 
         self.env._reset(self.state)
 
     def _run(self):
-        replay_buffer = AcerWorker.replay_buffer
 
-        # Copy Parameters from the global networks
-        self.sess.run(self.copy_params_op)
+        # Run on-policy ACER
+        self._run_on_policy()
 
+        # Run off-policy ACER N times
         N = np.random.poisson(FLAGS.replay_ratio)
 
-        # On-policy  ACER for 1 time
-        # Get transitions {(s_0, a_0, r_0, mu_0), (s_1, ...), ... }
-        n = int(np.ceil(FLAGS.t_max * FLAGS.command_freq))
-        transitions, local_t, global_t = self.run_n_steps(n)
-        self.update(transitions)
-
-        # Store transitions in the replay buffer, discard the oldest by popping
-        # the 1st element if it exceeds maximum buffer size
-        replay_buffer.append(transitions)
-        if len(replay_buffer) > FLAGS.max_replay_buffer_size:
-            replay_buffer.pop(0)
-
-        print "len(replay_buffer) = \33[93m{}\33[0m".format(len(replay_buffer))
-
-        # Off-policy ACER for N times
         for i in range(N):
-            idx = np.random.randint(len(replay_buffer))
-            self.update(replay_buffer[idx])
+            self._run_off_policy()
 
         if self.max_global_steps is not None and global_t >= self.max_global_steps:
             tf.logging.info("Reached global step {}. Stopping.".format(global_t))
             self.coord.request_stop()
             return
+
+    def copy_params_from_global(self):
+        # Copy Parameters from the global networks
+        self.sess.run(self.copy_params_op)
+
+    def store_experience(self, transitions):
+        # Store transitions in the replay buffer, discard the oldest by popping
+        # the 1st element if it exceeds maximum buffer size
+        rp = AcerWorker.replay_buffer
+
+        rp.append(transitions)
+        if len(rp) > FLAGS.max_replay_buffer_size:
+            rp.pop(0)
+
+        print "len(replay_buffer) = \33[93m{}\33[0m".format(len(rp))
+
+    def _run_on_policy(self):
+        self.copy_params_from_global()
+
+        # Collect transitions {(s_0, a_0, r_0, mu_0), (s_1, ...), ... }
+        n = int(np.ceil(FLAGS.t_max * FLAGS.command_freq))
+        transitions, local_t, global_t = self.run_n_steps(n)
+
+        # Compute gradient and Perform update
+        self.update(transitions)
+
+        self.store_experience(transitions)
+
+    def _run_off_policy(self):
+        rp = AcerWorker.replay_buffer
+
+        if len(rp) <= 0:
+            return
+
+        self.copy_params_from_global()
+
+        # Random select on episode from past experiences
+        idx = np.random.randint(len(rp))
+
+        # Compute gradient and Perform update
+        self.update(rp[idx], off_policy=True)
 
     def run_n_steps(self, n_steps):
 
@@ -162,7 +187,7 @@ class AcerWorker(Worker):
 
         return transitions, local_t, global_t
 
-    def update(self, transitions):
+    def update(self, transitions, off_policy=False):
 
         transitions = transitions[:10]
 
@@ -207,52 +232,66 @@ class AcerWorker(Worker):
             net.a                       : actions
         }
 
-        """
+        '''
         for k, v in feed_dict.viewitems():
             print "feed_dict[{}].shape = {}".format(k.name, v.shape)
+        '''
+
+        ops = [
+            {
+                'pi': net.pi_loss,
+                'vf': net.vf_loss,
+                'total': net.loss
+            },
+            self.train_and_update_avgnet_op
+        ]
+
+        """
+        ops.insert(1, {
+            'Q_ret': net.Q_ret,
+            'Q_opc': net.Q_opc,
+            'value': net.value,
+            'c': net.c,
+            'r': net.r,
+            'Q_tilt_a': net.Q_tilt_a,
+            'rho': net.rho,
+            'rho_prime': net.rho_prime,
+            'pi_a': net.pi_a,
+            'mu_a': net.mu_a,
+            'pi_mean':  net.pi.mu,
+            'pi_sigma': net.pi.sigma,
+            'mu_mean':  net.mu.mu,
+            'mu_sigma': net.mu.sigma,
+        })
+
+        loss, Q, _ = self.sess.run(ops, feed_dict=feed_dict)
         """
 
-        self.sess.run(self.train_and_update_avgnet_op, feed_dict=feed_dict)
+        loss, _ = self.sess.run(ops, feed_dict=feed_dict)
+        loss = AttrDict(loss)
 
         self.counter += 1
-        print "global_step = ", self.sess.run(self.inc_global_step)
+        gstep = self.sess.run(self.inc_global_step)
+        print "#{:6d}, pi_loss = {:+9.4f}, vf_loss = {:+9.4f}, loss = {:+9.4f} {}".format(
+            gstep, loss.pi, loss.vf, loss.total,
+            "\33[93m[off policy]\33[0m" if off_policy else "\33[92m[on  policy]\33[0m"
+        )
 
-    """
-    def process_experiences(self, transitions):
+        """
+        if off_policy:
 
-        n_steps = len(transitions)
+            Q = AttrDict(Q)
+            for k, v in Q.viewitems():
+                Q[k] = np.squeeze(v)
 
-        a_prime    = np.zeros((n_steps, self.n_agents, 2), np.float32)
+            print "FLAGS.discount_factor = ", FLAGS.discount_factor
+            Q.discounted_r = discount(Q.r.T, FLAGS.discount_factor).T
 
-        mu_a       = np.zeros((n_steps, self.n_agents), np.float32)
-        mu_a_prime = np.zeros_like(mu_a)
-        rho_a      = np.zeros_like(mu_a)
-        rho_prime  = np.zeros_like(mu_a)
-        c          = np.zeros_like(mu_a)
+            for k, v in Q.viewitems():
+                print "{} [{}]: \n{}".format(k, v.shape, v)
 
-        # Resample experiences from memory
-        # time.sleep(0.1)
-        for i, transition in enumerate(transitions):
-            reward = np.zeros((1, self.n_agents), dtype=np.float32)
-            mdp_state = form_mdp_state(self.env, self.state, self.action, reward)
-
-            # TODO Use behavior policy
-            behavior_action = np.ones_like(self.action.T)
-
-            a_prime[i, ...], f_a_prime, f_a = self.local_net.predict_action_with_prob(
-                mdp_state, behavior_action, self.sess)
-
-            # TODO From the behavior policy, get the probability of a & a'
-            mu_a[i, :]       = np.ones_like(f_a)
-            mu_a_prime[i, :] = np.ones_like(f_a_prime)
-
-            # Compute importance weight rho, rho'
-            rho[i, :]       = f_a / mu_a
-            rho_prime[i, :] = f_a_prime / mu_a_prime
-
-            # Compute truncated important weights
-            d = 2
-            c[i, :] = np.minimum(1, rho ** (1. / d))
-    """
+            import ipdb; ipdb.set_trace()
+            aaaaaaa = 10
+        """
 
 AcerWorker.replay_buffer = []

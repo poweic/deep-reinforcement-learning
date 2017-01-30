@@ -1,11 +1,14 @@
 #!/bin/bash
 ./train.py \
   --model_dir /Data3/acer-offroad/ \
-  --parallelism 4 \
+  --parallelism 2 \
   --game maze4 \
-  --save_every_n_minutes 5 \
+  --save_every_n_minutes 1 \
   --t_max 20 \
-  --learning_rate 2e-4 \
+  --replay_ratio 4 \
+  --avg_net_momentum 0.9 \
+  --max_replay_buffer_size 5000 \
+  --learning_rate 5e-4 \
   --downsample 10 \
   --discount_factor 0.995 \
   --n_agents_per_worker 32 \
