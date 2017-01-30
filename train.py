@@ -166,7 +166,7 @@ with tf.Session() as sess:
     workers[0].summary_writer = summary_writer
 
     saver = tf.train.Saver(max_to_keep=10, var_list=[
-        v for v in tf.trainable_variables() if "global" in v.name
+        v for v in tf.trainable_variables() if "worker" not in v.name
     ] + [global_step])
 
     sess.run(tf.global_variables_initializer())
