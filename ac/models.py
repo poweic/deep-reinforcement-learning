@@ -39,13 +39,9 @@ def build_shared_network(state, add_summaries=False):
 
     rank = get_rank(state.front_view)
 
-    # import ipdb; ipdb.set_trace()
     if rank == 5:
         S, B = get_seq_length_batch_size(front_view)
         front_view = flatten(front_view)
-        vehicle_state = flatten(vehicle_state)
-        prev_action = flatten(prev_action)
-        prev_reward = flatten(prev_reward)
 
     input = front_view
 
@@ -57,20 +53,42 @@ def build_shared_network(state, add_summaries=False):
         conv4 = Conv2DLayer(conv3, 32, 3, dilation=8, pad=8, nonlinearity="relu", name="conv4")
         pool1 = MaxPool2DLayer(conv4, pool_size=3, stride=2, name='pool1')
         pool2 = MaxPool2DLayer(pool1, pool_size=3, stride=2, name='pool2')
-        '''
-        # Three convolutional layers
-        conv1 = tf.contrib.layers.conv2d(
-            input, 128, 3, 2, activation_fn=tf.nn.relu, scope="conv1")
-        conv2 = tf.contrib.layers.conv2d(
-            conv1, 128, 3, 2, activation_fn=tf.nn.relu, scope="conv2")
-        conv3 = tf.contrib.layers.conv2d(
-            conv2, 128, 3, 2, activation_fn=tf.nn.relu, scope="conv3")
-        '''
+        flat = tf.contrib.layers.flatten(pool2)
+
+    with tf.name_scope("lstm"):
+        # Flatten convolutions output to fit fully connected layer
+        flat = deflatten(flat, S, B)
+
+        # Concatenate encoder's output (i.e. flattened result from conv net)
+        # with previous reward (see https://arxiv.org/abs/1611.03673)
+        concat1 = tf.concat(2, [flat, prev_reward])
+
+        lstm_outputs, lstm_state = tf.nn.dynamic_rnn(
+            tf.nn.rnn_cell.BasicLSTMCell(
+                256, state_is_tuple=True, activation=tf.nn.relu
+            ), concat1, dtype=tf.float32,
+            time_major=True, scope="LSTM-1")
+
+        concat2 = tf.concat(2, [lstm_outputs, vehicle_state, prev_action])
+
+        lstm_outputs_2, lstm_state_2 = tf.nn.dynamic_rnn(
+            tf.nn.rnn_cell.BasicLSTMCell(
+                256, state_is_tuple=True, activation=tf.nn.relu
+            ), concat2, dtype=tf.float32,
+            time_major=True, scope="LSTM-2")
+
+        output = lstm_outputs_2
+
+    """
+    if rank == 5:
+        vehicle_state = flatten(vehicle_state)
+        prev_action = flatten(prev_action)
+        prev_reward = flatten(prev_reward)
 
     with tf.name_scope("dense"):
         # Fully connected layer
         fc1 = DenseLayer(
-            input=tf.contrib.layers.flatten(pool2),
+            input=flat,
             num_outputs=256,
             nonlinearity="relu",
             name="fc1")
@@ -91,10 +109,9 @@ def build_shared_network(state, add_summaries=False):
             nonlinearity="relu",
             name="fc3")
 
-    output = fc3
-
     if rank == 5:
-        output = deflatten(output, S, B)
+        output = deflatten(fc3, S, B)
+    """
 
     if add_summaries:
         with tf.name_scope("summaries"):
@@ -104,6 +121,7 @@ def build_shared_network(state, add_summaries=False):
 
             tf.summary.image("front_view", front_view, max_outputs=100)
 
+            """
             tf.contrib.layers.summarize_activation(conv1)
             tf.contrib.layers.summarize_activation(conv2)
             tf.contrib.layers.summarize_activation(fc1)
@@ -111,6 +129,7 @@ def build_shared_network(state, add_summaries=False):
             tf.contrib.layers.summarize_activation(fc3)
             tf.contrib.layers.summarize_activation(concat1)
             tf.contrib.layers.summarize_activation(concat2)
+            """
 
     return output
 
