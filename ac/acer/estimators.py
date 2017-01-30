@@ -26,7 +26,7 @@ def create_distribution(mu, sigma):
 
     pi.dist = tf.contrib.distributions.MultivariateNormalDiag(mu_flat, sigma_flat)
 
-    def _op(x, op, squeeze):
+    def _op(x, op):
         # Assume x is either of shape [n, S, B, 2] or [S, B, 2]
         rank = get_rank(x)
         # if rank == 3: x = x[None, ...]
@@ -42,15 +42,13 @@ def create_distribution(mu, sigma):
 
         p = tf.reshape(p, [S, B])
 
-        # if rank == 3 and squeeze: p = tf.squeeze(p)
-
         return p
 
-    def prob(x, squeeze=True):
-        return _op(x, pi.dist.prob, squeeze=squeeze)
+    def prob(x):
+        return _op(x, pi.dist.prob)
 
-    def log_prob(x, squeeze=True):
-        return _op(x, pi.dist.log_prob, squeeze=squeeze)
+    def log_prob(x):
+        return _op(x, pi.dist.log_prob)
 
     def sample(n):
         samples = pi.dist.sample_n(n)
@@ -104,16 +102,19 @@ class AcerEstimator():
             self.Q_tilt_a_prime = Q_tilt(self.a_prime, name="Q_tilt_a_prime")
 
             # Compute the importance sampling weight \rho and \rho^{'}
-            self.rho, self.rho_prime = self.compute_rho(
-                self.a, self.a_prime, self.pi, self.mu
-            )
+            with tf.name_scope("rho"):
+                self.rho, self.rho_prime = self.compute_rho(
+                    self.a, self.a_prime, self.pi, self.mu
+                )
 
-            c = tf.minimum(1., self.rho ** (1. / 2), "c_i")
-            print "c.shape = {}".format(tf_shape(c))
+            with tf.name_scope("c_i"):
+                self.c = tf.minimum(1., self.rho ** (1. / 2), "c_i")
+                print "c.shape = {}".format(tf_shape(self.c))
 
-            self.Q_ret, self.Q_opc = self.compute_Q_ret_Q_opc_recursively(
-                self.value, c, self.r, self.Q_tilt_a
-            )
+            with tf.name_scope("Q_Retrace"):
+                self.Q_ret, self.Q_opc = self.compute_Q_ret_Q_opc_recursively(
+                    self.value, self.c, self.r, self.Q_tilt_a
+                )
 
         self.avg_net = getattr(AcerEstimator, "average_net", self)
 
@@ -123,12 +124,11 @@ class AcerEstimator():
                 self.rho_prime, self.Q_tilt_a_prime, self.a_prime)
 
         with tf.name_scope("losses"):
-            self.pi_losses = self.get_policy_losses(self.pi, self.acer_g)
-            self.vf_losses = self.get_value_losses(
+            self.pi_loss = self.get_policy_loss(self.pi, self.acer_g)
+            self.vf_loss = self.get_value_loss(
                 self.Q_ret, self.Q_tilt_a, self.rho, self.value)
 
-            self.losses = self.pi_losses + self.vf_losses
-            self.loss = tf.reduce_mean(self.losses, axis=[0, 1])
+            self.loss = self.pi_loss + self.vf_loss
 
         self.optimizer = tf.train.RMSPropOptimizer(FLAGS.learning_rate)
         grads_and_vars = self.optimizer.compute_gradients(self.loss)
@@ -145,11 +145,15 @@ class AcerEstimator():
         # return rho, rho_prime
 
         # compute rho, rho_prime, and c
-        pi_a = pi.prob(a, squeeze=False)[..., None]
-        mu_a = mu.prob(a, squeeze=False)[..., None]
+        with tf.name_scope("pi_a"):
+            self.pi_a = pi_a = pi.prob(a)[..., None]
+        with tf.name_scope("mu_a"):
+            self.mu_a = mu_a = mu.prob(a)[..., None]
 
-        pi_a_prime = pi.prob(a_prime, squeeze=False)[..., None]
-        mu_a_prime = mu.prob(a_prime, squeeze=False)[..., None]
+        with tf.name_scope("pi_a_prime"):
+            self.pi_a_prime = pi_a_prime = pi.prob(a_prime)[..., None]
+        with tf.name_scope("mu_a_prime"):
+            self.mu_a_prime = mu_a_prime = mu.prob(a_prime)[..., None]
 
         # use tf.div instead of pi_a / mu_a to assign a name to the output
         rho = tf.div(pi_a, mu_a, name="rho")
@@ -172,54 +176,69 @@ class AcerEstimator():
         # Q_opc = tf.zeros_like(self.value)
         # return Q_ret, Q_opc
 
-        # Use "done" to determine whether x_k is terminal state. If yes,
-        # set initial Q_ret to 0. Otherwise, bootstrap initial Q_ret from V.
-        Q_ret_0 = tf.zeros_like(values[0:1, ...]) # tf.zeros((1, batch_size, 1), dtype=tf.float32)
-        Q_opc_0 = Q_ret_0
-
-        Q_ret = Q_ret_0
-        Q_opc = Q_opc_0
-
-        print "Q_ret_0.shape = {}".format(tf_shape(Q_ret_0))
-        print "Q_opc_0.shape = {}".format(tf_shape(Q_opc_0))
-        print "Q_ret.shape = {}".format(tf_shape(Q_ret))
-        print "Q_opc.shape = {}".format(tf_shape(Q_opc))
-
-        k = tf.shape(values)[0] # if seq_length is None else seq_length
-        i_0 = k - 1
-
         gamma = tf.constant(FLAGS.discount_factor, dtype=tf.float32)
+        # gamma = tf_print(gamma, "gamma = ")
+
+        with tf.name_scope("initial_value"):
+            # Use "done" to determine whether x_k is terminal state. If yes,
+            # set initial Q_ret to 0. Otherwise, bootstrap initial Q_ret from V.
+            Q_ret_0 = tf.zeros_like(values[0:1, ...]) # tf.zeros((1, batch_size, 1), dtype=tf.float32)
+            Q_opc_0 = Q_ret_0
+
+            Q_ret = Q_ret_0
+            Q_opc = Q_opc_0
+
+            '''
+            print "Q_ret_0.shape = {}".format(tf_shape(Q_ret_0))
+            print "Q_opc_0.shape = {}".format(tf_shape(Q_opc_0))
+            print "Q_ret.shape = {}".format(tf_shape(Q_ret))
+            print "Q_opc.shape = {}".format(tf_shape(Q_opc))
+            '''
+
+            k = tf.shape(values)[0] # if seq_length is None else seq_length
+            i_0 = k - 1
 
         def cond(i, Q_ret_i, Q_opc_i, Q_ret, Q_opc):
             return i >= 0
 
         def body(i, Q_ret_i, Q_opc_i, Q_ret, Q_opc):
+
             # Q^{ret} \leftarrow r_i + \gamma Q^{ret}
-            r_i = r[i:i+1, ...]
-            Q_ret_i = r_i + gamma * Q_ret_i
-            Q_opc_i = r_i + gamma * Q_opc_i
+            with tf.name_scope("r_i"):
+                r_i = r[i:i+1, ...]
+
+            with tf.name_scope("pre_update"):
+                Q_ret_i = r_i + gamma * Q_ret_i
+                Q_opc_i = r_i + gamma * Q_opc_i
 
             # TF equivalent of .prepend()
-            Q_ret = tf.concat_v2([Q_ret_i, Q_ret], axis=0)
-            Q_opc = tf.concat_v2([Q_opc_i, Q_opc], axis=0)
+            with tf.name_scope("prepend"):
+                Q_ret = tf.concat_v2([Q_ret_i, Q_ret], axis=0)
+                Q_opc = tf.concat_v2([Q_opc_i, Q_opc], axis=0)
 
+            '''
             print "Q_ret_i.shape = {}".format(tf_shape(Q_ret_i))
             print "Q_opc_i.shape = {}".format(tf_shape(Q_opc_i))
             print "Q_ret.shape = {}".format(tf_shape(Q_ret))
             print "Q_opc.shape = {}".format(tf_shape(Q_opc))
+            '''
 
             # Q^{ret} \leftarrow c_i (Q^{ret} - Q(x_i, a_i)) + V(x_i)
-            c_i = c[i:i+1, ...]
-            Q_i = Q_tilt_a[i:i+1, ...]
-            V_i = values[i:i+1, ...]
-            Q_ret_i = c_i * (Q_ret_i - Q_i) + V_i
-            Q_opc_i = (Q_opc_i - Q_i) + V_i
+            with tf.name_scope("post_update"):
+                with tf.name_scope("c_i"): c_i = c[i:i+1, ...]
+                with tf.name_scope("Q_i"): Q_i = Q_tilt_a[i:i+1, ...]
+                with tf.name_scope("V_i"): V_i = values[i:i+1, ...]
 
+                Q_ret_i = c_i * (Q_ret_i - Q_i) + V_i
+                Q_opc_i = (Q_opc_i - Q_i) + V_i
+
+            '''
             print "c_i.shape = {}".format(tf_shape(c_i))
             print "Q_i.shape = {}".format(tf_shape(Q_i))
             print "V_i.shape = {}".format(tf_shape(V_i))
             print "Q_ret_i.shape = {}".format(tf_shape(Q_ret_0))
             print "Q_opc_i.shape = {}".format(tf_shape(Q_opc_0))
+            '''
 
             return i-1, Q_ret_i, Q_opc_i, Q_ret, Q_opc
 
@@ -301,7 +320,7 @@ class AcerEstimator():
         return sess.run(output, feed_dict=feed_dict)
     """
 
-    def get_policy_losses(self, pi, acer_g):
+    def get_policy_loss(self, pi, acer_g):
 
         with tf.name_scope("TRPO"):
             self.z_star = self.compute_trust_region_update(
@@ -310,9 +329,9 @@ class AcerEstimator():
         phi = tf_concat(-1, pi.phi)
         losses = -tf.reduce_sum(phi * self.z_star, axis=-1)
 
-        return losses
+        return tf.reduce_mean(losses)
 
-    def get_value_losses(self, Q_ret, Q_tilt_a, rho, value):
+    def get_value_loss(self, Q_ret, Q_tilt_a, rho, value):
 
         with tf.name_scope("Q_target"):
             Q_target = tf.stop_gradient(Q_ret - Q_tilt_a)
@@ -320,7 +339,7 @@ class AcerEstimator():
         losses = - Q_target * (Q_tilt_a + tf.minimum(1., rho) * value)
         losses = tf.squeeze(losses, -1)
 
-        return losses
+        return tf.reduce_mean(losses)
 
     def compute_ACER_gradient(self, rho, pi, a, O_opc, value, rho_prime,
                               Q_tilt_a_prime, a_prime):
@@ -417,7 +436,7 @@ class AcerEstimator():
             with tf.name_scope(name):
                 ndims = len(actions.get_shape())
                 broadcaster = tf.zeros([num_samples] + [1] * (ndims-1))
-                input_ = input + broadcaster
+                input_ = input[None, ...] + broadcaster
 
                 input_with_a = tf_concat(-1, [input_, actions])
                 input_with_a = flatten_all_leading_axes(input_with_a)
