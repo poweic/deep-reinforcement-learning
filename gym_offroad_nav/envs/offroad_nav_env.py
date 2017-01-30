@@ -5,6 +5,7 @@ import scipy.io
 import tensorflow as tf
 from gym import error, spaces, utils
 from gym.utils import seeding
+from ac.utils import to_image
 
 FLAGS = tf.flags.FLAGS
 
@@ -113,11 +114,11 @@ class OffRoadNavEnv(gym.Env):
 
         if not hasattr(self, "R"):
             print "Creating self.R ..."
-            self.R = self.to_image(self.rewards, self.K)
+            self.R = to_image(self.rewards, self.K)
 
         if not hasattr(self, "bR"):
             print "Creating self.bR ..."
-            self.bR = self.to_image(self.debug_bilinear_R(self.K), self.K)
+            self.bR = to_image(self.debug_bilinear_R(self.K), self.K)
 
         if hasattr(self, "bR") and hasattr(self, "R") and hasattr(self, "padded_rewards"):
             scipy.io.savemat(metadata_fn, dict(
@@ -128,15 +129,6 @@ class OffRoadNavEnv(gym.Env):
         self.vehicle_model.reset(s0)
         self.state = s0.copy()
         return self.state
-
-    def to_image(self, R, K, interpolation=cv2.INTER_NEAREST):
-        value_range = np.max(R) - np.min(R)
-        if value_range != 0:
-            R = (R - np.min(R)) / value_range * 255.
-        R = np.clip(R, 0, 255).astype(np.uint8)
-        R = cv2.resize(R, (40 * K, 40 * K), interpolation=interpolation)[..., None]
-        R = np.concatenate([R, R, R], axis=2)
-        return R
 
     def debug_bilinear_R(self, K):
         X = np.linspace(-10, 10, num=40*K)
@@ -168,7 +160,7 @@ class OffRoadNavEnv(gym.Env):
             img[i, :, :] = rotated[cy-10-10:cy-10+10, cx-10:cx+10]
 
         '''
-        front_view = self.to_image(img[0], self.K * 2)
+        front_view = to_image(img[0], self.K * 2)
         front_view[0, :, :] = 255
         front_view[-1, :, :] = 255
         front_view[:, 1, :] = 255

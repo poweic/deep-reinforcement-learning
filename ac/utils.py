@@ -3,9 +3,23 @@ import numpy as np
 import scipy.signal
 import scipy.interpolate as interpolate
 import tensorflow as tf
+import cv2
 FLAGS = tf.flags.FLAGS
 batch_size = FLAGS.batch_size
 seq_length = FLAGS.seq_length
+
+def normalize(x):
+    value_range = np.max(x) - np.min(x)
+    if value_range != 0:
+        x = (x - np.min(x)) / value_range * 255.
+    x = np.clip(x, 0, 255).astype(np.uint8)
+    return x
+
+def to_image(R, K, interpolation=cv2.INTER_NEAREST):
+    R = normalize(R)
+    R = cv2.resize(R, (40 * K, 40 * K), interpolation=interpolation)[..., None]
+    R = np.concatenate([R, R, R], axis=2)
+    return R
 
 def tf_shape(x):
     try:
