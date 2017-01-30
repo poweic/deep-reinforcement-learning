@@ -189,8 +189,6 @@ class AcerWorker(Worker):
 
     def update(self, transitions, off_policy=False):
 
-        transitions = transitions[:10]
-
         mdp_states = AttrDict({
             key: np.concatenate([
                 t.mdp_state[key][None, ...] for t in transitions
@@ -198,21 +196,10 @@ class AcerWorker(Worker):
             for key in transitions[0].mdp_state.keys()
         })
 
-        actions = np.concatenate([
-            t.action.T[None, ...] for t in transitions
-        ], axis=0)
-
-        rewards = np.concatenate([
-            t.reward.T[None, ...] for t in transitions
-        ], axis=0)
-
-        mu = np.concatenate([
-            t.pi.mu.T[None, ...] for t in transitions
-        ], axis=0)
-
-        sigma = np.concatenate([
-            t.pi.sigma.T[None, ...] for t in transitions
-        ], axis=0)
+        action = np.concatenate([t.action.T[None, ...]   for t in transitions ], axis=0)
+        reward = np.concatenate([t.reward.T[None, ...]   for t in transitions ], axis=0)
+        mu     = np.concatenate([t.pi.mu.T[None, ...]    for t in transitions ], axis=0)
+        sigma  = np.concatenate([t.pi.sigma.T[None, ...] for t in transitions ], axis=0)
 
         net = self.local_net
         avg_net = self.Estimator.average_net
@@ -222,14 +209,14 @@ class AcerWorker(Worker):
             net.state.vehicle_state     : mdp_states.vehicle_state,
             net.state.prev_action       : mdp_states.prev_action,
             net.state.prev_reward       : mdp_states.prev_reward,
-            net.r                       : rewards,
+            net.r                       : reward,
             net.mu.mu                   : mu,
             net.mu.sigma                : sigma,
             avg_net.state.front_view    : mdp_states.front_view,
             avg_net.state.vehicle_state : mdp_states.vehicle_state,
             avg_net.state.prev_action   : mdp_states.prev_action,
             avg_net.state.prev_reward   : mdp_states.prev_reward,
-            net.a                       : actions
+            net.a                       : action
         }
 
         '''
@@ -275,7 +262,10 @@ class AcerWorker(Worker):
         print "#{:6d}, pi_loss = {:+9.4f}, vf_loss = {:+9.4f}, loss = {:+9.4f} {}".format(
             gstep, loss.pi, loss.vf, loss.total,
             "\33[93m[off policy]\33[0m" if off_policy else "\33[92m[on  policy]\33[0m"
-        )
+        ),
+
+        print "mdp_states.front_view.shape = ", mdp_states.front_view.shape
+
 
         """
         if off_policy:

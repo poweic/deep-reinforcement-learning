@@ -11,59 +11,6 @@ seq_length = FLAGS.seq_length
 def flatten_all_leading_axes(x):
     return tf.reshape(x, [-1, x.get_shape()[-1].value])
 
-def create_distribution(mu, sigma):
-    pi = AttrDict()
-
-    pi.mu = mu
-    pi.sigma = sigma
-    pi.phi = [mu, sigma]
-
-    # Reshape & create normal distribution and sample some actions
-    rank = get_rank(pi.mu)
-    if rank == 3:
-        mu_flat = flatten(pi.mu)
-        sigma_flat = flatten(pi.sigma)
-
-    pi.dist = tf.contrib.distributions.MultivariateNormalDiag(mu_flat, sigma_flat)
-
-    def _op(x, op):
-        # Assume x is either of shape [n, S, B, 2] or [S, B, 2]
-        rank = get_rank(x)
-        # if rank == 3: x = x[None, ...]
-
-        # Now x is of shape [n, S, B, 2], where n can be 1
-        shape = tf.shape(x)
-        S = shape[0] if seq_length is None else seq_length
-        B = shape[1] if batch_size is None else batch_size
-
-        reshaped_x = tf.reshape(x, [1, S*B, 2])
-
-        p = op(reshaped_x)
-
-        p = tf.reshape(p, [S, B])
-
-        return p
-
-    def prob(x):
-        return _op(x, pi.dist.prob)
-
-    def log_prob(x):
-        return _op(x, pi.dist.log_prob)
-
-    def sample(n):
-        samples = pi.dist.sample_n(n)
-        if get_rank(pi.mu) == 3:
-            S, B = get_seq_length_batch_size(pi.mu)
-            samples = tf.reshape(samples, [n, S, B, 2])
-
-        return samples
-
-    pi.prob = prob
-    pi.log_prob = log_prob
-    pi.sample = sample
-
-    return pi
-
 class AcerEstimator():
     def __init__(self, add_summaries=False, trainable=True):
 
@@ -134,7 +81,7 @@ class AcerEstimator():
         grads_and_vars = self.optimizer.compute_gradients(self.loss)
         self.grads_and_vars = [(g, v) for g, v in grads_and_vars if g is not None]
 
-        # Get all trainable variables initialized in this
+        # Collect all trainable variables initialized here
         self.var_list = [v for g, v in self.grads_and_vars]
 
         # self.pi_var_list = get_var_list_wrt(self.pi.mu + self.pi.sigma)
@@ -307,19 +254,6 @@ class AcerEstimator():
 
         return a_prime, AttrDict(mu=mu, sigma=sigma)
 
-    """
-    def predict_action_with_prob(self, state, actions, sess=None):
-        sess = sess or tf.get_default_session()
-
-        feed_dict = self.to_feed_dict(state)
-
-        feed_dict.update({self.a: actions})
-
-        output = [self.a_prime, self.prob_a_prime, self.prob_a]
-
-        return sess.run(output, feed_dict=feed_dict)
-    """
-
     def get_policy_loss(self, pi, acer_g):
 
         with tf.name_scope("TRPO"):
@@ -402,13 +336,6 @@ class AcerEstimator():
 
         return Q_tilt
 
-    def s2y(self, mu):
-        # Convert mu_steer (mu[..., 1]) to mu_yawrate
-        v = self.get_forward_velocity()
-        mu_yawrate = steer_to_yawrate(mu[..., 1:], v)[..., 0]
-        mu = tf.pack([mu[..., 0], mu_yawrate], axis=-1)
-        return mu
-
     def policy_network(self, input, num_outputs):
 
         # mu: [B, 2], sigma: [B, 2], phi is just a syntatic sugar
@@ -419,14 +346,14 @@ class AcerEstimator():
         mu = tf.pack([mu[..., 0], mu[..., 1] + naive_mu], axis=-1)
 
         # Convert mu_steer (mu[..., 1]) to mu_yawrate
-        mu = self.s2y(mu)
+        mu = s2y(mu, self.get_forward_velocity())
 
         pi = create_distribution(mu, sigma)
 
         return pi
 
     def get_forward_velocity(self):
-        return self.state["vehicle_state"][..., 4:5]
+        return self.state.vehicle_state[..., 4:5]
 
     def advantage_network(self, input):
 

@@ -8,6 +8,49 @@ FLAGS = tf.flags.FLAGS
 batch_size = FLAGS.batch_size
 seq_length = FLAGS.seq_length
 
+def create_distribution(mu, sigma):
+    pi = AttrDict()
+
+    pi.mu = mu
+    pi.sigma = sigma
+    pi.phi = [mu, sigma]
+
+    # Reshape & create normal distribution and sample some actions
+    mu_flat = flatten(pi.mu)
+    sigma_flat = flatten(pi.sigma)
+
+    pi.dist = tf.contrib.distributions.MultivariateNormalDiag(mu_flat, sigma_flat)
+
+    def _op(x, op):
+        # Now x is of shape [n, S, B, 2], where n can be 1
+        shape = tf.shape(x)
+        S = shape[0] if seq_length is None else seq_length
+        B = shape[1] if batch_size is None else batch_size
+
+        reshaped_x = tf.reshape(x, [1, S*B, 2])
+        p = op(reshaped_x)
+        p = tf.reshape(p, [S, B])
+        return p
+
+    def prob(x):
+        return _op(x, pi.dist.prob)
+
+    def log_prob(x):
+        return _op(x, pi.dist.log_prob)
+
+    def sample(n):
+        samples = pi.dist.sample_n(n)
+        S, B = get_seq_length_batch_size(pi.mu)
+        samples = tf.reshape(samples, [n, S, B, 2])
+        return samples
+
+    pi.prob = prob
+    pi.log_prob = log_prob
+    pi.sample = sample
+
+    return pi
+
+
 def normalize(x):
     value_range = np.max(x) - np.min(x)
     if value_range != 0:
@@ -48,8 +91,22 @@ def get_var_list_wrt(loss):
     var_list = [v for g, v in grads_and_vars if g is not None]
     return var_list
 
+def s2y(mu, v):
+    # Extract steer from input (2nd column), turn it to yawrate, and
+    # concatenate (pack) it back
+    mu_yawrate = steer_to_yawrate(mu[..., 1:], v)[..., 0]
+    mu = tf.pack([mu[..., 0], mu_yawrate], axis=-1)
+    return mu
+
+def y2s(mu, v):
+    # Extract yawrwate from input (2nd column), turn it to steer, and
+    # concatenate (pack) it back
+    mu_steer = yawrate_to_steer(mu[..., 1:], v)[..., 0]
+    mu = tf.pack([mu[..., 0], mu_steer], axis=-1)
+    return mu
+
 def steer_to_yawrate(steer, v):
-    assert steer.get_shape().as_list() == v.get_shape().as_list()
+    assert steer.get_shape().as_list() == v.get_shape().as_list(), "steer = {}, v = {}".format(steer, v)
     # Use Ackerman formula to compute yawrate from steering angle and
     # forward velocity (4-th element of vehicle_state)
     radius = FLAGS.wheelbase / tf.tan(steer)
@@ -112,10 +169,12 @@ def make_copy_params_op(v1_list, v2_list, alpha=0.):
         return tf.group(*[v2.assign(a * v2 + b * v1) for v1, v2 in zip(v1_list, v2_list)])
 
 def discount(x, gamma):
-    if x.ndim == 1:
-        return scipy.signal.lfilter([1], [1, -gamma], x[::-1], axis=0)[::-1]
+    # if x.ndim == 1:
+    return scipy.signal.lfilter([1], [1, -gamma], x[::-1], axis=0)[::-1]
+    '''
     else:
         return scipy.signal.lfilter([1], [1, -gamma], x[:, ::-1], axis=1)[:, ::-1]
+    '''
 
 def flatten(x): # flatten the first 2 axes
     try:
