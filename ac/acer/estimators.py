@@ -414,6 +414,10 @@ class AcerEstimator():
         # mu: [B, 2], sigma: [B, 2], phi is just a syntatic sugar
         mu, sigma = policy_network(input, num_outputs)
 
+        # Add naive policy as baseline bias
+        naive_mu = naive_mean_steer_policy(self.state.front_view)
+        mu = tf.pack([mu[..., 0], mu[..., 1] + naive_mu], axis=-1)
+
         # Convert mu_steer (mu[..., 1]) to mu_yawrate
         mu = self.s2y(mu)
 

@@ -13,8 +13,8 @@ tf.flags.DEFINE_string("game", "line", "Game environment")
 tf.flags.DEFINE_string("estimator_type", "A3C", "Choose A3C or ACER")
 
 tf.flags.DEFINE_integer("max_global_steps", None, "Stop training after this many steps in the environment. Defaults to running indefinitely.")
-tf.flags.DEFINE_integer("batch_size", None, "batch size used for construct TF graph")
 tf.flags.DEFINE_integer("seq_length", None, "sequence length used for construct TF graph")
+tf.flags.DEFINE_integer("batch_size", None, "batch size used for construct TF graph")
 
 tf.flags.DEFINE_integer("eval_every", 30, "Evaluate the policy every N seconds")
 tf.flags.DEFINE_integer("parallelism", 1, "Number of threads to run. If not set we run [num_cpu_cores] threads.")
@@ -44,7 +44,7 @@ tf.flags.DEFINE_float("entropy_cost_mult", 1e-3, "multiplier used by entropy reg
 tf.flags.DEFINE_float("discount_factor", 0.995, "discount factor in Markov decision process (MDP)")
 tf.flags.DEFINE_float("lambda_", 0.50, "lambda in TD-Lambda (temporal difference learning)")
 
-tf.flags.DEFINE_float("min_mu_vf", 6. / 3.6, "Minimum forward velocity of vehicle (m/s)")
+tf.flags.DEFINE_float("min_mu_vf", 1. / 3.6, "Minimum forward velocity of vehicle (m/s)")
 tf.flags.DEFINE_float("max_mu_vf", 40. / 3.6, "Maximum forward velocity of vehicle (m/s)")
 tf.flags.DEFINE_float("min_mu_steer", -30 * np.pi / 180, "Minimum steering angle (rad)")
 tf.flags.DEFINE_float("max_mu_steer", +30 * np.pi / 180, "Maximum steering angle (rad)")
@@ -105,6 +105,9 @@ def make_env():
     # rewards -= 15
     rewards = (rewards - np.min(rewards)) / (np.max(rewards) - np.min(rewards))
     rewards = (rewards - 0.6) * 2
+
+    # compute_mean_steering_angle(rewards)
+
     # rewards[rewards < 0.1] = -1
     env = OffRoadNavEnv(rewards, vehicle_model)
     return env
@@ -118,6 +121,26 @@ if FLAGS.reset:
 def mkdir_p(dirname):
     if not os.path.exists(dirname):
         os.makedirs(dirname)
+
+def compute_mean_steering_angle(reward):
+    from ac.utils import to_image
+    rimg = to_image(reward, 20)
+    cv2.imshow("reward", rimg)
+
+    H, W = reward.shape
+    yv, xv = np.meshgrid(range(H), range(W))
+    xv = xv.astype(np.float32)
+    yv = yv.astype(np.float32)
+
+    theta = np.arctan((yv - W / 2 + 0.5) / (H - xv))
+
+    mean_steer = np.mean(theta * reward)
+
+    print "mean_steer = {} degree".format(mean_steer / np.pi * 180)
+
+    cv2.imshow("theta", np.abs(theta))
+    cv2.waitKey(0)
+    sys.exit()
 
 def save_model_every_nth_minutes(sess, saver):
 

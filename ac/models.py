@@ -21,6 +21,20 @@ def get_state_placeholder():
         prev_reward   = prev_reward
     )
 
+def naive_mean_steer_policy(front_view):
+    H, W = 20, 20
+
+    yv, xv = np.meshgrid(range(H), range(W))
+    xv = xv.astype(np.float32)
+    yv = yv.astype(np.float32)
+
+    theta = np.arctan((yv - W / 2 + 0.5) / (H - xv))
+    theta = tf.constant(theta)[None, None, ..., None]
+
+    r = front_view - tf.reduce_min(front_view, keep_dims=True,
+                                   reduction_indices=[2,3,4])
+
+    return tf.reduce_mean(r * theta, reduction_indices=[2,3,4])
 
 def build_shared_network(state, add_summaries=False):
     """
