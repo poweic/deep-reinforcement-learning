@@ -389,7 +389,7 @@ class AcerEstimator():
         the caller doesn't have to pass these as argument anymore
         """
 
-        def Q_tilt(action, name, num_samples=5):
+        def Q_tilt(action, name, num_samples=15):
             with tf.name_scope(name):
                 # See eq. 13 in ACER
                 if len(action.get_shape()) != 4:
