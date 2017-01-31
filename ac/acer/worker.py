@@ -135,6 +135,7 @@ class AcerWorker(Worker):
 
         # Initial state
         self.reset_env()
+        self.local_net.reset_lstm_state()
 
         reward = np.zeros((1, self.n_agents), dtype=np.float32)
         for i in range(n_steps):
@@ -254,12 +255,16 @@ class AcerWorker(Worker):
         loss, Q, _ = self.sess.run(ops, feed_dict=feed_dict)
         """
 
-        loss, _ = self.sess.run(ops, feed_dict=feed_dict)
+        net.reset_lstm_state()
+        avg_net.reset_lstm_state()
+
+        loss, _ = net.predict(ops, feed_dict, self.sess)
+        # loss, _ = self.sess.run(ops, feed_dict=feed_dict)
         loss = AttrDict(loss)
 
         self.counter += 1
         gstep = self.sess.run(self.inc_global_step)
-        print "#{:6d}, pi_loss = {:+9.4f}, vf_loss = {:+9.4f}, loss = {:+9.4f} {}".format(
+        print "#{:6d}, pi_loss = {:+12.3f}, vf_loss = {:+12.3f}, loss = {:+12.3f} {}".format(
             gstep, loss.pi, loss.vf, loss.total,
             "\33[93m[off policy]\33[0m" if off_policy else "\33[92m[on  policy]\33[0m"
         ),

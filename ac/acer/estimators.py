@@ -22,7 +22,7 @@ class AcerEstimator():
             self.r = tf.placeholder(tf.float32, [seq_length, batch_size, 1], "rewards")
 
         with tf.variable_scope("shared"):
-            shared = build_shared_network(self.state, add_summaries=add_summaries)
+            shared, self.lstm = build_shared_network(self.state, add_summaries=add_summaries)
 
         with tf.variable_scope("pi"):
             self.pi = self.policy_network(shared, 2)
@@ -75,7 +75,10 @@ class AcerEstimator():
             self.vf_loss = self.get_value_loss(
                 self.Q_ret, self.Q_tilt_a, self.rho, self.value)
 
-            self.loss = self.pi_loss + self.vf_loss
+            z_mean = tf.reduce_mean((self.a - self.pi.mu) / self.pi.sigma)
+            z_mean = tf_print(z_mean, "z_mean = ")
+
+            self.loss = self.pi_loss + self.vf_loss # + 0 * z_mean
 
         self.optimizer = tf.train.RMSPropOptimizer(FLAGS.learning_rate)
         grads_and_vars = self.optimizer.compute_gradients(self.loss)
@@ -239,14 +242,41 @@ class AcerEstimator():
 
         return feed_dict
 
-    def predict_actions(self, state, sess=None):
+    def reset_lstm_state(self):
+        self.lstm.prev_state_out = None
+
+    def fill_lstm_state_placeholder(self, feed_dict, B):
+        # If previous LSTM state out is empty, then set it to zeros
+        if self.lstm.prev_state_out is None:
+            H = self.lstm.num_hidden
+
+            self.lstm.prev_state_out = [
+                np.zeros((B, H), np.float32) for s in self.lstm.state_in
+            ]
+
+        # Set placeholders with previous LSTM state output
+        for sin, prev_sout in zip(self.lstm.state_in, self.lstm.prev_state_out):
+            feed_dict[sin] = prev_sout
+
+    def predict(self, tensors, feed_dict, sess=None):
         sess = sess or tf.get_default_session()
 
+        B = feed_dict[self.state.prev_reward].shape[1]
+        self.fill_lstm_state_placeholder(feed_dict, B)
+        self.avg_net.fill_lstm_state_placeholder(feed_dict, B)
+
+        output, self.lstm.prev_state_out = sess.run([
+            tensors, self.lstm.state_out
+        ], feed_dict)
+
+        return output
+
+    def predict_actions(self, state, sess=None):
+
+        tensors = [self.a_prime, self.pi.mu, self.pi.sigma]
         feed_dict = self.to_feed_dict(state)
 
-        output = [self.a_prime, self.pi.mu, self.pi.sigma]
-
-        a_prime, mu, sigma = sess.run(output, feed_dict=feed_dict)
+        a_prime, mu, sigma = self.predict(tensors, feed_dict, sess)
 
         a_prime = a_prime[0, ...]
         mu = mu[0, ...]

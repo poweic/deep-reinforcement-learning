@@ -36,6 +36,28 @@ def naive_mean_steer_policy(front_view):
 
     return tf.reduce_mean(r * theta, reduction_indices=[2,3,4])
 
+def LSTM(input, num_outputs, scope=None):
+    lstm = tf.nn.rnn_cell.BasicLSTMCell(
+        num_outputs, state_is_tuple=True, activation=tf.nn.relu
+    )
+
+    with tf.variable_scope(scope):
+        state_in = [
+            tf.placeholder(tf.float32, [batch_size, num_outputs], name="c"),
+            tf.placeholder(tf.float32, [batch_size, num_outputs], name="h")
+        ]
+
+    lstm_outputs, state_out = tf.nn.dynamic_rnn(
+        lstm, input, dtype=tf.float32, time_major=True, scope=scope,
+        initial_state=tf.nn.rnn_cell.LSTMStateTuple(*state_in)
+    )
+
+    return AttrDict(
+        output    = lstm_outputs,
+        state_in  = state_in,
+        state_out = state_out
+    )
+
 def build_shared_network(state, add_summaries=False):
     """
     Builds a 3-layer network conv -> conv -> fc as described
@@ -70,39 +92,32 @@ def build_shared_network(state, add_summaries=False):
         pool2 = MaxPool2DLayer(conv4, pool_size=3, stride=2, name='pool2')
         flat = tf.contrib.layers.flatten(pool2)
 
-    '''
     with tf.name_scope("lstm"):
         # Flatten convolutions output to fit fully connected layer
         flat = deflatten(flat, S, B)
+
+        num_hidden = 256
 
         # LSTM-1
         # Concatenate encoder's output (i.e. flattened result from conv net)
         # with previous reward (see https://arxiv.org/abs/1611.03673)
         concat1 = tf.concat(2, [flat, prev_reward])
-
-        lstm = tf.nn.rnn_cell.BasicLSTMCell(
-            256, state_is_tuple=True, activation=tf.nn.relu
-        )
-
-        lstm_outputs, lstm_state = tf.nn.dynamic_rnn(
-            lstm, concat1, dtype=tf.float32, # initial_state=state_in,
-            time_major=True, scope="LSTM-1")
+        lstm1 = LSTM(concat1, num_hidden, scope="LSTM-1")
 
         # LSTM-2
         # Concatenate previous output with vehicle_state and prev_action
-        concat2 = tf.concat(2, [lstm_outputs, vehicle_state, prev_action])
+        concat2 = tf.concat(2, [lstm1.output, vehicle_state, prev_action])
+        lstm2 = LSTM(concat2, num_hidden, scope="LSTM-2")
 
-        lstm_2 = tf.nn.rnn_cell.BasicLSTMCell(
-            256, state_is_tuple=True, activation=tf.nn.relu
-        )
+        output = lstm2.output
 
-        lstm_outputs_2, lstm_state_2 = tf.nn.dynamic_rnn(
-            lstm_2, concat2, dtype=tf.float32, # initial_state=state_in_2,
-            time_major=True, scope="LSTM-2")
-
-        output = lstm_outputs_2
+    return output, AttrDict(
+        state_in  = lstm1.state_in  + lstm2.state_in,
+        state_out = lstm1.state_out + lstm2.state_out,
+        prev_state_out = None,
+        num_hidden = num_hidden
+    )
     '''
-
     if rank == 5:
         vehicle_state = flatten(vehicle_state)
         prev_action = flatten(prev_action)
@@ -134,6 +149,7 @@ def build_shared_network(state, add_summaries=False):
 
     if rank == 5:
         output = deflatten(fc3, S, B)
+    '''
 
     if add_summaries:
         with tf.name_scope("summaries"):

@@ -52,4 +52,5 @@ class Worker(object):
             except tf.errors.CancelledError:
                 return
             except:
+                print "\33[91m"
                 traceback.print_exc()

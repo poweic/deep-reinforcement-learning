@@ -256,6 +256,10 @@ def tf_print(x, message):
         return x
 
     step = tf.contrib.framework.get_global_step()
+
+    if step is None:
+        return x
+
     cond = tf.equal(tf.mod(step, 1), 0)
     message = "\33[93m" + message + "\33[0m"
     return tf.cond(cond, lambda: tf.Print(x, [x], message=message, summarize=100), lambda: x)
