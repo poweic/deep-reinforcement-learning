@@ -47,10 +47,12 @@ class Worker(object):
 
         with sess.as_default(), sess.graph.as_default():
             try:
-                while not coord.should_stop():
+                while not coord.should_stop() and not Worker.stop:
                     self._run()
             except tf.errors.CancelledError:
                 return
             except:
                 print "\33[91m"
                 traceback.print_exc()
+
+Worker.stop = False

@@ -16,6 +16,8 @@ class AcerEstimator():
 
         self.trainable = trainable
 
+        self.avg_net = getattr(AcerEstimator, "average_net", self)
+
         with tf.name_scope("inputs"):
             self.state = get_state_placeholder()
             self.a = tf.placeholder(tf.float32, [seq_length, batch_size, 2], "actions")
@@ -63,25 +65,24 @@ class AcerEstimator():
                     self.value, self.c, self.r, self.Q_tilt_a
                 )
 
-        self.avg_net = getattr(AcerEstimator, "average_net", self)
-
-        with tf.name_scope("ACER"):
-            self.acer_g = self.compute_ACER_gradient(
-                self.rho, self.pi, self.a, self.Q_opc, self.value,
-                self.rho_prime, self.Q_tilt_a_prime, self.a_prime)
-
         with tf.name_scope("losses"):
-            self.pi_loss = self.get_policy_loss(self.pi, self.acer_g)
-            self.vf_loss = self.get_value_loss(
-                self.Q_ret, self.Q_tilt_a, self.rho, self.value)
+            self.pi_loss, self.pi_loss_sur = self.get_policy_loss(
+                self.rho, self.pi, self.a, self.Q_opc, self.value,
+                self.rho_prime, self.Q_tilt_a_prime, self.a_prime
+            )
 
-            z_mean = tf.reduce_mean((self.a - self.pi.mu) / self.pi.sigma)
-            z_mean = tf_print(z_mean, "z_mean = ")
+            self.vf_loss, self.vf_loss_sur = self.get_value_loss(
+                self.Q_ret, self.Q_tilt_a, self.rho, self.value
+            )
 
-            self.loss = self.pi_loss + self.vf_loss # + 0 * z_mean
+            # Surrogate loss is the loss tensor we passed to optimizer for
+            # automatic gradient computation, it uses lots of stop_gradient.
+            # Therefore it's different from the true loss (self.loss)
+            self.loss_sur = self.pi_loss_sur + self.vf_loss_sur
+            self.loss = self.pi_loss + self.vf_loss
 
         self.optimizer = tf.train.RMSPropOptimizer(FLAGS.learning_rate)
-        grads_and_vars = self.optimizer.compute_gradients(self.loss)
+        grads_and_vars = self.optimizer.compute_gradients(self.loss_sur)
         self.grads_and_vars = [(g, v) for g, v in grads_and_vars if g is not None]
 
         # Collect all trainable variables initialized here
@@ -106,8 +107,8 @@ class AcerEstimator():
             self.mu_a_prime = mu_a_prime = mu.prob(a_prime)[..., None]
 
         # use tf.div instead of pi_a / mu_a to assign a name to the output
-        rho = tf.div(pi_a, mu_a, name="rho")
-        rho_prime = tf.div(pi_a_prime, mu_a_prime, name="rho_prime")
+        rho = tf.div(pi_a, mu_a)
+        rho_prime = tf.div(pi_a_prime, mu_a_prime)
 
         print "pi_a.shape = {}".format(tf_shape(pi_a))
         print "mu_a.shape = {}".format(tf_shape(mu_a))
@@ -115,6 +116,9 @@ class AcerEstimator():
         print "mu_a_prime.shape = {}".format(tf_shape(mu_a_prime))
         print "rho.shape = {}".format(tf_shape(rho))
         print "rho_prime.shape = {}".format(tf_shape(rho_prime))
+
+        rho = tf.stop_gradient(rho, name="rho")
+        rho_prime = tf.stop_gradient(rho_prime, name="rho_prime")
 
         return rho, rho_prime
 
@@ -166,13 +170,6 @@ class AcerEstimator():
                 Q_ret = tf.concat_v2([Q_ret_i, Q_ret], axis=0)
                 Q_opc = tf.concat_v2([Q_opc_i, Q_opc], axis=0)
 
-            '''
-            print "Q_ret_i.shape = {}".format(tf_shape(Q_ret_i))
-            print "Q_opc_i.shape = {}".format(tf_shape(Q_opc_i))
-            print "Q_ret.shape = {}".format(tf_shape(Q_ret))
-            print "Q_opc.shape = {}".format(tf_shape(Q_opc))
-            '''
-
             # Q^{ret} \leftarrow c_i (Q^{ret} - Q(x_i, a_i)) + V(x_i)
             with tf.name_scope("post_update"):
                 with tf.name_scope("c_i"): c_i = c[i:i+1, ...]
@@ -180,15 +177,7 @@ class AcerEstimator():
                 with tf.name_scope("V_i"): V_i = values[i:i+1, ...]
 
                 Q_ret_i = c_i * (Q_ret_i - Q_i) + V_i
-                Q_opc_i = (Q_opc_i - Q_i) + V_i
-
-            '''
-            print "c_i.shape = {}".format(tf_shape(c_i))
-            print "Q_i.shape = {}".format(tf_shape(Q_i))
-            print "V_i.shape = {}".format(tf_shape(V_i))
-            print "Q_ret_i.shape = {}".format(tf_shape(Q_ret_0))
-            print "Q_opc_i.shape = {}".format(tf_shape(Q_opc_0))
-            '''
+                Q_opc_i = 1.0 * (Q_opc_i - Q_i) + V_i
 
             return i-1, Q_ret_i, Q_opc_i, Q_ret, Q_opc
 
@@ -206,8 +195,8 @@ class AcerEstimator():
             ]
         )
 
-        Q_ret = Q_ret[:-1, ...]
-        Q_opc = Q_opc[:-1, ...]
+        Q_ret = tf.stop_gradient(Q_ret[:-1, ...], name="Q_ret")
+        Q_opc = tf.stop_gradient(Q_opc[:-1, ...], name="Q_opc")
 
         return Q_ret, Q_opc
 
@@ -223,8 +212,12 @@ class AcerEstimator():
         # Take the partial derivatives w.r.t. phi (i.e. mu and sigma)
         k = tf_concat(-1, tf.gradients(KL_divergence, pi.phi))
 
+        # Compute \frac{k^T g - \delta}{k^T k}, perform reduction only on axis 2
+        num   = tf.reduce_sum(k * g, axis=2, keep_dims=True) - delta
+        denom = tf.reduce_sum(k * k, axis=2, keep_dims=True)
+
         # z* is the TRPO regularized gradient
-        z_star = g - tf.maximum(0., (k * g - delta) / (g ** 2)) * k
+        z_star = g - tf.maximum(0., num / denom) * k
 
         # By using stop_gradient, we make z_star being treated as a constant
         z_star = tf.stop_gradient(z_star)
@@ -248,10 +241,10 @@ class AcerEstimator():
     def fill_lstm_state_placeholder(self, feed_dict, B):
         # If previous LSTM state out is empty, then set it to zeros
         if self.lstm.prev_state_out is None:
-            H = self.lstm.num_hidden
 
             self.lstm.prev_state_out = [
-                np.zeros((B, H), np.float32) for s in self.lstm.state_in
+                np.zeros((B, s.get_shape().as_list()[1]), np.float32)
+                for s in self.lstm.state_in
             ]
 
         # Set placeholders with previous LSTM state output
@@ -284,35 +277,86 @@ class AcerEstimator():
 
         return a_prime, AttrDict(mu=mu, sigma=sigma)
 
-    def get_policy_loss(self, pi, acer_g):
+    def get_policy_loss(self, rho, pi, a, Q_opc, value, rho_prime,
+                        Q_tilt_a_prime, a_prime):
+
+        with tf.name_scope("ACER"):
+            pi_obj = self.compute_ACER_policy_obj(
+                rho, pi, a, Q_opc, value, rho_prime, Q_tilt_a_prime, a_prime)
+
+        pi_loss, pi_loss_sur = self.add_TRPO_regularization(pi, pi_obj)
+
+        return pi_loss, pi_loss_sur
+
+    def add_TRPO_regularization(self, pi, pi_obj):
+
+        # ACER gradient is the gradient of policy objective function, which is
+        # the negatation of policy loss
+        g_acer = tf_concat(-1, tf.gradients(pi_obj, pi.phi))
 
         with tf.name_scope("TRPO"):
-            self.z_star = self.compute_trust_region_update(
-                acer_g, self.avg_net.pi, self.pi)
+            g_acer_trpo = self.compute_trust_region_update(
+                g_acer, self.avg_net.pi, pi)
 
         phi = tf_concat(-1, pi.phi)
-        losses = -tf.reduce_sum(phi * self.z_star, axis=-1)
 
-        return tf.reduce_mean(losses)
+        # Compute the objective function (obj) we try to maximize
+        obj = pi_obj
+        obj_sur = phi * g_acer_trpo
+
+        # Sum over the intermediate variable phi
+        obj     = tf.reduce_sum(obj    , axis=2)
+        obj_sur = tf.reduce_sum(obj_sur, axis=2)
+
+        # Take mean over batch axis
+        obj     = tf.reduce_mean(obj    , axis=1)
+        obj_sur = tf.reduce_mean(obj_sur, axis=1)
+
+        # Sum over time axis
+        obj     = tf.reduce_mean(obj    , axis=0)
+        obj_sur = tf.reduce_mean(obj_sur, axis=0)
+
+        # loss is the negative of objective function
+        return -obj, -obj_sur
 
     def get_value_loss(self, Q_ret, Q_tilt_a, rho, value):
 
-        with tf.name_scope("Q_target"):
-            Q_target = tf.stop_gradient(Q_ret - Q_tilt_a)
+        # ======================= DEBUG =======================
+        cond = tf.reduce_mean(0.5 * tf.square(Q_ret - Q_tilt_a)) > 5000.
+        Q_ret = tf_print(Q_ret, "Q_ret = ", cond)
+        Q_tilt_a = tf_print(Q_tilt_a, "Q_tilt_a = ", cond)
+        # ======================= DEBUG =======================
 
-        losses = - Q_target * (Q_tilt_a + tf.minimum(1., rho) * value)
-        losses = tf.squeeze(losses, -1)
+        Q_diff = Q_ret - Q_tilt_a
+        V_diff = tf.minimum(1., rho) * Q_diff
 
-        return tf.reduce_mean(losses)
+        # ======================= DEBUG =======================
+        Q_diff = tf_print(Q_diff, "Q_diff = ", cond)
+        # ======================= DEBUG =======================
 
-    def compute_ACER_gradient(self, rho, pi, a, O_opc, value, rho_prime,
-                              Q_tilt_a_prime, a_prime):
+        # L2 norm as loss function
+        Q_l2_loss = 0.5 * tf.square(Q_diff)
+        V_l2_loss = 0.5 * tf.square(V_diff)
 
-        def d_log_prob(actions):
-            print "actions.shape = {}".format(tf_shape(actions))
-            log_prob = pi.log_prob(actions)
-            g = tf.gradients(log_prob, pi.phi)
-            return tf_concat(-1, g)
+        # This is the surrogate loss function for V_l2
+        V_l2_loss_sur = tf.stop_gradient(V_diff) * value
+
+        # Compute the objective function (obj) we try to maximize
+        loss     = Q_l2_loss + V_l2_loss
+        loss_sur = Q_l2_loss + V_l2_loss_sur
+
+        # Take mean over batch axis
+        loss     = tf.reduce_mean(tf.squeeze(loss,     -1), axis=1)
+        loss_sur = tf.reduce_mean(tf.squeeze(loss_sur, -1), axis=1)
+
+        # Sum over time axis
+        loss     = tf.reduce_mean(loss,     axis=0)
+        loss_sur = tf.reduce_mean(loss_sur, axis=0)
+
+        return loss, loss_sur
+
+    def compute_ACER_policy_obj(self, rho, pi, a, Q_opc, value, rho_prime,
+                                 Q_tilt_a_prime, a_prime):
 
         # compute gradient with importance weight truncation using c = 10
         c = tf.constant(10, tf.float32, name="importance_weight_truncation_thres")
@@ -322,12 +366,13 @@ class AcerEstimator():
                 rho_bar = tf.minimum(c, rho)
 
             with tf.name_scope("d_log_prob_a"):
-                g_a = d_log_prob(a)
+                log_a = pi.log_prob(a)[..., None]
 
             with tf.name_scope("target_1"):
                 target_1 = self.Q_opc - self.value
 
-            truncation = (rho_bar * target_1) * g_a
+            # Policy gradient should only flow backs from log \pi
+            truncation = tf.stop_gradient(rho_bar * target_1) * log_a
 
         # compute bias correction term
         with tf.name_scope("bias_correction"):
@@ -335,17 +380,18 @@ class AcerEstimator():
                 plus = tf.nn.relu(1. - c / rho_prime)
 
             with tf.name_scope("d_log_prob_a_prime"):
-                g_ap = d_log_prob(a_prime)
+                log_ap = pi.log_prob(a_prime)[..., None]
 
             with tf.name_scope("target_2"):
                 target_2 = Q_tilt_a_prime - value
 
-            bias_correction = (plus * target_2) * g_ap
+            # Policy gradient should only flow backs from log \pi
+            bias_correction = tf.stop_gradient(plus * target_2) * log_ap
 
         # g is called "truncation with bias correction" in ACER
-        g = truncation + bias_correction
+        obj = truncation + bias_correction
 
-        return g
+        return obj
 
     def SDN_network(self, advantage, value, pi):
         """
@@ -353,15 +399,18 @@ class AcerEstimator():
         the caller doesn't have to pass these as argument anymore
         """
 
-        def Q_tilt(action, name, num_samples=15):
+        def Q_tilt(action, name, num_samples=32):
             with tf.name_scope(name):
                 # See eq. 13 in ACER
                 if len(action.get_shape()) != 4:
                     action = action[None, ...]
 
                 adv = tf.squeeze(advantage(action, name="A_action"), 0)
+
+                # TODO Use symmetric low variance sampling !!
                 advs = advantage(pi.sample(num_samples), "A_sampled", num_samples)
                 mean_adv = tf.reduce_mean(advs, axis=0)
+
                 return value + adv - mean_adv
 
         return Q_tilt

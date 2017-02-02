@@ -83,39 +83,44 @@ def build_shared_network(state, add_summaries=False):
 
     with tf.name_scope("conv"):
 
-        conv1 = Conv2DLayer(input, 32, 3, pad=1, nonlinearity="relu", name="conv1")
-        conv2 = Conv2DLayer(conv1, 32, 3, pad=1, nonlinearity="relu", name="conv2", stride=2)
+        conv1 = Conv2DLayer(input, 32, 5, pad=2, nonlinearity="relu", name="conv1")
+        conv2 = Conv2DLayer(conv1, 32, 5, pad=2, nonlinearity="relu", name="conv2", stride=2)
         pool1 = MaxPool2DLayer(conv2, pool_size=3, stride=2, name='pool1')
 
-        conv3 = Conv2DLayer(pool1, 32, 3, pad=1, nonlinearity="relu", name="conv3")
-        conv4 = Conv2DLayer(conv3, 32, 3, pad=1, nonlinearity="relu", name="conv4")
+        conv3 = Conv2DLayer(pool1, 32, 5, pad=2, nonlinearity="relu", name="conv3")
+        conv4 = Conv2DLayer(conv3, 32, 5, pad=2, nonlinearity="relu", name="conv4")
         pool2 = MaxPool2DLayer(conv4, pool_size=3, stride=2, name='pool2')
+
         flat = tf.contrib.layers.flatten(pool2)
+        # import ipdb; ipdb.set_trace()
+
+        fc = DenseLayer(
+            input=flat,
+            num_outputs=256,
+            nonlinearity="relu",
+            name="fc")
 
     with tf.name_scope("lstm"):
         # Flatten convolutions output to fit fully connected layer
-        flat = deflatten(flat, S, B)
-
-        num_hidden = 256
+        fc = deflatten(fc, S, B)
 
         # LSTM-1
         # Concatenate encoder's output (i.e. flattened result from conv net)
         # with previous reward (see https://arxiv.org/abs/1611.03673)
-        concat1 = tf.concat(2, [flat, prev_reward])
-        lstm1 = LSTM(concat1, num_hidden, scope="LSTM-1")
+        concat1 = tf.concat(2, [fc, prev_reward])
+        lstm1 = LSTM(concat1, 64, scope="LSTM-1")
 
         # LSTM-2
         # Concatenate previous output with vehicle_state and prev_action
-        concat2 = tf.concat(2, [lstm1.output, vehicle_state, prev_action])
-        lstm2 = LSTM(concat2, num_hidden, scope="LSTM-2")
+        concat2 = tf.concat(2, [fc, lstm1.output, vehicle_state, prev_action])
+        lstm2 = LSTM(concat2, 256, scope="LSTM-2")
 
         output = lstm2.output
 
     return output, AttrDict(
         state_in  = lstm1.state_in  + lstm2.state_in,
         state_out = lstm1.state_out + lstm2.state_out,
-        prev_state_out = None,
-        num_hidden = num_hidden
+        prev_state_out = None
     )
     '''
     if rank == 5:
@@ -179,11 +184,13 @@ def policy_network(input, num_outputs):
         S, B = get_seq_length_batch_size(input)
         input = flatten(input)
 
+    '''
     input = DenseLayer(
         input=input,
         num_outputs=256,
         nonlinearity="relu",
         name="policy-input-dense")
+    '''
 
     # Linear classifiers for mu and sigma
     mu = DenseLayer(
@@ -196,20 +203,21 @@ def policy_network(input, num_outputs):
         num_outputs=num_outputs,
         name="policy-sigma")
 
-    with tf.name_scope("mu_sigma_constraints"):
-        min_mu = tf.constant([[FLAGS.min_mu_vf, FLAGS.min_mu_steer]], dtype=tf.float32)
-        max_mu = tf.constant([[FLAGS.max_mu_vf, FLAGS.max_mu_steer]], dtype=tf.float32)
+    if num_outputs <= 2:
+        with tf.name_scope("mu_sigma_constraints"):
+            min_mu = tf.constant([[FLAGS.min_mu_vf] + ([FLAGS.min_mu_steer] if num_outputs == 2 else [])], dtype=tf.float32)
+            max_mu = tf.constant([[FLAGS.max_mu_vf] + ([FLAGS.max_mu_steer] if num_outputs == 2 else [])], dtype=tf.float32)
 
-        min_sigma = tf.constant([[FLAGS.min_sigma_vf, FLAGS.min_sigma_steer]], dtype=tf.float32)
-        max_sigma = tf.constant([[FLAGS.max_sigma_vf, FLAGS.max_sigma_steer]], dtype=tf.float32)
+            min_sigma = tf.constant([[FLAGS.min_sigma_vf] + ([FLAGS.min_sigma_steer] if num_outputs == 2 else [])], dtype=tf.float32)
+            max_sigma = tf.constant([[FLAGS.max_sigma_vf] + ([FLAGS.max_sigma_steer] if num_outputs == 2 else [])], dtype=tf.float32)
 
-        # Clip mu by min and max, use softplus and capping for sigma
-        # mu = clip(mu, min_mu, max_mu)
-        # sigma = tf.minimum(tf.nn.softplus(sigma) + min_sigma, max_sigma)
-        # sigma = tf.nn.sigmoid(sigma) * 1e-20 + max_sigma
+            # Clip mu by min and max, use softplus and capping for sigma
+            # mu = clip(mu, min_mu, max_mu)
+            # sigma = tf.minimum(tf.nn.softplus(sigma) + min_sigma, max_sigma)
+            # sigma = tf.nn.sigmoid(sigma) * 1e-20 + max_sigma
 
-        mu = softclip(mu, min_mu, max_mu)
-        sigma = softclip(sigma, min_sigma, max_sigma)
+            mu = softclip(mu, min_mu, max_mu)
+            sigma = softclip(sigma, min_sigma, max_sigma)
 
     if rank == 3:
         mu = deflatten(mu, S, B)
@@ -228,6 +236,7 @@ def state_value_network(input, num_outputs=1):
         S, B = get_seq_length_batch_size(input)
         input = flatten(input)
 
+    '''
     input = DenseLayer(
         input=input,
         num_outputs=256,
@@ -239,6 +248,7 @@ def state_value_network(input, num_outputs=1):
         num_outputs=256,
         nonlinearity="relu",
         name="value-input-dense-2")
+    '''
 
     # This is just linear classifier
     value = DenseLayer(

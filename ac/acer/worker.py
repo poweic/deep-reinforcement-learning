@@ -55,7 +55,7 @@ class AcerWorker(Worker):
 
     def reset_env(self):
 
-        self.state = np.array([0, 2, 0, 0, 0, 0])
+        self.state = np.array([1, 2, -10 * np.pi / 180, 0, 0, 0])
         self.action = np.array([0, 0])
 
         # Reshape to compatiable format
@@ -229,7 +229,12 @@ class AcerWorker(Worker):
             {
                 'pi': net.pi_loss,
                 'vf': net.vf_loss,
-                'total': net.loss
+                'total': net.loss,
+                'Q_ret': net.Q_ret,
+                'Q_opc': net.Q_opc,
+                'Q_tilt_a': net.Q_tilt_a,
+                'value': net.value,
+                'c': net.c
             },
             self.train_and_update_avgnet_op
         ]
@@ -259,7 +264,6 @@ class AcerWorker(Worker):
         avg_net.reset_lstm_state()
 
         loss, _ = net.predict(ops, feed_dict, self.sess)
-        # loss, _ = self.sess.run(ops, feed_dict=feed_dict)
         loss = AttrDict(loss)
 
         self.counter += 1
@@ -269,7 +273,12 @@ class AcerWorker(Worker):
             "\33[93m[off policy]\33[0m" if off_policy else "\33[92m[on  policy]\33[0m"
         ),
 
-        print "mdp_states.front_view.shape = ", mdp_states.front_view.shape
+        if FLAGS.debug and abs(loss.total) > 1e4:
+            Worker.stop = True
+            import ipdb; ipdb.set_trace()
+
+        print "seq_length = {}, batch_size = {}".format(
+            *(mdp_states.front_view.shape[:2]) )
 
 
         """

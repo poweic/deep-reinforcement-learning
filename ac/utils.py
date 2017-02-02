@@ -251,7 +251,7 @@ def clip(x, min_v, max_v):
 def softclip(x, min_v, max_v):
     return (max_v + min_v) / 2 + tf.nn.tanh(x) * (max_v - min_v) / 2
 
-def tf_print(x, message):
+def tf_print(x, message, cond2=None):
     if not FLAGS.debug:
         return x
 
@@ -261,8 +261,11 @@ def tf_print(x, message):
         return x
 
     cond = tf.equal(tf.mod(step, 1), 0)
+    if cond2 is not None:
+        cond = tf.logical_and(cond, cond2)
+
     message = "\33[93m" + message + "\33[0m"
-    return tf.cond(cond, lambda: tf.Print(x, [x], message=message, summarize=100), lambda: x)
+    return tf.cond(cond, lambda: tf.Print(x, [x], message=message, summarize=1000), lambda: x)
 
 class AttrDict(dict):
     def __init__(self, *args, **kwargs):
