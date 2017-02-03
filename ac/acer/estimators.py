@@ -650,13 +650,8 @@ class AcerEstimator():
 
         with tf.name_scope("summaries"):
             tf.summary.scalar("vf_loss", self.vf_loss)
-            tf.summary.scalar("vf_loss_sur", self.vf_loss_sur)
-
             tf.summary.scalar("pi_loss", self.pi_loss)
-            tf.summary.scalar("pi_loss_sur", self.pi_loss_sur)
-
             tf.summary.scalar("loss", self.loss)
-            tf.summary.scalar("loss_sur", self.loss_sur)
 
         return tf.summary.merge_all()
 

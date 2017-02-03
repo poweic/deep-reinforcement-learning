@@ -101,6 +101,7 @@ class OffRoadNavEnv(gym.Env):
 
     def _reset(self, s0):
         metadata_fn = "data/{}-metadata.mat".format(FLAGS.game)
+        '''
         if not hasattr(self, "R"):
             data = scipy.io.loadmat(metadata_fn)
             self.R = data["R"].copy()
@@ -109,8 +110,11 @@ class OffRoadNavEnv(gym.Env):
         '''
         if not hasattr(self, "padded_rewards"):
             print "Creating self.padded_rewards ..."
-            self.padded_rewards = np.ones((80, 80), dtype=self.rewards.dtype) * np.min(self.rewards)
-            self.padded_rewards[20:60, 20:60] = self.rewards
+            FOV = FLAGS.field_of_view
+            shape = (np.array(self.rewards.shape) + [FOV * 2, FOV * 2]).tolist()
+            fill = np.min(self.rewards)
+            self.padded_rewards = np.full(shape, fill, dtype=np.float32)
+            self.padded_rewards[FOV:-FOV, FOV:-FOV] = self.rewards
 
         if not hasattr(self, "R"):
             print "Creating self.R ..."
@@ -123,7 +127,6 @@ class OffRoadNavEnv(gym.Env):
         if hasattr(self, "bR") and hasattr(self, "R") and hasattr(self, "padded_rewards"):
             scipy.io.savemat(metadata_fn, dict(
                 bR=self.bR, R=self.R, padded_rewards=self.padded_rewards))
-        '''
 
         self.disp_img = np.copy(self.bR)
         self.vehicle_model.reset(s0)
@@ -149,15 +152,19 @@ class OffRoadNavEnv(gym.Env):
 
         iix = np.clip(ix + 19, 0, 39)
         iiy = np.clip(40 - 1 - iy, 0, 39)
-        cxs, cys = iix + 20, iiy + 20
+
+        fov = FLAGS.field_of_view
+
+        cxs, cys = iix + fov, iiy + fov
 
         angles = - theta * 180. / np.pi
 
-        img = np.zeros((len(angles), 20, 20), dtype=np.float32)
+        img = np.zeros((len(angles), fov, fov), dtype=np.float32)
         for i, (cx, cy, angle) in enumerate(zip(cxs, cys, angles)):
             M = cv2.getRotationMatrix2D((cx, cy), angle, 1)
-            rotated = cv2.warpAffine(self.padded_rewards, M, (80, 80))
-            img[i, :, :] = rotated[cy-10-10:cy-10+10, cx-10:cx+10]
+            rotated = cv2.warpAffine(self.padded_rewards, M, self.padded_rewards.shape)
+            # print "[{}:{}, {}:{}]".format(cy-fov, cy, cx-fov/2, cx+fov/2)
+            img[i, :, :] = rotated[cy-fov:cy, cx-fov/2:cx+fov/2]
 
         '''
         front_view = to_image(img[0], self.K * 2)

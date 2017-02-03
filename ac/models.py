@@ -9,7 +9,8 @@ seq_length = FLAGS.seq_length
 
 def get_state_placeholder():
     # Note that placeholder are tf.Tensor not tf.Variable
-    front_view    = tf.placeholder(tf.float32, [seq_length, batch_size, 20, 20, 1], "front_view")
+    FOV = FLAGS.field_of_view
+    front_view    = tf.placeholder(tf.float32, [seq_length, batch_size, FOV, FOV, 1], "front_view")
     vehicle_state = tf.placeholder(tf.float32, [seq_length, batch_size, 6], "vehicle_state")
     prev_action   = tf.placeholder(tf.float32, [seq_length, batch_size, 2], "prev_action")
     prev_reward   = tf.placeholder(tf.float32, [seq_length, batch_size, 1], "prev_reward")
@@ -22,7 +23,7 @@ def get_state_placeholder():
     )
 
 def naive_mean_steer_policy(front_view):
-    H, W = 20, 20
+    H, W = front_view.get_shape().as_list()[2:4]
 
     yv, xv = np.meshgrid(range(H), range(W))
     xv = xv.astype(np.float32)
@@ -92,7 +93,6 @@ def build_shared_network(state, add_summaries=False):
         pool2 = MaxPool2DLayer(conv4, pool_size=3, stride=2, name='pool2')
 
         flat = tf.contrib.layers.flatten(pool2)
-        # import ipdb; ipdb.set_trace()
 
         fc = DenseLayer(
             input=flat,
@@ -117,6 +117,9 @@ def build_shared_network(state, add_summaries=False):
 
         output = lstm2.output
 
+    layers = [conv1, conv2, conv3, conv4, fc,
+              concat1, lstm1.output, concat2, lstm2.output]
+
     if add_summaries:
         with tf.name_scope("summaries"):
             conv1_w = [v for v in tf.trainable_variables() if "conv1/weights"][0]
@@ -125,15 +128,11 @@ def build_shared_network(state, add_summaries=False):
 
             tf.summary.image("front_view", front_view, max_outputs=500)
 
-            tf.contrib.layers.summarize_activation(conv1)
-            tf.contrib.layers.summarize_activation(conv2)
-            tf.contrib.layers.summarize_activation(conv3)
-            tf.contrib.layers.summarize_activation(conv4)
-            tf.contrib.layers.summarize_activation(fc)
-            tf.contrib.layers.summarize_activation(concat1)
-            tf.contrib.layers.summarize_activation(lstm1.output)
-            tf.contrib.layers.summarize_activation(concat2)
-            tf.contrib.layers.summarize_activation(lstm2.output)
+            for layer in layers:
+                tf.contrib.layers.summarize_activation(layer)
+
+    for layer in layers:
+        print layer
 
     return output, AttrDict(
         state_in  = lstm1.state_in  + lstm2.state_in,

@@ -5,6 +5,7 @@
   --game line \
   --save_every_n_minutes 5 \
   --t_max 10 \
+  --field_of_view 40 \
   --timestep 0.001 \
   --replay_ratio 4 \
   --avg_net_momentum 0.995 \

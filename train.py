@@ -22,6 +22,8 @@ tf.flags.DEFINE_integer("downsample", 5, "Downsample transitions to reduce sampl
 tf.flags.DEFINE_integer("n_agents_per_worker", 16, "Downsample transitions to reduce sample correlation")
 tf.flags.DEFINE_integer("save_every_n_minutes", 10, "Save model every N minutes")
 
+tf.flags.DEFINE_integer("field_of_view", 20, "size of front view (N x N) passed to network")
+
 tf.flags.DEFINE_integer("replay_ratio", 10, "off-policy memory replay ratio, choose a number from {0, 1, 4, 8}")
 tf.flags.DEFINE_integer("max_replay_buffer_size", 100, "off-policy memory replay buffer")
 tf.flags.DEFINE_float("avg_net_momentum", 0.995, "soft update momentum for average policy network in TRPO")
