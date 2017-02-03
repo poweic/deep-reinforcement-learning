@@ -9,6 +9,7 @@
   --replay_ratio 4 \
   --avg_net_momentum 0.995 \
   --max_replay_buffer_size 5000 \
+  --command_freq 5 \
   --learning_rate 1e-6 \
   --discount_factor 0.995 \
   --n_agents_per_worker 8 \

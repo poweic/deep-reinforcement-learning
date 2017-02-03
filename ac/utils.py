@@ -205,12 +205,12 @@ def get_mdp_states(transitions):
 
 # Transition = collections.namedtuple("Transition", ["mdp_state", "state", "action", "reward", "next_state", "done"])
 
-def form_mdp_state(env, state, prev_action, prev_reward):
+def form_mdp_state(env=None, state=None, prev_action=None, prev_reward=None):
     return AttrDict(
-        front_view    = env.get_front_view(state).copy(),
-        vehicle_state = state.copy().T,
-        prev_action   = prev_action.copy().T,
-        prev_reward   = prev_reward.copy().T
+        front_view    = None if env is None else env.get_front_view(state).copy(),
+        vehicle_state = None if env is None else state.copy().T,
+        prev_action   = None if env is None else prev_action.copy().T,
+        prev_reward   = None if env is None else prev_reward.copy().T
     )
 
 def inverse_transform_sampling_2d(data, n_samples, version=2):

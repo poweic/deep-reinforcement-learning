@@ -113,7 +113,7 @@ class AcerEstimator():
             self.r = tf.placeholder(tf.float32, [seq_length, batch_size, 1], "rewards")
 
         with tf.variable_scope("shared"):
-            shared, self.lstm = build_shared_network(self.state, add_summaries=add_summaries)
+            shared, self.lstm = build_shared_network(self.state, add_summaries)
 
         with tf.variable_scope("pi"):
             # self.pi = self.gaussian_policy(shared, 2)
@@ -183,14 +183,15 @@ class AcerEstimator():
             self.loss_sur = self.pi_loss_sur + self.vf_loss_sur
             self.loss = self.pi_loss + self.vf_loss
 
-        self.optimizer = tf.train.RMSPropOptimizer(FLAGS.learning_rate)
-        grads_and_vars = self.optimizer.compute_gradients(self.loss_sur)
-        self.grads_and_vars = [(g, v) for g, v in grads_and_vars if g is not None]
+        with tf.name_scope("grads_and_optimizer"):
+            self.optimizer = tf.train.RMSPropOptimizer(FLAGS.learning_rate)
+            grads_and_vars = self.optimizer.compute_gradients(self.loss_sur)
+            self.grads_and_vars = [(g, v) for g, v in grads_and_vars if g is not None]
 
-        # Collect all trainable variables initialized here
-        self.var_list = [v for g, v in self.grads_and_vars]
+            # Collect all trainable variables initialized here
+            self.var_list = [v for g, v in self.grads_and_vars]
 
-        # self.pi_var_list = get_var_list_wrt(self.pi.mu + self.pi.sigma)
+        self.summaries = self.summarize(add_summaries)
 
     def compute_rho(self, a, a_prime, pi, mu):
         # rho = tf.zeros_like(self.value)
@@ -557,7 +558,7 @@ class AcerEstimator():
             mu_vf, sigma_vf = policy_network(input, 1)
 
         with tf.variable_scope("steer_control_policy"):
-            bucket_width = 5
+            bucket_width = 30
             steer_buckets = get_steer_buckets(bucket_width)
             n_buckets = len(steer_buckets)
 
@@ -642,11 +643,28 @@ class AcerEstimator():
 
         return tf.make_template('advantage', advantage)
 
+    def summarize(self, add_summaries):
+
+        if not add_summaries:
+            return tf.no_op()
+
+        with tf.name_scope("summaries"):
+            tf.summary.scalar("vf_loss", self.vf_loss)
+            tf.summary.scalar("vf_loss_sur", self.vf_loss_sur)
+
+            tf.summary.scalar("pi_loss", self.pi_loss)
+            tf.summary.scalar("pi_loss_sur", self.pi_loss_sur)
+
+            tf.summary.scalar("loss", self.loss)
+            tf.summary.scalar("loss_sur", self.loss_sur)
+
+        return tf.summary.merge_all()
+
     @staticmethod
     def create_averge_network():
         if "average_net" not in AcerEstimator.__dict__:
             with tf.variable_scope("average_net"):
-                AcerEstimator.average_net = AcerEstimator(add_summaries=True, trainable=False)
+                AcerEstimator.average_net = AcerEstimator(add_summaries=False, trainable=False)
 
 # AcerEstimator.create_averge_network = create_averge_network
 

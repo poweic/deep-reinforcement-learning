@@ -203,11 +203,12 @@ class AcerWorker(Worker):
             key: np.concatenate([
                 t.mdp_state[key][None, ...] for t in transitions
             ], axis=0)
-            for key in transitions[0].mdp_state.keys()
+            for key in form_mdp_state().keys()
+            # for key in transitions[0].mdp_state.keys()
         })
 
-        action = np.concatenate([t.action.T[None, ...]   for t in transitions ], axis=0)
-        reward = np.concatenate([t.reward.T[None, ...]   for t in transitions ], axis=0)
+        action = np.concatenate([t.action.T[None, ...] for t in transitions ], axis=0)
+        reward = np.concatenate([t.reward.T[None, ...] for t in transitions ], axis=0)
 
         pi = {
             k: np.concatenate([t.pi[k].T[None, ...] for t in transitions ], axis=0)
@@ -228,21 +229,13 @@ class AcerWorker(Worker):
         avg_net = self.Estimator.average_net
 
         feed_dict = {
-            net.state.front_view        : mdp_states.front_view,
-            net.state.vehicle_state     : mdp_states.vehicle_state,
-            net.state.prev_action       : mdp_states.prev_action,
-            net.state.prev_reward       : mdp_states.prev_reward,
-            net.r                       : reward,
-            avg_net.state.front_view    : mdp_states.front_view,
-            avg_net.state.vehicle_state : mdp_states.vehicle_state,
-            avg_net.state.prev_action   : mdp_states.prev_action,
-            avg_net.state.prev_reward   : mdp_states.prev_reward,
-            net.a                       : action
+            net.r: reward,
+            net.a: action,
         }
 
-        # feed_dict.update({net.state[k]: v for k, v in mdp_states.iteritems()})
-        # feed_dict.update({avg_net.state[k]: v for k, v in mdp_states.iteritems()})
-        feed_dict.update({net.mu[k]: v for k, v in pi.iteritems()})
+        feed_dict.update({net.state[k]:     v for k, v in mdp_states.iteritems()})
+        feed_dict.update({avg_net.state[k]: v for k, v in mdp_states.iteritems()})
+        feed_dict.update({net.mu[k]:        v for k, v in pi.iteritems()})
 
         '''
         for k, v in feed_dict.viewitems():
@@ -255,6 +248,8 @@ class AcerWorker(Worker):
                 'vf': net.vf_loss,
                 'total': net.loss,
             },
+            net.summaries,
+            self.global_step,
             self.train_and_update_avgnet_op
         ]
 
@@ -282,7 +277,7 @@ class AcerWorker(Worker):
         net.reset_lstm_state()
         avg_net.reset_lstm_state()
 
-        loss, _ = net.predict(ops, feed_dict, self.sess)
+        loss, summaries, global_step, _ = net.predict(ops, feed_dict, self.sess)
         loss = AttrDict(loss)
 
         self.counter += 1
@@ -299,6 +294,10 @@ class AcerWorker(Worker):
         print "seq_length = {}, batch_size = {}".format(
             *(mdp_states.front_view.shape[:2]) )
 
+        # Write summaries
+        if self.summary_writer is not None:
+            self.summary_writer.add_summary(summaries, global_step)
+            self.summary_writer.flush()
 
         """
         if off_policy:

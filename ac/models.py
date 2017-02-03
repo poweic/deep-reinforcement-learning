@@ -117,64 +117,29 @@ def build_shared_network(state, add_summaries=False):
 
         output = lstm2.output
 
-    return output, AttrDict(
-        state_in  = lstm1.state_in  + lstm2.state_in,
-        state_out = lstm1.state_out + lstm2.state_out,
-        prev_state_out = None
-    )
-    '''
-    if rank == 5:
-        vehicle_state = flatten(vehicle_state)
-        prev_action = flatten(prev_action)
-        prev_reward = flatten(prev_reward)
-
-    with tf.name_scope("dense"):
-        # Fully connected layer
-        fc1 = DenseLayer(
-            input=flat,
-            num_outputs=256,
-            nonlinearity="relu",
-            name="fc1")
-
-        concat1 = tf.concat(1, [fc1, prev_reward, vehicle_state, prev_action])
-
-        fc2 = DenseLayer(
-            input=concat1,
-            num_outputs=256,
-            nonlinearity="relu",
-            name="fc2")
-
-        concat2 = tf.concat(1, [fc1, fc2, prev_reward, vehicle_state, prev_action])
-
-        fc3 = DenseLayer(
-            input=concat2,
-            num_outputs=256,
-            nonlinearity="relu",
-            name="fc3")
-
-    if rank == 5:
-        output = deflatten(fc3, S, B)
-    '''
-
     if add_summaries:
         with tf.name_scope("summaries"):
             conv1_w = [v for v in tf.trainable_variables() if "conv1/weights"][0]
             grid = put_kernels_on_grid(conv1_w)
             tf.summary.image("conv1/weights", grid)
 
-            tf.summary.image("front_view", front_view, max_outputs=100)
+            tf.summary.image("front_view", front_view, max_outputs=500)
 
-            """
             tf.contrib.layers.summarize_activation(conv1)
             tf.contrib.layers.summarize_activation(conv2)
-            tf.contrib.layers.summarize_activation(fc1)
-            tf.contrib.layers.summarize_activation(fc2)
-            tf.contrib.layers.summarize_activation(fc3)
+            tf.contrib.layers.summarize_activation(conv3)
+            tf.contrib.layers.summarize_activation(conv4)
+            tf.contrib.layers.summarize_activation(fc)
             tf.contrib.layers.summarize_activation(concat1)
+            tf.contrib.layers.summarize_activation(lstm1.output)
             tf.contrib.layers.summarize_activation(concat2)
-            """
+            tf.contrib.layers.summarize_activation(lstm2.output)
 
-    return output
+    return output, AttrDict(
+        state_in  = lstm1.state_in  + lstm2.state_in,
+        state_out = lstm1.state_out + lstm2.state_out,
+        prev_state_out = None
+    )
 
 def policy_network(input, num_outputs):
 
