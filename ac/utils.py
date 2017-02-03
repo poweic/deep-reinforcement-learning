@@ -3,10 +3,17 @@ import numpy as np
 import scipy.signal
 import scipy.interpolate as interpolate
 import tensorflow as tf
+import inspect
 import cv2
 FLAGS = tf.flags.FLAGS
 batch_size = FLAGS.batch_size
 seq_length = FLAGS.seq_length
+
+def to_radian(deg):
+    return deg / 180. * np.pi
+
+def to_degree(rad):
+    return rad / np.pi * 180.
 
 def create_distribution(mu, sigma):
     pi = AttrDict()
@@ -38,7 +45,7 @@ def create_distribution(mu, sigma):
     def log_prob(x):
         return _op(x, pi.dist.log_prob)
 
-    def sample(n):
+    def sample_n(n):
         samples = pi.dist.sample_n(n)
         S, B = get_seq_length_batch_size(pi.mu)
         samples = tf.reshape(samples, [n, S, B, 2])
@@ -46,7 +53,7 @@ def create_distribution(mu, sigma):
 
     pi.prob = prob
     pi.log_prob = log_prob
-    pi.sample = sample
+    pi.sample_n = sample_n
 
     return pi
 
@@ -106,25 +113,24 @@ def y2s(mu, v):
     return mu
 
 def steer_to_yawrate(steer, v):
+    '''
+    Use Ackerman formula to compute yawrate from steering angle and forward
+    velocity v:
+      r = wheelbase / tan(steer)
+      omega = v / r
+    '''
     assert steer.get_shape().as_list() == v.get_shape().as_list(), "steer = {}, v = {}".format(steer, v)
-    # Use Ackerman formula to compute yawrate from steering angle and
-    # forward velocity (4-th element of vehicle_state)
-    radius = FLAGS.wheelbase / tf.tan(steer)
-    omega = v / radius
-    return omega
+    return v * tf.tan(steer) / FLAGS.wheelbase
 
 def yawrate_to_steer(omega, v):
+    '''
+    Use Ackerman formula to compute steering angle from yawrate and forward
+    velocity v:
+      r = v / omega
+      steer = atan(wheelbase / r)
+    '''
     assert omega.get_shape().as_list() == v.get_shape().as_list()
-
-    # Use Ackerman formula to compute steering angle from yawrate and
-    # forward velocity (4-th element of vehicle_state)
-    # v = tf_print(v, "v[:, 4:5] = ")
-    # omega = tf_print(omega, "omega = ")
-    radius = v / omega
-    # radius = tf_print(radius, "radius = ")
-    steer = tf.atan(FLAGS.wheelbase / radius)
-    # steer = tf_print(steer, "steer = ")
-    return steer
+    return tf.atan(FLAGS.wheelbase * omega / v)
 
 def make_train_op(local_estimator, global_estimator):
     """
@@ -251,7 +257,14 @@ def clip(x, min_v, max_v):
 def softclip(x, min_v, max_v):
     return (max_v + min_v) / 2 + tf.nn.tanh(x) * (max_v - min_v) / 2
 
-def tf_print(x, message, cond2=None):
+def varName(var):
+    lcls = inspect.stack()[2][0].f_locals
+    for name in lcls:
+        if id(var) == id(lcls[name]):
+            return name
+    return None
+
+def tf_print(x, message=None, cond2=None):
     if not FLAGS.debug:
         return x
 
@@ -259,6 +272,13 @@ def tf_print(x, message, cond2=None):
 
     if step is None:
         return x
+
+    if message is None:
+        message = varName(x)
+        if message is None:
+            return x
+        else:
+            message += " = "
 
     cond = tf.equal(tf.mod(step, 1), 0)
     if cond2 is not None:

@@ -29,6 +29,8 @@ class AcerWorker(Worker):
         self.copy_params_op = make_copy_params_op(global_vars, local_vars)
 
         self.global_net = global_net
+        self.timer = 0
+        self.timer_counter = 0
 
         def copy_global_to_avg():
             msg = "\33[94mInitialize average net when global_step = \33[0m"
@@ -109,6 +111,7 @@ class AcerWorker(Worker):
         # Collect transitions {(s_0, a_0, r_0, mu_0), (s_1, ...), ... }
         n = int(np.ceil(FLAGS.t_max * FLAGS.command_freq))
         transitions, local_t, global_t = self.run_n_steps(n)
+        print "Average time to predict actions: {}".format(self.timer / self.timer_counter)
 
         # Compute gradient and Perform update
         self.update(transitions)
@@ -143,11 +146,17 @@ class AcerWorker(Worker):
             mdp_state = form_mdp_state(self.env, self.state, self.action, reward)
 
             # Predict an action
+            self.timer -= time.time()
             self.action, pi = self.local_net.predict_actions(mdp_state, self.sess)
 
-            self.action = self.action.T
-            pi.mu = pi.mu.T
-            pi.sigma = pi.sigma.T
+            """
+            # Sample in NumPy
+            pi = self.local_net.predict_actions(mdp_state, self.sess)
+            self.action = np.random.randn(*pi.mu.shape) * pi.sigma + pi.mu
+            """
+
+            self.timer += time.time()
+            self.timer_counter += 1
 
             # print "action.shape = {}, mu.shape = {}, sigma.shape = {}".format(self.action.shape, pi.mu.shape, pi.sigma.shape)
             assert not np.any(np.isnan(self.action)), "i = {}, self.action = {}, mdp_state = {}".format(i, self.action, mdp_state)
@@ -199,8 +208,21 @@ class AcerWorker(Worker):
 
         action = np.concatenate([t.action.T[None, ...]   for t in transitions ], axis=0)
         reward = np.concatenate([t.reward.T[None, ...]   for t in transitions ], axis=0)
+
+        pi = {
+            k: np.concatenate([t.pi[k].T[None, ...] for t in transitions ], axis=0)
+            for k in t.pi.keys()
+        }
+
+        for k, v in pi.viewitems():
+            # print "pi[{}] ({}) = \n{}".format(k, v.shape, v)
+            if "sigma" in k:
+                assert np.all(v > 0)
+
+        '''
         mu     = np.concatenate([t.pi.mu.T[None, ...]    for t in transitions ], axis=0)
         sigma  = np.concatenate([t.pi.sigma.T[None, ...] for t in transitions ], axis=0)
+        '''
 
         net = self.local_net
         avg_net = self.Estimator.average_net
@@ -211,14 +233,16 @@ class AcerWorker(Worker):
             net.state.prev_action       : mdp_states.prev_action,
             net.state.prev_reward       : mdp_states.prev_reward,
             net.r                       : reward,
-            net.mu.mu                   : mu,
-            net.mu.sigma                : sigma,
             avg_net.state.front_view    : mdp_states.front_view,
             avg_net.state.vehicle_state : mdp_states.vehicle_state,
             avg_net.state.prev_action   : mdp_states.prev_action,
             avg_net.state.prev_reward   : mdp_states.prev_reward,
             net.a                       : action
         }
+
+        # feed_dict.update({net.state[k]: v for k, v in mdp_states.iteritems()})
+        # feed_dict.update({avg_net.state[k]: v for k, v in mdp_states.iteritems()})
+        feed_dict.update({net.mu[k]: v for k, v in pi.iteritems()})
 
         '''
         for k, v in feed_dict.viewitems():
@@ -230,11 +254,6 @@ class AcerWorker(Worker):
                 'pi': net.pi_loss,
                 'vf': net.vf_loss,
                 'total': net.loss,
-                'Q_ret': net.Q_ret,
-                'Q_opc': net.Q_opc,
-                'Q_tilt_a': net.Q_tilt_a,
-                'value': net.value,
-                'c': net.c
             },
             self.train_and_update_avgnet_op
         ]

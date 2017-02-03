@@ -11,6 +11,94 @@ seq_length = FLAGS.seq_length
 def flatten_all_leading_axes(x):
     return tf.reshape(x, [-1, x.get_shape()[-1].value])
 
+def mixture_density(mu_vf, sigma_vf, logits_steer, sigma_steer, vf, steer_buckets, msg):
+
+    # mu: [B, 2], sigma: [B, 2], phi is just a syntatic sugar
+    with tf.variable_scope("speed_control_policy"):
+        mu_vf = tf_print(mu_vf, msg + ", mu_vf = ")
+        sigma_vf = tf_print(sigma_vf, msg + ", sigma_vf = ")
+        dist_vf = tf.contrib.distributions.MultivariateNormalDiag(
+            mu_vf, sigma_vf, allow_nan_stats=False
+        )
+
+    with tf.variable_scope("steer_control_policy"):
+        # Create broadcaster to repeat over time, batch axes
+        broadcaster = logits_steer[..., 0:1] * 0
+
+        components = [
+            tf.contrib.distributions.MultivariateNormalDiag(
+                mu = steer_to_yawrate(s + broadcaster, vf),
+                diag_stdev = sigma_steer[..., i:i+1],
+                allow_nan_stats = False
+            ) for i, s in enumerate(steer_buckets)
+        ]
+
+        cat = tf.contrib.distributions.Categorical(
+            logits=logits_steer, allow_nan_stats=False
+        )
+
+        # Gaussian Mixture Model (GMM)
+        dist_steer = gmm = tf.contrib.distributions.Mixture(
+            cat, components, allow_nan_stats=False
+        )
+
+        # Just categorical
+        # dist_steer = cat
+
+    pi = AttrDict(
+        phi = [mu_vf, sigma_vf, logits_steer, sigma_steer, vf], # for GMM
+        mu_vf         = mu_vf,
+        sigma_vf      = sigma_vf,
+        logits_steer  = logits_steer,
+        sigma_steer   = sigma_steer,
+        vf            = vf,
+        steer_buckets = steer_buckets,
+        n_buckets     = len(steer_buckets)
+    )
+
+    def prob(x, msg):
+        x = x[None, ...]
+
+        x1 = tf_print(x[..., 0:1], msg + ", x1 = ")
+        x2 = tf_print(x[..., 1:2], msg + ", x2 = ")
+
+        p1 = dist_vf.prob(x1)[0, ...]
+        # p2 = dist_steer.prob(tf.to_int32(x[..., 1]))[0, ...]
+        p2 = dist_steer.prob(x2)[0, ...] # for GMM
+
+        p1 = tf_print(p1, msg + ", p1 = ")
+        p2 = tf_print(p2, msg + ", p2 = ")
+        return p1 * p2
+
+    def log_prob(x):
+        x = x[None, ...]
+        lp1 = dist_vf.log_prob(x[..., 0:1])[0, ...]
+        # lp2 = dist_steer.log_prob(tf.to_int32(x[..., 1]))[0, ...]
+        lp2 = dist_steer.log_prob(x[..., 1:2])[0, ...] # for GMM
+        lp1 = tf_print(lp1)
+        lp2 = tf_print(lp2)
+        return lp1 + lp2
+
+    def sample_n(n):
+        s1 = dist_vf.sample_n(n)
+        s1 = tf.maximum(s1, 0.)
+
+        '''
+        step = steer_buckets[1] - steer_buckets[0]
+        begin = steer_buckets[0]
+        s2 = tf.to_float(dist_steer.sample_n(n)[..., None]) * step + begin
+        '''
+        s2 = dist_steer.sample_n(n) # for GMM
+
+        s = tf_concat(-1, [s1, s2])
+        return s
+
+    pi.prob     = prob
+    pi.log_prob = log_prob
+    pi.sample_n = sample_n
+
+    return pi
+
 class AcerEstimator():
     def __init__(self, add_summaries=False, trainable=True):
 
@@ -20,6 +108,7 @@ class AcerEstimator():
 
         with tf.name_scope("inputs"):
             self.state = get_state_placeholder()
+            # self.a = tf.to_float(tf.placeholder(tf.int32, [seq_length, batch_size, 2], "actions"))
             self.a = tf.placeholder(tf.float32, [seq_length, batch_size, 2], "actions")
             self.r = tf.placeholder(tf.float32, [seq_length, batch_size, 1], "rewards")
 
@@ -27,17 +116,30 @@ class AcerEstimator():
             shared, self.lstm = build_shared_network(self.state, add_summaries=add_summaries)
 
         with tf.variable_scope("pi"):
-            self.pi = self.policy_network(shared, 2)
+            # self.pi = self.gaussian_policy(shared, 2)
+            self.pi = self.mixture_density_policy(shared, 2)
 
         with tf.variable_scope("mu"):
             # Placeholder for behavior policy
+            self.mu = mixture_density(
+                tf.placeholder(tf.float32, [seq_length, batch_size, 1], "mu_vf"),
+                tf.placeholder(tf.float32, [seq_length, batch_size, 1], "sigma_vf"),
+                tf.placeholder(tf.float32, [seq_length, batch_size, self.pi.n_buckets], "logits_steer"),
+                tf.placeholder(tf.float32, [seq_length, batch_size, self.pi.n_buckets], "sigma_steer"),
+                tf.placeholder(tf.float32, [seq_length, batch_size, 1], "vf"),
+                self.pi.steer_buckets,
+                msg="self.mu"
+            )
+
+            '''
             self.mu = create_distribution(
                 mu    = tf.placeholder(tf.float32, [seq_length, batch_size, 2], "mu"),
                 sigma = tf.placeholder(tf.float32, [seq_length, batch_size, 2], "sigma")
             )
+            '''
 
         with tf.name_scope("output"):
-            self.a_prime = tf.squeeze(self.pi.sample(1), 0)
+            self.a_prime = tf.squeeze(self.pi.sample_n(1), 0)
 
         with tf.variable_scope("V"):
             self.value = state_value_network(shared)
@@ -97,14 +199,18 @@ class AcerEstimator():
 
         # compute rho, rho_prime, and c
         with tf.name_scope("pi_a"):
-            self.pi_a = pi_a = pi.prob(a)[..., None]
+            pi_a = pi.prob(a, "In pi_a: ")[..., None]
+            pi_a = tf_print(pi_a)
         with tf.name_scope("mu_a"):
-            self.mu_a = mu_a = mu.prob(a)[..., None]
+            mu_a = mu.prob(a, "In mu_a: ")[..., None]
+            mu_a = tf_print(mu_a)
 
         with tf.name_scope("pi_a_prime"):
-            self.pi_a_prime = pi_a_prime = pi.prob(a_prime)[..., None]
+            pi_a_prime = pi.prob(a_prime, "In pi_a_prime: ")[..., None]
+            pi_a_prime = tf_print(pi_a_prime)
         with tf.name_scope("mu_a_prime"):
-            self.mu_a_prime = mu_a_prime = mu.prob(a_prime)[..., None]
+            mu_a_prime = mu.prob(a_prime, "In mu_a_prime: ")[..., None]
+            mu_a_prime = tf_print(mu_a_prime)
 
         # use tf.div instead of pi_a / mu_a to assign a name to the output
         rho = tf.div(pi_a, mu_a)
@@ -204,20 +310,23 @@ class AcerEstimator():
         """
         In ACER's original paper, they use delta uniformly sampled from [0.1, 2]
         """
-        # Compute the KL-divergence between the policy distribution of the
-        # average policy network and those of this network, i.e. KL(avg || this)
-        KL_divergence = tf.contrib.distributions.kl(
-            pi_avg.dist, pi.dist, allow_nan=False)
+        try:
+            # Compute the KL-divergence between the policy distribution of the
+            # average policy network and those of this network, i.e. KL(avg || this)
+            KL_divergence = tf.contrib.distributions.kl(
+                pi_avg.dist, pi.dist, allow_nan=False)
 
-        # Take the partial derivatives w.r.t. phi (i.e. mu and sigma)
-        k = tf_concat(-1, tf.gradients(KL_divergence, pi.phi))
+            # Take the partial derivatives w.r.t. phi (i.e. mu and sigma)
+            k = tf_concat(-1, tf.gradients(KL_divergence, pi.phi))
 
-        # Compute \frac{k^T g - \delta}{k^T k}, perform reduction only on axis 2
-        num   = tf.reduce_sum(k * g, axis=2, keep_dims=True) - delta
-        denom = tf.reduce_sum(k * k, axis=2, keep_dims=True)
+            # Compute \frac{k^T g - \delta}{k^T k}, perform reduction only on axis 2
+            num   = tf.reduce_sum(k * g, axis=2, keep_dims=True) - delta
+            denom = tf.reduce_sum(k * k, axis=2, keep_dims=True)
 
-        # z* is the TRPO regularized gradient
-        z_star = g - tf.maximum(0., num / denom) * k
+            # z* is the TRPO regularized gradient
+            z_star = g - tf.maximum(0., num / denom) * k
+        except:
+            z_star = g
 
         # By using stop_gradient, we make z_star being treated as a constant
         z_star = tf.stop_gradient(z_star)
@@ -266,16 +375,36 @@ class AcerEstimator():
 
     def predict_actions(self, state, sess=None):
 
-        tensors = [self.a_prime, self.pi.mu, self.pi.sigma]
+        # Sample in TF
+        tensors = [self.a_prime, {
+            k: v for k, v in self.pi.iteritems() if isinstance(v, tf.Tensor)
+        }]
+
         feed_dict = self.to_feed_dict(state)
 
-        a_prime, mu, sigma = self.predict(tensors, feed_dict, sess)
+        # a_prime, mu, sigma = self.predict(tensors, feed_dict, sess)
+        a_prime, pi_vars = self.predict(tensors, feed_dict, sess)
 
-        a_prime = a_prime[0, ...]
-        mu = mu[0, ...]
-        sigma = sigma[0, ...]
+        a_prime = a_prime[0, ...].T
+        pi_vars = {k: v[0, ...].T for k, v in pi_vars.iteritems()}
 
-        return a_prime, AttrDict(mu=mu, sigma=sigma)
+        return a_prime, pi_vars
+        
+        """
+        # Sample in NumPy
+        tensors = {
+            k: v for k, v in self.pi.iteritems() if isinstance(v, tf.Tensor)
+        }
+
+        feed_dict = self.to_feed_dict(state)
+
+        # a_prime, mu, sigma = self.predict(tensors, feed_dict, sess)
+        pi_vars = self.predict(tensors, feed_dict, sess)
+
+        pi_vars = AttrDict({k: v[0, ...].T for k, v in pi_vars.iteritems()})
+
+        return pi_vars
+        """
 
     def get_policy_loss(self, rho, pi, a, Q_opc, value, rho_prime,
                         Q_tilt_a_prime, a_prime):
@@ -367,6 +496,7 @@ class AcerEstimator():
 
             with tf.name_scope("d_log_prob_a"):
                 log_a = pi.log_prob(a)[..., None]
+                log_a = tf_print(log_a, "log_a = ")
 
             with tf.name_scope("target_1"):
                 target_1 = self.Q_opc - self.value
@@ -381,6 +511,7 @@ class AcerEstimator():
 
             with tf.name_scope("d_log_prob_a_prime"):
                 log_ap = pi.log_prob(a_prime)[..., None]
+                log_ap = tf_print(log_ap, "log_ap = ")
 
             with tf.name_scope("target_2"):
                 target_2 = Q_tilt_a_prime - value
@@ -408,14 +539,49 @@ class AcerEstimator():
                 adv = tf.squeeze(advantage(action, name="A_action"), 0)
 
                 # TODO Use symmetric low variance sampling !!
-                advs = advantage(pi.sample(num_samples), "A_sampled", num_samples)
+                advs = advantage(pi.sample_n(num_samples), "A_sampled", num_samples)
                 mean_adv = tf.reduce_mean(advs, axis=0)
 
                 return value + adv - mean_adv
 
         return Q_tilt
 
-    def policy_network(self, input, num_outputs):
+    def mixture_density_policy(self, input, num_outputs):
+
+        def get_steer_buckets(w):
+            n = int(30 / w)
+            return np.linspace(-n*w, n*w, 2*n+1).astype(np.float32)
+
+        # mu: [B, 2], sigma: [B, 2], phi is just a syntatic sugar
+        with tf.variable_scope("speed_control_policy"):
+            mu_vf, sigma_vf = policy_network(input, 1)
+
+        with tf.variable_scope("steer_control_policy"):
+            bucket_width = 5
+            steer_buckets = get_steer_buckets(bucket_width)
+            n_buckets = len(steer_buckets)
+
+            print "steer_buckets      = {} degree".format(steer_buckets)
+            steer_buckets = to_radian(steer_buckets)
+
+            min_sigma = to_radian(0.1)
+            max_sigma = to_radian(bucket_width / 2)
+
+            logits_steer, sigma_steer = policy_network(input, n_buckets)
+            sigma_steer = softclip(sigma_steer, min_sigma, max_sigma)
+
+        print "mu_vf.shape        = {}".format(tf_shape(mu_vf))
+        print "sigma_vf.shape     = {}".format(tf_shape(sigma_vf))
+        print "logits_steer.shape = {}".format(tf_shape(logits_steer))
+        print "sigma_steer.shape  = {}".format(tf_shape(sigma_steer))
+
+        pi = mixture_density(mu_vf, sigma_vf, logits_steer, sigma_steer,
+                             self.get_forward_velocity(), steer_buckets,
+                             msg="pi")
+
+        return pi
+
+    def gaussian_policy(self, input, num_outputs):
 
         # mu: [B, 2], sigma: [B, 2], phi is just a syntatic sugar
         mu, sigma = policy_network(input, num_outputs)

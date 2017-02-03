@@ -12,21 +12,22 @@ class Worker(object):
     env: The Gym environment used by this worker
     global_net: Instance of the globally shared network
     global_counter: Iterator that holds the global step
-    discount_factor: Reward discount factor
     summary_writer: A tf.train.SummaryWriter for Tensorboard summaries
-    max_global_steps: If set, stop coordinator when global_counter > max_global_steps
     """
     def __init__(self, name, env, global_counter, global_net, add_summaries,
                  n_agents=1):
 
         self.name = name
+        self.env = env
+        self.global_counter = global_counter
+        self.global_net = global_net
+        self.add_summaries = add_summaries
+        self.n_agents = n_agents
+
+        # Get global variables and flags
+        self.global_step = tf.contrib.framework.get_global_step()
         self.discount_factor = FLAGS.discount_factor
         self.max_global_steps = FLAGS.max_global_steps
-        self.global_step = tf.contrib.framework.get_global_step()
-        self.global_counter = global_counter
-        self.local_counter = itertools.count()
-        self.n_agents = n_agents
-        self.env = env
 
         # Create local policy/value nets that are not updated asynchronously
         with tf.variable_scope(name):
@@ -37,6 +38,8 @@ class Worker(object):
         self.counter = 0
         self.max_return = 0
         self.summary_writer = None
+
+        self.local_counter = itertools.count()
 
         self.reset_env()
 
