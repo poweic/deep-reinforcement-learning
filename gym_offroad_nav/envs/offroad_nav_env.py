@@ -6,6 +6,7 @@ import tensorflow as tf
 from gym import error, spaces, utils
 from gym.utils import seeding
 from ac.utils import to_image
+from time import time
 
 FLAGS = tf.flags.FLAGS
 
@@ -74,14 +75,14 @@ class OffRoadNavEnv(gym.Env):
         iy = np.floor(y * scale / 0.5).astype(np.int32)
         return ix, iy
 
-    def _bilinear_reward_lookup(self, x, y, debug=True):
+    def _bilinear_reward_lookup(self, x, y):
         ix, iy = self.get_ixiy(x, y)
         # print "(x, y) = ({}, {}), (ix, iy) = ({}, {})".format(x, y, ix, iy)
 
-        x0 = np.clip(ix, -19, 20).astype(np.int32)
-        y0 = np.clip(iy, 0, 39).astype(np.int32)
+        x0 = np.clip(ix    , -19, 20).astype(np.int32)
+        y0 = np.clip(iy    ,   0, 39).astype(np.int32)
         x1 = np.clip(ix + 1, -19, 20).astype(np.int32)
-        y1 = np.clip(iy + 1, 0, 39).astype(np.int32)
+        y1 = np.clip(iy + 1,   0, 39).astype(np.int32)
 
         f00 = self._get_reward(x0, y0)
         f01 = self._get_reward(x0, y1)
@@ -91,24 +92,16 @@ class OffRoadNavEnv(gym.Env):
         xx = (x / 0.5 - ix).astype(np.float32)
         yy = (y / 0.5 - iy).astype(np.float32)
 
-        w00 = (1.-xx)*(1.-yy)
-        w01 = yy*(1.-xx)
-        w10 = xx*(1.-yy)
-        w11 = xx*yy
+        w00 = (1.-xx) * (1.-yy)
+        w01 = (   yy) * (1.-xx)
+        w10 = (   xx) * (1.-yy)
+        w11 = (   xx) * (   yy)
 
         r = f00*w00 + f01*w01 + f10*w10 + f11*w11
         return r.reshape(1, -1)
 
     def _reset(self, s0):
-        metadata_fn = "data/{}-metadata.mat".format(FLAGS.game)
-        if not hasattr(self, "R"):
-            data = scipy.io.loadmat(metadata_fn)
-            self.R = data["R"].copy()
-            self.bR = data["bR"].copy()
-            self.padded_rewards = data["padded_rewards"].astype(np.float32).copy()
-        '''
         if not hasattr(self, "padded_rewards"):
-            print "Creating self.padded_rewards ..."
             FOV = FLAGS.field_of_view
             shape = (np.array(self.rewards.shape) + [FOV * 2, FOV * 2]).tolist()
             fill = np.min(self.rewards)
@@ -116,36 +109,28 @@ class OffRoadNavEnv(gym.Env):
             self.padded_rewards[FOV:-FOV, FOV:-FOV] = self.rewards
 
         if not hasattr(self, "R"):
-            print "Creating self.R ..."
             self.R = to_image(self.rewards, self.K)
 
         if not hasattr(self, "bR"):
-            print "Creating self.bR ..."
-            self.bR = to_image(self.debug_bilinear_R(self.K), self.K)
-
-        if hasattr(self, "bR") and hasattr(self, "R") and hasattr(self, "padded_rewards"):
-            scipy.io.savemat(metadata_fn, dict(
-                bR=self.bR, R=self.R, padded_rewards=self.padded_rewards))
-        '''
+            self.bR = to_image(self.debug_bilinear_R(), self.K)
 
         self.disp_img = np.copy(self.bR)
         self.vehicle_model.reset(s0)
         self.state = s0.copy()
         return self.state
 
-    def debug_bilinear_R(self, K):
-        X = np.linspace(-10, 10, num=40*K)
-        Y = np.linspace(0, 20, num=40*K)
+    def debug_bilinear_R(self):
+        num = 40 * self.K
 
-        yy, xx = np.meshgrid(X, Y)
+        X = np.linspace(-10, 10, num=num)
+        Y = np.linspace(  0, 20, num=num)
 
-        # bR = self._bilinear_reward_lookup(yy, xx, debug=False).reshape(40*K, 40*K)
+        xx, yy = np.meshgrid(X, Y)
 
-        bR = np.zeros((40*K, 40*K))
+        bR = self._bilinear_reward_lookup(xx, yy).reshape(xx.shape)
 
-        for i, x in enumerate(X):
-            for j, y in enumerate(Y):
-                bR[-j, i] = self._bilinear_reward_lookup(x, y, debug=False)
+        # reverse Y-axis for image display
+        bR = bR[::-1, :]
 
         return bR
 
