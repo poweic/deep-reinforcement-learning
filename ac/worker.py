@@ -31,7 +31,8 @@ class Worker(object):
 
         # Create local policy/value nets that are not updated asynchronously
         with tf.variable_scope(name):
-            self.local_net = self.Estimator(add_summaries)
+            self.local_net = self.Estimator(
+                add_summaries, use_naive_policy=(self.name == "worker_0"))
         self.set_global_net(global_net)
 
         # Initialize counter, maximum return of this worker, and summary_writer

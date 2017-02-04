@@ -100,7 +100,7 @@ def mixture_density(mu_vf, sigma_vf, logits_steer, sigma_steer, vf, steer_bucket
     return pi
 
 class AcerEstimator():
-    def __init__(self, add_summaries=False, trainable=True):
+    def __init__(self, add_summaries=False, trainable=True, use_naive_policy=True):
 
         self.trainable = trainable
 
@@ -115,28 +115,11 @@ class AcerEstimator():
         with tf.variable_scope("shared"):
             shared, self.lstm = build_shared_network(self.state, add_summaries)
 
-        with tf.variable_scope("pi"):
-            # self.pi = self.gaussian_policy(shared, 2)
-            self.pi = self.mixture_density_policy(shared, 2)
-
-        with tf.variable_scope("mu"):
-            # Placeholder for behavior policy
-            self.mu = mixture_density(
-                tf.placeholder(tf.float32, [seq_length, batch_size, 1], "mu_vf"),
-                tf.placeholder(tf.float32, [seq_length, batch_size, 1], "sigma_vf"),
-                tf.placeholder(tf.float32, [seq_length, batch_size, self.pi.n_buckets], "logits_steer"),
-                tf.placeholder(tf.float32, [seq_length, batch_size, self.pi.n_buckets], "sigma_steer"),
-                tf.placeholder(tf.float32, [seq_length, batch_size, 1], "vf"),
-                self.pi.steer_buckets,
-                msg="self.mu"
-            )
-
-            '''
-            self.mu = create_distribution(
-                mu    = tf.placeholder(tf.float32, [seq_length, batch_size, 2], "mu"),
-                sigma = tf.placeholder(tf.float32, [seq_length, batch_size, 2], "sigma")
-            )
-            '''
+        with tf.variable_scope("policy"):
+            if FLAGS.single_gaussian:
+                self.pi, self.pi_behavior = self.gaussian_policy(shared, 2, use_naive_policy)
+            else:
+                self.pi, self.pi_behavior = self.mixture_density_policy(shared, 2)
 
         with tf.name_scope("output"):
             self.a_prime = tf.squeeze(self.pi.sample_n(1), 0)
@@ -155,7 +138,7 @@ class AcerEstimator():
             # Compute the importance sampling weight \rho and \rho^{'}
             with tf.name_scope("rho"):
                 self.rho, self.rho_prime = self.compute_rho(
-                    self.a, self.a_prime, self.pi, self.mu
+                    self.a, self.a_prime, self.pi, self.pi_behavior
                 )
 
             with tf.name_scope("c_i"):
@@ -193,7 +176,7 @@ class AcerEstimator():
 
         self.summaries = self.summarize(add_summaries)
 
-    def compute_rho(self, a, a_prime, pi, mu):
+    def compute_rho(self, a, a_prime, pi, pi_behavior):
         # rho = tf.zeros_like(self.value)
         # rho_prime = tf.zeros_like(self.value)
         # return rho, rho_prime
@@ -202,15 +185,15 @@ class AcerEstimator():
         with tf.name_scope("pi_a"):
             pi_a = pi.prob(a, "In pi_a: ")[..., None]
             pi_a = tf_print(pi_a)
-        with tf.name_scope("mu_a"):
-            mu_a = mu.prob(a, "In mu_a: ")[..., None]
+        with tf.name_scope("pi_behavior_a"):
+            mu_a = pi_behavior.prob(a, "In mu_a: ")[..., None]
             mu_a = tf_print(mu_a)
 
         with tf.name_scope("pi_a_prime"):
             pi_a_prime = pi.prob(a_prime, "In pi_a_prime: ")[..., None]
             pi_a_prime = tf_print(pi_a_prime)
-        with tf.name_scope("mu_a_prime"):
-            mu_a_prime = mu.prob(a_prime, "In mu_a_prime: ")[..., None]
+        with tf.name_scope("pi_behavior_a_prime"):
+            mu_a_prime = pi_behavior.prob(a_prime, "In mu_a_prime: ")[..., None]
             mu_a_prime = tf_print(mu_a_prime)
 
         # use tf.div instead of pi_a / mu_a to assign a name to the output
@@ -451,18 +434,21 @@ class AcerEstimator():
 
     def get_value_loss(self, Q_ret, Q_tilt_a, rho, value):
 
-        # ======================= DEBUG =======================
+        """
+        # DEBUG
         cond = tf.reduce_mean(0.5 * tf.square(Q_ret - Q_tilt_a)) > 5000.
         Q_ret = tf_print(Q_ret, "Q_ret = ", cond)
         Q_tilt_a = tf_print(Q_tilt_a, "Q_tilt_a = ", cond)
-        # ======================= DEBUG =======================
+        """
 
-        Q_diff = Q_ret - Q_tilt_a
+        # Q_diff = Q_ret - Q_tilt_a
+        Q_diff = tf.maximum(tf.minimum(Q_ret - Q_tilt_a, 20.), 20.)
         V_diff = tf.minimum(1., rho) * Q_diff
 
-        # ======================= DEBUG =======================
+        """
+        # DEBUG
         Q_diff = tf_print(Q_diff, "Q_diff = ", cond)
-        # ======================= DEBUG =======================
+        """
 
         # L2 norm as loss function
         Q_l2_loss = 0.5 * tf.square(Q_diff)
@@ -580,23 +566,40 @@ class AcerEstimator():
                              self.get_forward_velocity(), steer_buckets,
                              msg="pi")
 
-        return pi
+        # Placeholder for behavior policy
+        pi_behavior = mixture_density(
+            tf.placeholder(tf.float32, [seq_length, batch_size, 1], "mu_vf"),
+            tf.placeholder(tf.float32, [seq_length, batch_size, 1], "sigma_vf"),
+            tf.placeholder(tf.float32, [seq_length, batch_size, n_buckets], "logits_steer"),
+            tf.placeholder(tf.float32, [seq_length, batch_size, n_buckets], "sigma_steer"),
+            tf.placeholder(tf.float32, [seq_length, batch_size, 1], "vf"),
+            steer_buckets,
+            msg="pi_behavior"
+        )
 
-    def gaussian_policy(self, input, num_outputs):
+        return pi, pi_behavior
+
+    def gaussian_policy(self, input, num_outputs, use_naive_policy):
 
         # mu: [B, 2], sigma: [B, 2], phi is just a syntatic sugar
         mu, sigma = policy_network(input, num_outputs)
 
         # Add naive policy as baseline bias
-        naive_mu = naive_mean_steer_policy(self.state.front_view)
-        mu = tf.pack([mu[..., 0], mu[..., 1] + naive_mu], axis=-1)
+        if use_naive_policy:
+            naive_mu = naive_mean_steer_policy(self.state.front_view)
+            mu = tf.pack([mu[..., 0], 1e-10 * mu[..., 1] + naive_mu], axis=-1)
 
         # Convert mu_steer (mu[..., 1]) to mu_yawrate
         mu = s2y(mu, self.get_forward_velocity())
 
         pi = create_distribution(mu, sigma)
 
-        return pi
+        pi_behavior = create_distribution(
+            mu    = tf.placeholder(tf.float32, [seq_length, batch_size, 2], "mu"),
+            sigma = tf.placeholder(tf.float32, [seq_length, batch_size, 2], "sigma")
+        )
+
+        return pi, pi_behavior
 
     def get_forward_velocity(self):
         return self.state.vehicle_state[..., 4:5]

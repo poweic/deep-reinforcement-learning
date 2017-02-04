@@ -22,13 +22,12 @@ def create_distribution(mu, sigma):
     pi.sigma = sigma
     pi.phi = [mu, sigma]
 
-    # Reshape & create normal distribution and sample some actions
-    mu_flat = flatten(pi.mu)
-    sigma_flat = flatten(pi.sigma)
-
-    pi.dist = tf.contrib.distributions.MultivariateNormalDiag(mu_flat, sigma_flat)
+    pi.dist = tf.contrib.distributions.MultivariateNormalDiag(mu, sigma)
 
     def _op(x, op):
+        return op(x)
+
+        """
         # Now x is of shape [n, S, B, 2], where n can be 1
         shape = tf.shape(x)
         S = shape[0] if seq_length is None else seq_length
@@ -37,19 +36,23 @@ def create_distribution(mu, sigma):
         reshaped_x = tf.reshape(x, [1, S*B, 2])
         p = op(reshaped_x)
         p = tf.reshape(p, [S, B])
+        """
         return p
 
-    def prob(x):
+    def prob(x, name=None):
         return _op(x, pi.dist.prob)
 
-    def log_prob(x):
+    def log_prob(x, name=None):
         return _op(x, pi.dist.log_prob)
 
     def sample_n(n):
+        return pi.dist.sample_n(n)
+        """
         samples = pi.dist.sample_n(n)
         S, B = get_seq_length_batch_size(pi.mu)
         samples = tf.reshape(samples, [n, S, B, 2])
         return samples
+        """
 
     pi.prob = prob
     pi.log_prob = log_prob

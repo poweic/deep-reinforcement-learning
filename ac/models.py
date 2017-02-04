@@ -94,8 +94,8 @@ def build_shared_network(state, add_summaries=False):
 
     with tf.name_scope("conv"):
 
-        conv1 = Conv2DLayer(input, 32, 5, pad=2, nonlinearity="relu", name="conv1")
-        conv2 = Conv2DLayer(conv1, 32, 5, pad=2, nonlinearity="relu", name="conv2", stride=2)
+        conv1 = Conv2DLayer(input, 32, 7, pad=3, nonlinearity="relu", name="conv1")
+        conv2 = Conv2DLayer(conv1, 32, 7, pad=3, nonlinearity="relu", name="conv2", stride=2)
         pool1 = MaxPool2DLayer(conv2, pool_size=3, stride=2, name='pool1')
 
         conv3 = Conv2DLayer(pool1, 32, 5, pad=2, nonlinearity="relu", name="conv3")
@@ -127,7 +127,7 @@ def build_shared_network(state, add_summaries=False):
 
         output = lstm2.output
 
-    layers = [conv1, conv2, conv3, conv4, fc,
+    layers = [conv1, conv2, conv3, conv4, flat, fc,
               concat1, lstm1.output, concat2, lstm2.output]
 
     if add_summaries:

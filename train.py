@@ -27,6 +27,7 @@ tf.flags.DEFINE_integer("field_of_view", 20, "size of front view (N x N) passed 
 tf.flags.DEFINE_integer("replay_ratio", 10, "off-policy memory replay ratio, choose a number from {0, 1, 4, 8}")
 tf.flags.DEFINE_integer("max_replay_buffer_size", 100, "off-policy memory replay buffer")
 tf.flags.DEFINE_float("avg_net_momentum", 0.995, "soft update momentum for average policy network in TRPO")
+tf.flags.DEFINE_boolean("single_gaussian", True, "Use single Gaussian if set to True, use GMM otherwise")
 
 tf.flags.DEFINE_boolean("drift", False, "If set, turn on drift")
 tf.flags.DEFINE_boolean("reset", False, "If set, delete the existing model directory and start training from scratch.")
@@ -38,7 +39,7 @@ tf.flags.DEFINE_float("command_freq", 20, "How frequent we send command to vehic
 
 tf.flags.DEFINE_float("learning_rate", 2e-4, "Learning rate for policy net and value net")
 tf.flags.DEFINE_float("l2_reg", 1e-4, "L2 regularization multiplier")
-tf.flags.DEFINE_float("max_gradient", 40, "Threshold for gradient clipping used by tf.clip_by_global_norm")
+tf.flags.DEFINE_float("max_gradient", 10, "Threshold for gradient clipping used by tf.clip_by_global_norm")
 tf.flags.DEFINE_float("timestep", 0.025, "Simulation timestep")
 tf.flags.DEFINE_float("wheelbase", 2.00, "Wheelbase of the vehicle in meters")
 tf.flags.DEFINE_float("vehicle_model_noise_level", 0.1, "level of white noise (variance) in vehicle model")
@@ -46,14 +47,14 @@ tf.flags.DEFINE_float("entropy_cost_mult", 1e-3, "multiplier used by entropy reg
 tf.flags.DEFINE_float("discount_factor", 0.995, "discount factor in Markov decision process (MDP)")
 tf.flags.DEFINE_float("lambda_", 0.50, "lambda in TD-Lambda (temporal difference learning)")
 
-tf.flags.DEFINE_float("min_mu_vf", 5. / 3.6, "Minimum forward velocity of vehicle (m/s)")
+tf.flags.DEFINE_float("min_mu_vf", 7. / 3.6, "Minimum forward velocity of vehicle (m/s)")
 tf.flags.DEFINE_float("max_mu_vf", 40. / 3.6, "Maximum forward velocity of vehicle (m/s)")
 tf.flags.DEFINE_float("min_mu_steer", -30 * np.pi / 180, "Minimum steering angle (rad)")
 tf.flags.DEFINE_float("max_mu_steer", +30 * np.pi / 180, "Maximum steering angle (rad)")
 
 tf.flags.DEFINE_float("min_sigma_vf", 1. / 3.6, "Minimum variance of forward velocity")
 tf.flags.DEFINE_float("max_sigma_vf", 3. / 3.6, "Maximum variance of forward velocity")
-tf.flags.DEFINE_float("min_sigma_steer", 1. * np.pi / 180, "Minimum variance of steering angle (rad)")
+tf.flags.DEFINE_float("min_sigma_steer", 3. * np.pi / 180, "Minimum variance of steering angle (rad)")
 tf.flags.DEFINE_float("max_sigma_steer", 7 * np.pi / 180, "Maximum variance of steering angle (rad)")
 '''
 tf.flags.DEFINE_float("min_mu_vf", 7  / 3.6 - 0.0001, "Minimum forward velocity of vehicle (m/s)")
@@ -106,7 +107,8 @@ def make_env():
     # rewards -= 100
     # rewards -= 15
     rewards = (rewards - np.min(rewards)) / (np.max(rewards) - np.min(rewards))
-    rewards = (rewards - 0.6) * 2
+    rewards = (rewards - 0.5) * 2 # 128
+    # rewards = (rewards - 0.6) * 2
 
     # compute_mean_steering_angle(rewards)
 

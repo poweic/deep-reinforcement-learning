@@ -101,7 +101,6 @@ class OffRoadNavEnv(gym.Env):
 
     def _reset(self, s0):
         metadata_fn = "data/{}-metadata.mat".format(FLAGS.game)
-        '''
         if not hasattr(self, "R"):
             data = scipy.io.loadmat(metadata_fn)
             self.R = data["R"].copy()
@@ -127,6 +126,7 @@ class OffRoadNavEnv(gym.Env):
         if hasattr(self, "bR") and hasattr(self, "R") and hasattr(self, "padded_rewards"):
             scipy.io.savemat(metadata_fn, dict(
                 bR=self.bR, R=self.R, padded_rewards=self.padded_rewards))
+        '''
 
         self.disp_img = np.copy(self.bR)
         self.vehicle_model.reset(s0)
@@ -136,6 +136,10 @@ class OffRoadNavEnv(gym.Env):
     def debug_bilinear_R(self, K):
         X = np.linspace(-10, 10, num=40*K)
         Y = np.linspace(0, 20, num=40*K)
+
+        yy, xx = np.meshgrid(X, Y)
+
+        # bR = self._bilinear_reward_lookup(yy, xx, debug=False).reshape(40*K, 40*K)
 
         bR = np.zeros((40*K, 40*K))
 

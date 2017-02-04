@@ -57,7 +57,7 @@ class AcerWorker(Worker):
 
     def reset_env(self):
 
-        self.state = np.array([1, 2, -10 * np.pi / 180, 0, 0, 0])
+        self.state = np.array([-1, 1, 20 * np.pi / 180, 0, 0, 0])
         self.action = np.array([0, 0])
 
         # Reshape to compatiable format
@@ -68,7 +68,7 @@ class AcerWorker(Worker):
 
         # Add some noise to have diverse start points
         noise = np.random.randn(6, self.n_agents).astype(np.float32) * 0.5
-        noise[2, :] /= 10
+        noise[2, :] /= 2
 
         self.state = self.state + noise
 
@@ -77,13 +77,10 @@ class AcerWorker(Worker):
     def _run(self):
 
         # Run on-policy ACER
-        self._run_on_policy()
+        self._run_on_policy(demo=(self.name == "worker_0"))
 
         # Run off-policy ACER N times
-        N = np.random.poisson(FLAGS.replay_ratio)
-
-        for i in range(N):
-            self._run_off_policy()
+        self._run_off_policy_n_times()
 
         if self.max_global_steps is not None and global_t >= self.max_global_steps:
             tf.logging.info("Reached global step {}. Stopping.".format(global_t))
@@ -105,7 +102,7 @@ class AcerWorker(Worker):
 
         print "len(replay_buffer) = \33[93m{}\33[0m".format(len(rp))
 
-    def _run_on_policy(self):
+    def _run_on_policy(self, demo=True):
         self.copy_params_from_global()
 
         # Collect transitions {(s_0, a_0, r_0, mu_0), (s_1, ...), ... }
@@ -113,10 +110,18 @@ class AcerWorker(Worker):
         transitions, local_t, global_t = self.run_n_steps(n)
         print "Average time to predict actions: {}".format(self.timer / self.timer_counter)
 
-        # Compute gradient and Perform update
-        self.update(transitions)
+        if not demo:
+            # Compute gradient and Perform update
+            self.update(transitions)
 
-        self.store_experience(transitions)
+        if demo:
+            self.store_experience(transitions)
+
+    def _run_off_policy_n_times(self):
+        N = np.random.poisson(FLAGS.replay_ratio)
+
+        for i in range(N):
+            self._run_off_policy()
 
     def _run_off_policy(self):
         rp = AcerWorker.replay_buffer
@@ -215,16 +220,6 @@ class AcerWorker(Worker):
             for k in t.pi.keys()
         }
 
-        for k, v in pi.viewitems():
-            # print "pi[{}] ({}) = \n{}".format(k, v.shape, v)
-            if "sigma" in k:
-                assert np.all(v > 0)
-
-        '''
-        mu     = np.concatenate([t.pi.mu.T[None, ...]    for t in transitions ], axis=0)
-        sigma  = np.concatenate([t.pi.sigma.T[None, ...] for t in transitions ], axis=0)
-        '''
-
         net = self.local_net
         avg_net = self.Estimator.average_net
 
@@ -233,9 +228,9 @@ class AcerWorker(Worker):
             net.a: action,
         }
 
-        feed_dict.update({net.state[k]:     v for k, v in mdp_states.iteritems()})
-        feed_dict.update({avg_net.state[k]: v for k, v in mdp_states.iteritems()})
-        feed_dict.update({net.mu[k]:        v for k, v in pi.iteritems()})
+        feed_dict.update({net.state[k]:       v for k, v in mdp_states.iteritems()})
+        feed_dict.update({avg_net.state[k]:   v for k, v in mdp_states.iteritems()})
+        feed_dict.update({net.pi_behavior[k]: v for k, v in pi.iteritems()})
 
         '''
         for k, v in feed_dict.viewitems():
@@ -291,8 +286,8 @@ class AcerWorker(Worker):
             Worker.stop = True
             import ipdb; ipdb.set_trace()
 
-        print "seq_length = {}, batch_size = {}".format(
-            *(mdp_states.front_view.shape[:2]) )
+        print "S = {:3d}, B = {}".format(*(mdp_states.front_view.shape[:2])),
+        print "[{}]".format(self.name)
 
         # Write summaries
         if self.summary_writer is not None:
