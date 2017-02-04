@@ -30,12 +30,22 @@ def naive_mean_steer_policy(front_view):
     yv = yv.astype(np.float32)
 
     theta = np.arctan((yv - W / 2 + 0.5) / (H - xv - 0.5))
+
+    # Make sure it's symmetric with negative sign
+    assert np.all(theta[:, :W/2] == -theta[:, -1:W/2-1:-1])
+
     theta = tf.constant(theta)[None, None, ..., None]
 
+    # Substract min from front_view to make sure positivity
     r = front_view - tf.reduce_min(front_view, keep_dims=True,
                                    reduction_indices=[2,3,4])
 
-    return tf.reduce_mean(r * theta, reduction_indices=[2,3,4])
+    # Compute average steering angle (weighted sum by reward), add epsilon
+    # to avoid divide by zero error
+    num   = tf.reduce_sum(r * theta, reduction_indices=[2,3,4])
+    denom = tf.reduce_sum(r        , reduction_indices=[2,3,4]) + 1e-10
+
+    return num / denom
 
 def LSTM(input, num_outputs, scope=None):
     lstm = tf.nn.rnn_cell.BasicLSTMCell(
