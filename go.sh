@@ -1,7 +1,7 @@
 #!/bin/bash
 ./train.py \
   --model-dir /Data3/acer-offroad/ \
-  --parallelism 1 \
+  --parallelism 2 \
   --game maze4 \
   --save-every-n-minutes 60 \
   --t-max 4 \
@@ -16,6 +16,5 @@
   --discount-factor 0.99 \
   --n-agents-per-worker 4 \
   --vehicle-model-noise-level 1e-2 \
-  --entropy-cost-mult 1e-2 \
-  --l2-reg 1e-2 \
+  --l2-reg 1e-5 \
   $@

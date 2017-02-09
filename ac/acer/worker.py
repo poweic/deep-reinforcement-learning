@@ -70,7 +70,7 @@ class AcerWorker(Worker):
         self.current_reward = np.zeros((1, self.n_agents))
 
         # Add some noise to have diverse start points
-        noise = np.random.randn(6, self.n_agents).astype(np.float32) * 0
+        noise = np.random.randn(6, self.n_agents).astype(np.float32) * 0.5
         noise[2, :] /= 2
 
         self.state = self.state + noise

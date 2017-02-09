@@ -48,14 +48,16 @@ def naive_mean_steer_policy(front_view):
     return num / denom
 
 def LSTM(input, num_outputs, scope=None):
-    lstm = tf.nn.rnn_cell.BasicLSTMCell(
-        num_outputs, state_is_tuple=True, activation=tf.nn.relu
+    # lstm = tf.nn.rnn_cell.BasicLSTMCell(
+    lstm = tf.nn.rnn_cell.LSTMCell(
+        num_outputs, state_is_tuple=True, cell_clip=10., use_peepholes=True,
+        # num_proj=num_outputs/2, proj_clip=1.
     )
 
     with tf.variable_scope(scope):
         state_in = [
-            tf.placeholder(tf.float32, [batch_size, num_outputs], name="c"),
-            tf.placeholder(tf.float32, [batch_size, num_outputs], name="h")
+            tf.placeholder(tf.float32, [batch_size, lstm.state_size.c], name="c"),
+            tf.placeholder(tf.float32, [batch_size, lstm.state_size.h], name="h")
         ]
 
     lstm_outputs, state_out = tf.nn.dynamic_rnn(
