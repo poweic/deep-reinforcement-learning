@@ -1,3 +1,4 @@
+from collections import OrderedDict
 import tensorflow as tf
 import ac.acer.estimators
 from ac.worker import Worker
@@ -60,7 +61,7 @@ class AcerWorker(Worker):
 
     def reset_env(self):
 
-        self.state = np.array([0, 1, 20 * np.pi / 180, 0, 0, 0])
+        self.state = np.array([0, 1, -20 * np.pi / 180, 0, 0, 0])
         self.action = np.array([0, 0])
 
         # Reshape to compatiable format
@@ -281,8 +282,10 @@ class AcerWorker(Worker):
         print "[{}]".format(self.name),
         print "global_norm = {}".format(loss.global_norm)
 
-        for k, v in loss.grad_norms.iteritems():
-            print "{}'s grad norm = \33[94m{:12.6e}\33[0m".format(k, v)
+        grad_norms = OrderedDict(sorted(loss.grad_norms.items()))
+        max_len = max(map(len, grad_norms.keys()))
+        for k, v in grad_norms.iteritems():
+            print "{} grad norm: \33[94m{:12.6e}\33[0m".format(k.ljust(max_len), v)
 
         # ======================= DEBUG =================================
         if np.isnan(loss.total):
