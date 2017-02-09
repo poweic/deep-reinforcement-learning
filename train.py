@@ -8,64 +8,68 @@ import scipy.io
 import numpy as np
 import tensorflow as tf
 
-tf.flags.DEFINE_string("model_dir", "/Data3/a3c-offroad/", "Directory to write Tensorboard summaries and models to.")
+tf.flags.DEFINE_string("model-dir", "/Data3/a3c-offroad/", "Directory to write Tensorboard summaries and models to.")
 tf.flags.DEFINE_string("game", "line", "Game environment")
-tf.flags.DEFINE_string("estimator_type", "A3C", "Choose A3C or ACER")
+tf.flags.DEFINE_string("estimator-type", "A3C", "Choose A3C or ACER")
 
-tf.flags.DEFINE_integer("max_global_steps", None, "Stop training after this many steps in the environment. Defaults to running indefinitely.")
-tf.flags.DEFINE_integer("seq_length", None, "sequence length used for construct TF graph")
-tf.flags.DEFINE_integer("batch_size", None, "batch size used for construct TF graph")
+tf.flags.DEFINE_integer("max-global-steps", None, "Stop training after this many steps in the environment. Defaults to running indefinitely.")
+tf.flags.DEFINE_integer("seq-length", None, "sequence length used for construct TF graph")
+tf.flags.DEFINE_integer("batch-size", None, "batch size used for construct TF graph")
 
-tf.flags.DEFINE_integer("eval_every", 30, "Evaluate the policy every N seconds")
+tf.flags.DEFINE_integer("eval-every", 30, "Evaluate the policy every N seconds")
 tf.flags.DEFINE_integer("parallelism", 1, "Number of threads to run. If not set we run [num_cpu_cores] threads.")
 tf.flags.DEFINE_integer("downsample", 5, "Downsample transitions to reduce sample correlation")
-tf.flags.DEFINE_integer("n_agents_per_worker", 16, "Downsample transitions to reduce sample correlation")
-tf.flags.DEFINE_integer("save_every_n_minutes", 10, "Save model every N minutes")
+tf.flags.DEFINE_integer("n-agents-per-worker", 16, "Downsample transitions to reduce sample correlation")
+tf.flags.DEFINE_integer("save-every-n-minutes", 10, "Save model every N minutes")
 
-tf.flags.DEFINE_integer("field_of_view", 20, "size of front view (N x N) passed to network")
+tf.flags.DEFINE_integer("field-of-view", 20, "size of front view (N x N) passed to network")
 
-tf.flags.DEFINE_integer("replay_ratio", 10, "off-policy memory replay ratio, choose a number from {0, 1, 4, 8}")
-tf.flags.DEFINE_integer("max_replay_buffer_size", 100, "off-policy memory replay buffer")
-tf.flags.DEFINE_float("avg_net_momentum", 0.995, "soft update momentum for average policy network in TRPO")
-tf.flags.DEFINE_boolean("single_gaussian", True, "Use single Gaussian if set to True, use GMM otherwise")
+tf.flags.DEFINE_integer("replay-ratio", 10, "off-policy memory replay ratio, choose a number from {0, 1, 4, 8}")
+tf.flags.DEFINE_integer("max-replay-buffer-size", 100, "off-policy memory replay buffer")
+tf.flags.DEFINE_float("avg-net-momentum", 0.995, "soft update momentum for average policy network in TRPO")
+tf.flags.DEFINE_float("max-Q-diff", None, "Maximum Q difference (for robustness)")
+tf.flags.DEFINE_boolean("mixture-model", False, "Use single Gaussian if set to True, use GMM otherwise")
+tf.flags.DEFINE_string("policy-dist", "Gaussian", "Either Gaussian, Beta, or StudentT")
+tf.flags.DEFINE_integer("bucket-width", 10, "bucket_width")
 
 tf.flags.DEFINE_boolean("drift", False, "If set, turn on drift")
 tf.flags.DEFINE_boolean("reset", False, "If set, delete the existing model directory and start training from scratch.")
+tf.flags.DEFINE_boolean("display", True, "If set, no imshow will be called")
 tf.flags.DEFINE_boolean("resume", False, "If set, resume training from the corresponding last checkpoint file")
 tf.flags.DEFINE_boolean("debug", False, "If set, turn on the debug flag")
 
-tf.flags.DEFINE_float("t_max", 30, "Maximum elasped time per simulation (in seconds)")
-tf.flags.DEFINE_float("command_freq", 20, "How frequent we send command to vehicle (in Hz)")
+tf.flags.DEFINE_float("t-max", 30, "Maximum elasped time per simulation (in seconds)")
+tf.flags.DEFINE_float("command-freq", 20, "How frequent we send command to vehicle (in Hz)")
 
-tf.flags.DEFINE_float("learning_rate", 2e-4, "Learning rate for policy net and value net")
-tf.flags.DEFINE_float("l2_reg", 1e-4, "L2 regularization multiplier")
-tf.flags.DEFINE_float("max_gradient", 10, "Threshold for gradient clipping used by tf.clip_by_global_norm")
+tf.flags.DEFINE_float("learning-rate", 2e-4, "Learning rate for policy net and value net")
+tf.flags.DEFINE_float("l2-reg", 1e-4, "L2 regularization multiplier")
+tf.flags.DEFINE_float("max-gradient", 10, "Threshold for gradient clipping used by tf.clip_by_global_norm")
 tf.flags.DEFINE_float("timestep", 0.025, "Simulation timestep")
 tf.flags.DEFINE_float("wheelbase", 2.00, "Wheelbase of the vehicle in meters")
-tf.flags.DEFINE_float("vehicle_model_noise_level", 0.1, "level of white noise (variance) in vehicle model")
-tf.flags.DEFINE_float("entropy_cost_mult", 1e-3, "multiplier used by entropy regularization")
-tf.flags.DEFINE_float("discount_factor", 0.995, "discount factor in Markov decision process (MDP)")
+tf.flags.DEFINE_float("vehicle-model-noise-level", 0.1, "level of white noise (variance) in vehicle model")
+tf.flags.DEFINE_float("entropy-cost-mult", 1e-3, "multiplier used by entropy regularization")
+tf.flags.DEFINE_float("discount-factor", 0.995, "discount factor in Markov decision process (MDP)")
 tf.flags.DEFINE_float("lambda_", 0.50, "lambda in TD-Lambda (temporal difference learning)")
 
-tf.flags.DEFINE_float("min_mu_vf", 7. / 3.6, "Minimum forward velocity of vehicle (m/s)")
-tf.flags.DEFINE_float("max_mu_vf", 40. / 3.6, "Maximum forward velocity of vehicle (m/s)")
-tf.flags.DEFINE_float("min_mu_steer", -30 * np.pi / 180, "Minimum steering angle (rad)")
-tf.flags.DEFINE_float("max_mu_steer", +30 * np.pi / 180, "Maximum steering angle (rad)")
+tf.flags.DEFINE_float("min-mu-vf", 7. / 3.6, "Minimum forward velocity of vehicle (m/s)")
+tf.flags.DEFINE_float("max-mu-vf", 40. / 3.6, "Maximum forward velocity of vehicle (m/s)")
+tf.flags.DEFINE_float("min-mu-steer", -30 * np.pi / 180, "Minimum steering angle (rad)")
+tf.flags.DEFINE_float("max-mu-steer", +30 * np.pi / 180, "Maximum steering angle (rad)")
 
-tf.flags.DEFINE_float("min_sigma_vf", 1. / 3.6, "Minimum variance of forward velocity")
-tf.flags.DEFINE_float("max_sigma_vf", 3. / 3.6, "Maximum variance of forward velocity")
-tf.flags.DEFINE_float("min_sigma_steer", 3. * np.pi / 180, "Minimum variance of steering angle (rad)")
-tf.flags.DEFINE_float("max_sigma_steer", 7 * np.pi / 180, "Maximum variance of steering angle (rad)")
+tf.flags.DEFINE_float("min-sigma-vf", 1. / 3.6, "Minimum variance of forward velocity")
+tf.flags.DEFINE_float("max-sigma-vf", 3. / 3.6, "Maximum variance of forward velocity")
+tf.flags.DEFINE_float("min-sigma-steer", 3. * np.pi / 180, "Minimum variance of steering angle (rad)")
+tf.flags.DEFINE_float("max-sigma-steer", 20 * np.pi / 180, "Maximum variance of steering angle (rad)")
 '''
-tf.flags.DEFINE_float("min_mu_vf", 7  / 3.6 - 0.0001, "Minimum forward velocity of vehicle (m/s)")
-tf.flags.DEFINE_float("max_mu_vf", 7  / 3.6 + 0.0001, "Maximum forward velocity of vehicle (m/s)")
-tf.flags.DEFINE_float("min_mu_steer", -30 * np.pi / 180, "Minimum steering angle (rad)")
-tf.flags.DEFINE_float("max_mu_steer", +30 * np.pi / 180, "Maximum steering angle (rad)")
+tf.flags.DEFINE_float("min-mu-vf", 7  / 3.6 - 0.0001, "Minimum forward velocity of vehicle (m/s)")
+tf.flags.DEFINE_float("max-mu-vf", 7  / 3.6 + 0.0001, "Maximum forward velocity of vehicle (m/s)")
+tf.flags.DEFINE_float("min-mu-steer", -30 * np.pi / 180, "Minimum steering angle (rad)")
+tf.flags.DEFINE_float("max-mu-steer", +30 * np.pi / 180, "Maximum steering angle (rad)")
 
-tf.flags.DEFINE_float("min_sigma_vf", 0.05 / 3.6 - 0.001, "Minimum variance of forward velocity")
-tf.flags.DEFINE_float("max_sigma_vf", 0.05 / 3.6 + 0.001, "Maximum variance of forward velocity")
-tf.flags.DEFINE_float("min_sigma_steer", 1 * np.pi / 180 - 0.001, "Minimum variance of steering angle (rad)")
-tf.flags.DEFINE_float("max_sigma_steer", 15 * np.pi / 180 + 0.001, "Maximum variance of steering angle (rad)")
+tf.flags.DEFINE_float("min-sigma-vf", 0.05 / 3.6 - 0.001, "Minimum variance of forward velocity")
+tf.flags.DEFINE_float("max-sigma-vf", 0.05 / 3.6 + 0.001, "Maximum variance of forward velocity")
+tf.flags.DEFINE_float("min-sigma-steer", 1 * np.pi / 180 - 0.001, "Minimum variance of steering angle (rad)")
+tf.flags.DEFINE_float("max-sigma-steer", 15 * np.pi / 180 + 0.001, "Maximum variance of steering angle (rad)")
 '''
 
 import itertools
@@ -76,7 +80,7 @@ import schedule
 from pprint import pprint
 
 from ac.estimators import get_estimator
-from ac.utils import make_copy_params_op
+from ac.utils import make_copy_params_op, AttrDict
 # from ac.a3c.monitor import server
 
 from gym_offroad_nav.envs import OffRoadNavEnv
@@ -86,8 +90,16 @@ from gym_offroad_nav.vehicle_model import VehicleModel
 FLAGS = tf.flags.FLAGS
 FLAGS.checkpoint_dir = FLAGS.model_dir + "/checkpoints/" + FLAGS.game
 FLAGS.save_path = FLAGS.checkpoint_dir + "/model"
+FLAGS.action_space = AttrDict(
+    n_actions   = 2,
+    low        = [FLAGS.min_mu_vf, FLAGS.min_mu_steer],
+    high       = [FLAGS.max_mu_vf, FLAGS.max_mu_steer],
+    sigma_low  = [FLAGS.min_sigma_vf, FLAGS.min_sigma_steer],
+    sigma_high = [FLAGS.min_sigma_vf, FLAGS.min_sigma_steer],
+)
 pprint(FLAGS.__flags)
 
+# 
 W = 400
 disp_img = np.zeros((2*W, 2*W*2, 3), dtype=np.uint8)
 disp_lock = threading.Lock()
@@ -159,7 +171,9 @@ def save_model_every_nth_minutes(sess, saver):
 
 Estimator = get_estimator(FLAGS.estimator_type)
 
-with tf.Session() as sess:
+config = tf.ConfigProto()
+# config.gpu_options.per_process_gpu_memory_fraction = 0.3
+with tf.Session(config=config) as sess:
     # Keeps track of the number of updates we've performed
     global_step = tf.Variable(0, name="global_step", trainable=False)
     max_return = 0
@@ -221,20 +235,21 @@ with tf.Session() as sess:
     # server.start()
 
     # Show how agent behaves in envs in main thread
-    counter = 0
-    while True:
-        for worker in workers:
-            if worker.max_return > max_return:
-                max_return = worker.max_return
-                # print "max_return = \33[93m{}\33[00m".format(max_return)
+    if FLAGS.display:
+        counter = 0
+        while True:
+            for worker in workers:
+                if worker.max_return > max_return:
+                    max_return = worker.max_return
+                    # print "max_return = \33[93m{}\33[00m".format(max_return)
 
-            worker.env._render({"worker": worker})
+                worker.env._render({"worker": worker})
 
-        cv2.imshow("result", disp_img)
-        cv2.waitKey(10)
-        counter += 1
+            cv2.imshow("result", disp_img)
+            cv2.waitKey(10)
+            counter += 1
 
-        schedule.run_pending()
+            schedule.run_pending()
 
     # Wait for all workers to finish
     coord.join(worker_threads)

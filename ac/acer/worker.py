@@ -32,6 +32,9 @@ class AcerWorker(Worker):
         self.timer = 0
         self.timer_counter = 0
 
+        self.prev_debug = None
+        self.prev_mdp_states = None
+
         def copy_global_to_avg():
             msg = "\33[94mInitialize average net when global_step = \33[0m"
             disp_op = tf.Print(self.global_step, [self.global_step], msg)
@@ -57,7 +60,7 @@ class AcerWorker(Worker):
 
     def reset_env(self):
 
-        self.state = np.array([-1, 1, 20 * np.pi / 180, 0, 0, 0])
+        self.state = np.array([0, 1, 20 * np.pi / 180, 0, 0, 0])
         self.action = np.array([0, 0])
 
         # Reshape to compatiable format
@@ -67,7 +70,7 @@ class AcerWorker(Worker):
         self.current_reward = np.zeros((1, self.n_agents))
 
         # Add some noise to have diverse start points
-        noise = np.random.randn(6, self.n_agents).astype(np.float32) * 0.5
+        noise = np.random.randn(6, self.n_agents).astype(np.float32) * 0
         noise[2, :] /= 2
 
         self.state = self.state + noise
@@ -75,9 +78,9 @@ class AcerWorker(Worker):
         self.env._reset(self.state)
 
     def _run(self):
-
+        
         # Run on-policy ACER
-        self._run_on_policy(demo=(self.name == "worker_0"))
+        self._run_on_policy()
 
         # Run off-policy ACER N times
         self._run_off_policy_n_times()
@@ -102,20 +105,18 @@ class AcerWorker(Worker):
 
         print "len(replay_buffer) = \33[93m{}\33[0m".format(len(rp))
 
-    def _run_on_policy(self, demo=True):
+    def _run_on_policy(self):
         self.copy_params_from_global()
 
         # Collect transitions {(s_0, a_0, r_0, mu_0), (s_1, ...), ... }
         n = int(np.ceil(FLAGS.t_max * FLAGS.command_freq))
         transitions, local_t, global_t = self.run_n_steps(n)
-        print "Average time to predict actions: {}".format(self.timer / self.timer_counter)
+        # print "Average time to predict actions: {}".format(self.timer / self.timer_counter)
 
-        if not demo:
-            # Compute gradient and Perform update
-            self.update(transitions)
+        # Compute gradient and Perform update
+        self.update(transitions)
 
-        if demo:
-            self.store_experience(transitions)
+        self.store_experience(transitions)
 
     def _run_off_policy_n_times(self):
         N = np.random.poisson(FLAGS.replay_ratio)
@@ -135,7 +136,7 @@ class AcerWorker(Worker):
         idx = np.random.randint(len(rp))
 
         # Compute gradient and Perform update
-        self.update(rp[idx], off_policy=True)
+        self.update(rp[idx], on_policy=False)
 
     def run_n_steps(self, n_steps):
 
@@ -152,18 +153,11 @@ class AcerWorker(Worker):
 
             # Predict an action
             self.timer -= time.time()
-            self.action, pi = self.local_net.predict_actions(mdp_state, self.sess)
-
-            """
-            # Sample in NumPy
-            pi = self.local_net.predict_actions(mdp_state, self.sess)
-            self.action = np.random.randn(*pi.mu.shape) * pi.sigma + pi.mu
-            """
+            self.action, pi_stats = self.local_net.predict_actions(mdp_state, self.sess)
 
             self.timer += time.time()
             self.timer_counter += 1
 
-            # print "action.shape = {}, mu.shape = {}, sigma.shape = {}".format(self.action.shape, pi.mu.shape, pi.sigma.shape)
             assert not np.any(np.isnan(self.action)), "i = {}, self.action = {}, mdp_state = {}".format(i, self.action, mdp_state)
 
             # Take several sub-steps in environment (the smaller the timestep,
@@ -181,7 +175,7 @@ class AcerWorker(Worker):
             # Down-sample transition to reduce correlation between samples
             transitions.append(AttrDict(
                 mdp_state=mdp_state,
-                pi=pi,
+                pi_stats=pi_stats,
                 action=self.action.copy(),
                 next_state=next_state.copy(),
                 reward=reward.copy(),
@@ -202,23 +196,17 @@ class AcerWorker(Worker):
 
         return transitions, local_t, global_t
 
-    def update(self, transitions, off_policy=False):
+    def update(self, trans, on_policy=True):
 
         mdp_states = AttrDict({
             key: np.concatenate([
-                t.mdp_state[key][None, ...] for t in transitions
+                t.mdp_state[key][None, ...] for t in trans
             ], axis=0)
-            for key in form_mdp_state().keys()
-            # for key in transitions[0].mdp_state.keys()
+            for key in trans[0].mdp_state.keys()
         })
 
-        action = np.concatenate([t.action.T[None, ...] for t in transitions ], axis=0)
-        reward = np.concatenate([t.reward.T[None, ...] for t in transitions ], axis=0)
-
-        pi = {
-            k: np.concatenate([t.pi[k].T[None, ...] for t in transitions ], axis=0)
-            for k in t.pi.keys()
-        }
+        action = np.concatenate([t.action.T[None, ...] for t in trans], axis=0)
+        reward = np.concatenate([t.reward.T[None, ...] for t in trans], axis=0)
 
         net = self.local_net
         avg_net = self.Estimator.average_net
@@ -228,9 +216,15 @@ class AcerWorker(Worker):
             net.a: action,
         }
 
-        feed_dict.update({net.state[k]:       v for k, v in mdp_states.iteritems()})
-        feed_dict.update({avg_net.state[k]:   v for k, v in mdp_states.iteritems()})
-        feed_dict.update({net.pi_behavior[k]: v for k, v in pi.iteritems()})
+        feed_dict.update({net.state[k]:     v for k, v in mdp_states.iteritems()})
+        feed_dict.update({avg_net.state[k]: v for k, v in mdp_states.iteritems()})
+
+        for k, v in trans[0].pi_stats.iteritems():
+            for i in range(len(v)):
+                tensor = net.pi_behavior.stats[k][i]
+                feed_dict[tensor] = np.concatenate([
+                    t.pi_stats[k][i] for t in trans
+                ], axis=0)
 
         '''
         for k, v in feed_dict.viewitems():
@@ -242,73 +236,80 @@ class AcerWorker(Worker):
                 'pi': net.pi_loss,
                 'vf': net.vf_loss,
                 'total': net.loss,
+                'global_norm': net.global_norm,
+                'grad_norms': net.grad_norms
             },
             net.summaries,
-            self.global_step,
             self.train_and_update_avgnet_op
         ]
 
-        """
-        ops.insert(1, {
-            'Q_ret': net.Q_ret,
-            'Q_opc': net.Q_opc,
-            'value': net.value,
-            'c': net.c,
-            'r': net.r,
-            'Q_tilt_a': net.Q_tilt_a,
-            'rho': net.rho,
-            'rho_prime': net.rho_prime,
-            'pi_a': net.pi_a,
-            'mu_a': net.mu_a,
-            'pi_mean':  net.pi.mu,
-            'pi_sigma': net.pi.sigma,
-            'mu_mean':  net.mu.mu,
-            'mu_sigma': net.mu.sigma,
-        })
+        # ======================= DEBUG =================================
+        debug_keys = [
+            'a', 'pi_a', 'mu_a', 'a_prime', 'pi_a_prime', 'mu_a_prime',
+            'rho', 'g_phi', 'g_acer',
+            'Q_ret', 'Q_opc', 'Q_tilt_a', 'Q_tilt_a_prime',
+            'rho_bar', 'log_a' , 'target_1', 'value',
+            'plus'   , 'log_ap', 'target_2',
+            # 'pi_mu', 'mu_mu', 'pi_sigma', 'mu_sigma'
+        ]
 
-        loss, Q, _ = self.sess.run(ops, feed_dict=feed_dict)
-        """
+        ops.append({
+            k: getattr(net, k) for k in debug_keys
+        })
+        # ======================= DEBUG =================================
 
         net.reset_lstm_state()
         avg_net.reset_lstm_state()
 
-        loss, summaries, global_step, _ = net.predict(ops, feed_dict, self.sess)
+        loss, summaries, _, debug = net.predict(ops, feed_dict, self.sess)
         loss = AttrDict(loss)
 
         self.counter += 1
         gstep = self.sess.run(self.inc_global_step)
         print "#{:6d}, pi_loss = {:+12.3f}, vf_loss = {:+12.3f}, loss = {:+12.3f} {}".format(
             gstep, loss.pi, loss.vf, loss.total,
-            "\33[93m[off policy]\33[0m" if off_policy else "\33[92m[on  policy]\33[0m"
+            "\33[92m[on  policy]\33[0m" if on_policy else "\33[93m[off policy]\33[0m",
         ),
 
-        if FLAGS.debug and abs(loss.total) > 1e4:
-            Worker.stop = True
-            import ipdb; ipdb.set_trace()
-
         print "S = {:3d}, B = {}".format(*(mdp_states.front_view.shape[:2])),
-        print "[{}]".format(self.name)
+        print "[{}]".format(self.name),
+        print "global_norm = {}".format(loss.global_norm)
+
+        for k, v in loss.grad_norms.iteritems():
+            print "{}'s grad norm = \33[94m{:12.6e}\33[0m".format(k, v)
+
+        # ======================= DEBUG =================================
+        if np.isnan(loss.total):
+            np.set_printoptions(precision=4, linewidth=500, suppress=True, formatter={
+                'float_kind': lambda x: ("\33[2m" if x == 0 else "") + (("{:+12.5e}" if abs(x) < 1e-9 or abs(x) > 10 else "{:+12.9f}").format(x)) + "\33[0m"
+            })
+            
+            for k in debug_keys:
+                print "\33[93m {} [{}] = \33[0m\n{}".format(k, debug[k].shape, debug[k])
+                """
+                v = debug[k] = debug[k].squeeze(1).T
+                if v.shape[0] == 4:
+                    v = v[:2]
+                print "\33[93m {} = \33[0m\n{}".format(k, v[:, :10])
+                """
+
+            import scipy.io
+            scipy.io.savemat("debug.mat", debug)
+            scipy.io.savemat("prev_debug.mat", self.prev_debug)
+
+            scipy.io.savemat("mdp_states.mat", mdp_states)
+            scipy.io.savemat("prev_mdp_states.mat", self.prev_mdp_states)
+
+            import ipdb; ipdb.set_trace()
+            np.set_printoptions()
+        # ======================= DEBUG =================================
 
         # Write summaries
         if self.summary_writer is not None:
-            self.summary_writer.add_summary(summaries, global_step)
+            self.summary_writer.add_summary(summaries, gstep)
             self.summary_writer.flush()
 
-        """
-        if off_policy:
-
-            Q = AttrDict(Q)
-            for k, v in Q.viewitems():
-                Q[k] = np.squeeze(v)
-
-            print "FLAGS.discount_factor = ", FLAGS.discount_factor
-            Q.discounted_r = discount(Q.r.T, FLAGS.discount_factor).T
-
-            for k, v in Q.viewitems():
-                print "{} [{}]: \n{}".format(k, v.shape, v)
-
-            import ipdb; ipdb.set_trace()
-            aaaaaaa = 10
-        """
+        self.prev_debug = debug
+        self.prev_mdp_states = mdp_states
 
 AcerWorker.replay_buffer = []

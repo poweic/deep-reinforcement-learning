@@ -1,6 +1,7 @@
 import tensorflow as tf
 from tensorflow_helnet.layers import DenseLayer, Conv2DLayer, MaxPool2DLayer
 from ac.utils import *
+from ac.distributions import *
 from ac.models import *
 import ac.acer.worker
 
@@ -10,94 +11,6 @@ seq_length = FLAGS.seq_length
 
 def flatten_all_leading_axes(x):
     return tf.reshape(x, [-1, x.get_shape()[-1].value])
-
-def mixture_density(mu_vf, sigma_vf, logits_steer, sigma_steer, vf, steer_buckets, msg):
-
-    # mu: [B, 2], sigma: [B, 2], phi is just a syntatic sugar
-    with tf.variable_scope("speed_control_policy"):
-        mu_vf = tf_print(mu_vf, msg + ", mu_vf = ")
-        sigma_vf = tf_print(sigma_vf, msg + ", sigma_vf = ")
-        dist_vf = tf.contrib.distributions.MultivariateNormalDiag(
-            mu_vf, sigma_vf, allow_nan_stats=False
-        )
-
-    with tf.variable_scope("steer_control_policy"):
-        # Create broadcaster to repeat over time, batch axes
-        broadcaster = logits_steer[..., 0:1] * 0
-
-        components = [
-            tf.contrib.distributions.MultivariateNormalDiag(
-                mu = steer_to_yawrate(s + broadcaster, vf),
-                diag_stdev = sigma_steer[..., i:i+1],
-                allow_nan_stats = False
-            ) for i, s in enumerate(steer_buckets)
-        ]
-
-        cat = tf.contrib.distributions.Categorical(
-            logits=logits_steer, allow_nan_stats=False
-        )
-
-        # Gaussian Mixture Model (GMM)
-        dist_steer = gmm = tf.contrib.distributions.Mixture(
-            cat, components, allow_nan_stats=False
-        )
-
-        # Just categorical
-        # dist_steer = cat
-
-    pi = AttrDict(
-        phi = [mu_vf, sigma_vf, logits_steer, sigma_steer, vf], # for GMM
-        mu_vf         = mu_vf,
-        sigma_vf      = sigma_vf,
-        logits_steer  = logits_steer,
-        sigma_steer   = sigma_steer,
-        vf            = vf,
-        steer_buckets = steer_buckets,
-        n_buckets     = len(steer_buckets)
-    )
-
-    def prob(x, msg):
-        x = x[None, ...]
-
-        x1 = tf_print(x[..., 0:1], msg + ", x1 = ")
-        x2 = tf_print(x[..., 1:2], msg + ", x2 = ")
-
-        p1 = dist_vf.prob(x1)[0, ...]
-        # p2 = dist_steer.prob(tf.to_int32(x[..., 1]))[0, ...]
-        p2 = dist_steer.prob(x2)[0, ...] # for GMM
-
-        p1 = tf_print(p1, msg + ", p1 = ")
-        p2 = tf_print(p2, msg + ", p2 = ")
-        return p1 * p2
-
-    def log_prob(x):
-        x = x[None, ...]
-        lp1 = dist_vf.log_prob(x[..., 0:1])[0, ...]
-        # lp2 = dist_steer.log_prob(tf.to_int32(x[..., 1]))[0, ...]
-        lp2 = dist_steer.log_prob(x[..., 1:2])[0, ...] # for GMM
-        lp1 = tf_print(lp1)
-        lp2 = tf_print(lp2)
-        return lp1 + lp2
-
-    def sample_n(n):
-        s1 = dist_vf.sample_n(n)
-        s1 = tf.maximum(s1, 0.)
-
-        '''
-        step = steer_buckets[1] - steer_buckets[0]
-        begin = steer_buckets[0]
-        s2 = tf.to_float(dist_steer.sample_n(n)[..., None]) * step + begin
-        '''
-        s2 = dist_steer.sample_n(n) # for GMM
-
-        s = tf_concat(-1, [s1, s2])
-        return s
-
-    pi.prob     = prob
-    pi.log_prob = log_prob
-    pi.sample_n = sample_n
-
-    return pi
 
 class AcerEstimator():
     def __init__(self, add_summaries=False, trainable=True, use_naive_policy=True):
@@ -114,20 +27,26 @@ class AcerEstimator():
 
         with tf.variable_scope("shared"):
             shared, self.lstm = build_shared_network(self.state, add_summaries)
+            shared = tf_check_numerics(shared)
 
         with tf.variable_scope("policy"):
-            if FLAGS.single_gaussian:
-                self.pi, self.pi_behavior = self.gaussian_policy(shared, 2, use_naive_policy)
+            if FLAGS.mixture_model:
+                self.pi, self.pi_behavior = self.mixture_density_policy(shared, use_naive_policy)
             else:
-                self.pi, self.pi_behavior = self.mixture_density_policy(shared, 2)
+                if FLAGS.policy_dist == "Gaussian":
+                    self.pi, self.pi_behavior = self.gaussian_policy(shared, use_naive_policy)
+                elif FLAGS.policy_dist == "Beta":
+                    self.pi, self.pi_behavior = self.beta_policy(shared, use_naive_policy)
 
         with tf.name_scope("output"):
             self.a_prime = tf.squeeze(self.pi.sample_n(1), 0)
 
         with tf.variable_scope("V"):
+            # self.value = state_value_network(tf.stop_gradient(shared))
             self.value = state_value_network(shared)
 
         with tf.variable_scope("A"):
+            # adv = self.advantage_network(tf.stop_gradient(shared))
             adv = self.advantage_network(shared)
             Q_tilt = self.SDN_network(adv, self.value, self.pi)
 
@@ -164,12 +83,28 @@ class AcerEstimator():
             # automatic gradient computation, it uses lots of stop_gradient.
             # Therefore it's different from the true loss (self.loss)
             self.loss_sur = self.pi_loss_sur + self.vf_loss_sur
+
+            self.g_phi = tf.pack(tf.gradients(self.loss_sur, self.pi.phi), axis=-1)
+
             self.loss = self.pi_loss + self.vf_loss
 
         with tf.name_scope("grads_and_optimizer"):
-            self.optimizer = tf.train.RMSPropOptimizer(FLAGS.learning_rate)
-            grads_and_vars = self.optimizer.compute_gradients(self.loss_sur)
-            self.grads_and_vars = [(g, v) for g, v in grads_and_vars if g is not None]
+
+            update_ops = tf.get_collection(tf.GraphKeys.UPDATE_OPS)
+            with tf.control_dependencies(update_ops):
+
+                self.optimizer = tf.train.RMSPropOptimizer(FLAGS.learning_rate)
+                # self.optimizer = tf.train.GradientDescentOptimizer(FLAGS.learning_rate)
+
+                grads_and_vars = self.optimizer.compute_gradients(self.loss_sur)
+
+                self.grad_norms = {
+                    str(v.name): tf.sqrt(tf.reduce_sum(g**2))
+                    for g, v in grads_and_vars if g is not None
+                }
+                self.global_norm = tf.global_norm([g for g, v in grads_and_vars if g is not None])
+
+                self.grads_and_vars = [(tf.check_numerics(g, message=str(v.name)), v) for g, v in grads_and_vars if g is not None]
 
             # Collect all trainable variables initialized here
             self.var_list = [v for g, v in self.grads_and_vars]
@@ -183,22 +118,21 @@ class AcerEstimator():
 
         # compute rho, rho_prime, and c
         with tf.name_scope("pi_a"):
-            pi_a = pi.prob(a, "In pi_a: ")[..., None]
-            pi_a = tf_print(pi_a)
+            self.pi_a = pi_a = pi.prob(a, "In pi_a: ")[..., None]
         with tf.name_scope("pi_behavior_a"):
-            mu_a = pi_behavior.prob(a, "In mu_a: ")[..., None]
-            mu_a = tf_print(mu_a)
+            self.mu_a = mu_a = pi_behavior.prob(a, "In mu_a: ")[..., None]
 
         with tf.name_scope("pi_a_prime"):
-            pi_a_prime = pi.prob(a_prime, "In pi_a_prime: ")[..., None]
-            pi_a_prime = tf_print(pi_a_prime)
+            self.pi_a_prime = pi_a_prime = pi.prob(a_prime, "In pi_a_prime: ")[..., None]
         with tf.name_scope("pi_behavior_a_prime"):
-            mu_a_prime = pi_behavior.prob(a_prime, "In mu_a_prime: ")[..., None]
-            mu_a_prime = tf_print(mu_a_prime)
+            self.mu_a_prime = mu_a_prime = pi_behavior.prob(a_prime, "In mu_a_prime: ")[..., None]
 
         # use tf.div instead of pi_a / mu_a to assign a name to the output
         rho = tf.div(pi_a, mu_a)
         rho_prime = tf.div(pi_a_prime, mu_a_prime)
+
+        rho = tf_print(rho)
+        rho_prime = tf_print(rho_prime)
 
         print "pi_a.shape = {}".format(tf_shape(pi_a))
         print "mu_a.shape = {}".format(tf_shape(mu_a))
@@ -252,8 +186,8 @@ class AcerEstimator():
                 r_i = r[i:i+1, ...]
 
             with tf.name_scope("pre_update"):
-                Q_ret_i = r_i + gamma * Q_ret_i
-                Q_opc_i = r_i + gamma * Q_opc_i
+                Q_ret_i = tf_check_numerics(r_i + gamma * Q_ret_i)
+                Q_opc_i = tf_check_numerics(r_i + gamma * Q_opc_i)
 
             # TF equivalent of .prepend()
             with tf.name_scope("prepend"):
@@ -266,8 +200,8 @@ class AcerEstimator():
                 with tf.name_scope("Q_i"): Q_i = Q_tilt_a[i:i+1, ...]
                 with tf.name_scope("V_i"): V_i = values[i:i+1, ...]
 
-                Q_ret_i = c_i * (Q_ret_i - Q_i) + V_i
-                Q_opc_i = 1.0 * (Q_opc_i - Q_i) + V_i
+                Q_ret_i = tf_check_numerics(c_i * (Q_ret_i - Q_i) + V_i)
+                Q_opc_i = tf_check_numerics(1.0 * (Q_opc_i - Q_i) + V_i)
 
             return i-1, Q_ret_i, Q_opc_i, Q_ret, Q_opc
 
@@ -301,14 +235,18 @@ class AcerEstimator():
                 pi_avg.dist, pi.dist, allow_nan=False)
 
             # Take the partial derivatives w.r.t. phi (i.e. mu and sigma)
-            k = tf_concat(-1, tf.gradients(KL_divergence, pi.phi))
+            k = tf.pack(tf.gradients(KL_divergence, pi.phi), axis=-1)
 
             # Compute \frac{k^T g - \delta}{k^T k}, perform reduction only on axis 2
             num   = tf.reduce_sum(k * g, axis=2, keep_dims=True) - delta
             denom = tf.reduce_sum(k * k, axis=2, keep_dims=True)
 
+            # Hold gradient back a little bit if KL divergence is too large
+            correction = tf.maximum(0., num / denom) * k
+            self.correction = correction
+
             # z* is the TRPO regularized gradient
-            z_star = g - tf.maximum(0., num / denom) * k
+            z_star = g - correction
         except:
             z_star = g
 
@@ -360,35 +298,16 @@ class AcerEstimator():
     def predict_actions(self, state, sess=None):
 
         # Sample in TF
-        tensors = [self.a_prime, {
-            k: v for k, v in self.pi.iteritems() if isinstance(v, tf.Tensor)
-        }]
+        tensors = [self.a_prime, self.pi.stats]
 
         feed_dict = self.to_feed_dict(state)
 
         # a_prime, mu, sigma = self.predict(tensors, feed_dict, sess)
-        a_prime, pi_vars = self.predict(tensors, feed_dict, sess)
+        a_prime, stats = self.predict(tensors, feed_dict, sess)
 
         a_prime = a_prime[0, ...].T
-        pi_vars = {k: v[0, ...].T for k, v in pi_vars.iteritems()}
 
-        return a_prime, pi_vars
-        
-        """
-        # Sample in NumPy
-        tensors = {
-            k: v for k, v in self.pi.iteritems() if isinstance(v, tf.Tensor)
-        }
-
-        feed_dict = self.to_feed_dict(state)
-
-        # a_prime, mu, sigma = self.predict(tensors, feed_dict, sess)
-        pi_vars = self.predict(tensors, feed_dict, sess)
-
-        pi_vars = AttrDict({k: v[0, ...].T for k, v in pi_vars.iteritems()})
-
-        return pi_vars
-        """
+        return a_prime, stats
 
     def get_policy_loss(self, rho, pi, a, Q_opc, value, rho_prime,
                         Q_tilt_a_prime, a_prime):
@@ -405,13 +324,14 @@ class AcerEstimator():
 
         # ACER gradient is the gradient of policy objective function, which is
         # the negatation of policy loss
-        g_acer = tf_concat(-1, tf.gradients(pi_obj, pi.phi))
+        g_acer = tf.pack(tf.gradients(pi_obj, pi.phi), axis=-1)
+        self.g_acer = g_acer
 
         with tf.name_scope("TRPO"):
-            g_acer_trpo = self.compute_trust_region_update(
+            self.g_acer_trpo = g_acer_trpo = self.compute_trust_region_update(
                 g_acer, self.avg_net.pi, pi)
 
-        phi = tf_concat(-1, pi.phi)
+        phi = tf.pack(pi.phi, axis=-1)
 
         # Compute the objective function (obj) we try to maximize
         obj = pi_obj
@@ -426,29 +346,26 @@ class AcerEstimator():
         obj_sur = tf.reduce_mean(obj_sur, axis=1)
 
         # Sum over time axis
+        # loss is for display, not for computing gradients, so use reduce_mean
+        # loss_sur is for computing gradients, use reduce_sum
         obj     = tf.reduce_mean(obj    , axis=0)
-        obj_sur = tf.reduce_mean(obj_sur, axis=0)
+        obj_sur = tf.reduce_sum(obj_sur, axis=0)
 
         # loss is the negative of objective function
         return -obj, -obj_sur
 
     def get_value_loss(self, Q_ret, Q_tilt_a, rho, value):
 
-        """
-        # DEBUG
+        """ # DEBUG
         cond = tf.reduce_mean(0.5 * tf.square(Q_ret - Q_tilt_a)) > 5000.
         Q_ret = tf_print(Q_ret, "Q_ret = ", cond)
         Q_tilt_a = tf_print(Q_tilt_a, "Q_tilt_a = ", cond)
         """
 
-        # Q_diff = Q_ret - Q_tilt_a
-        Q_diff = tf.maximum(tf.minimum(Q_ret - Q_tilt_a, 20.), 20.)
+        Q_diff = Q_ret - Q_tilt_a
+        if FLAGS.max_Q_diff is not None:
+            Q_diff = clip(Q_diff, -FLAGS.max_Q_diff, FLAGS.max_Q_diff)
         V_diff = tf.minimum(1., rho) * Q_diff
-
-        """
-        # DEBUG
-        Q_diff = tf_print(Q_diff, "Q_diff = ", cond)
-        """
 
         # L2 norm as loss function
         Q_l2_loss = 0.5 * tf.square(Q_diff)
@@ -466,8 +383,10 @@ class AcerEstimator():
         loss_sur = tf.reduce_mean(tf.squeeze(loss_sur, -1), axis=1)
 
         # Sum over time axis
+        # loss is for display, not for computing gradients, so use reduce_mean
+        # loss_sur is for computing gradients, use reduce_sum
         loss     = tf.reduce_mean(loss,     axis=0)
-        loss_sur = tf.reduce_mean(loss_sur, axis=0)
+        loss_sur = tf.reduce_sum(loss_sur, axis=0)
 
         return loss, loss_sur
 
@@ -479,14 +398,15 @@ class AcerEstimator():
 
         with tf.name_scope("truncation"):
             with tf.name_scope("truncated_importance_weight"):
-                rho_bar = tf.minimum(c, rho)
+                self.rho_bar = rho_bar = tf.minimum(c, rho)
 
             with tf.name_scope("d_log_prob_a"):
-                log_a = pi.log_prob(a)[..., None]
-                log_a = tf_print(log_a, "log_a = ")
+                self.log_a = log_a = pi.log_prob(a)[..., None]
+                log_a = tf_print(log_a)
 
             with tf.name_scope("target_1"):
-                target_1 = self.Q_opc - self.value
+                self.target_1 = target_1 = self.Q_opc - self.value
+                target_1 = tf_print(target_1)
 
             # Policy gradient should only flow backs from log \pi
             truncation = tf.stop_gradient(rho_bar * target_1) * log_a
@@ -494,14 +414,16 @@ class AcerEstimator():
         # compute bias correction term
         with tf.name_scope("bias_correction"):
             with tf.name_scope("bracket_plus"):
-                plus = tf.nn.relu(1. - c / rho_prime)
+                self.plus = plus = tf.nn.relu(1. - c / rho_prime)
+                plus = tf_print(plus)
 
             with tf.name_scope("d_log_prob_a_prime"):
-                log_ap = pi.log_prob(a_prime)[..., None]
-                log_ap = tf_print(log_ap, "log_ap = ")
+                self.log_ap = log_ap = pi.log_prob(a_prime)[..., None]
+                log_ap = tf_print(log_ap)
 
             with tf.name_scope("target_2"):
-                target_2 = Q_tilt_a_prime - value
+                self.target_2 = target_2 = Q_tilt_a_prime - value
+                target_2 = tf_print(target_2)
 
             # Policy gradient should only flow backs from log \pi
             bias_correction = tf.stop_gradient(plus * target_2) * log_ap
@@ -517,7 +439,7 @@ class AcerEstimator():
         the caller doesn't have to pass these as argument anymore
         """
 
-        def Q_tilt(action, name, num_samples=32):
+        def Q_tilt(action, name, num_samples=8):
             with tf.name_scope(name):
                 # See eq. 13 in ACER
                 if len(action.get_shape()) != 4:
@@ -526,14 +448,15 @@ class AcerEstimator():
                 adv = tf.squeeze(advantage(action, name="A_action"), 0)
 
                 # TODO Use symmetric low variance sampling !!
-                advs = advantage(pi.sample_n(num_samples), "A_sampled", num_samples)
+                samples = tf.stop_gradient(pi.sample_n(num_samples))
+                advs = advantage(samples, "A_sampled", num_samples)
                 mean_adv = tf.reduce_mean(advs, axis=0)
 
                 return value + adv - mean_adv
 
         return Q_tilt
 
-    def mixture_density_policy(self, input, num_outputs):
+    def mixture_density_policy(self, input, use_naive_policy):
 
         def get_steer_buckets(w):
             n = int(30 / w)
@@ -544,18 +467,24 @@ class AcerEstimator():
             mu_vf, sigma_vf = policy_network(input, 1)
 
         with tf.variable_scope("steer_control_policy"):
-            bucket_width = 30
-            steer_buckets = get_steer_buckets(bucket_width)
+            steer_buckets = get_steer_buckets(FLAGS.bucket_width)
             n_buckets = len(steer_buckets)
 
             print "steer_buckets      = {} degree".format(steer_buckets)
             steer_buckets = to_radian(steer_buckets)
 
             min_sigma = to_radian(0.1)
-            max_sigma = to_radian(bucket_width / 2)
+            max_sigma = to_radian(FLAGS.bucket_width / 2)
 
             logits_steer, sigma_steer = policy_network(input, n_buckets)
-            sigma_steer = softclip(sigma_steer, min_sigma, max_sigma)
+
+            if use_naive_policy:
+                naive_mu = naive_mean_steer_policy(self.state.front_view)
+                diff = naive_mu[..., None] - tf.constant(steer_buckets[None, None, :], tf.float32)
+                logits_steer = -tf.square(diff * 7) + logits_steer * 0
+
+            # sigma_steer = softclip(sigma_steer, min_sigma, max_sigma)
+            sigma_steer = 0 * sigma_steer + max_sigma
 
         print "mu_vf.shape        = {}".format(tf_shape(mu_vf))
         print "sigma_vf.shape     = {}".format(tf_shape(sigma_vf))
@@ -577,27 +506,109 @@ class AcerEstimator():
             msg="pi_behavior"
         )
 
+        self.pi_prob_steer = pi.prob_steer
+        self.mu_prob_steer = pi_behavior.prob_steer
+
         return pi, pi_behavior
 
-    def gaussian_policy(self, input, num_outputs, use_naive_policy):
+    def beta_policy(self, input, use_naive_policy):
 
-        # mu: [B, 2], sigma: [B, 2], phi is just a syntatic sugar
-        mu, sigma = policy_network(input, num_outputs)
+        AS = FLAGS.action_space
+        alpha, beta = policy_network(input, AS.n_actions, clip_mu=False)
+
+        for i in range(len(alpha)):
+            alpha[i] = tf.nn.sigmoid(alpha[i]) * 10 + 2
+            beta[i]  = tf.nn.sigmoid(beta[i])  * 10 + 2
+
+            alpha[i] = tf_check_numerics(alpha[i])
+            beta[i]  = tf_check_numerics(beta[i])
+
+            alpha[i] = tf_print(alpha[i])
+            beta[i]  = tf_print(beta[i])
 
         # Add naive policy as baseline bias
         if use_naive_policy:
-            naive_mu = naive_mean_steer_policy(self.state.front_view)
-            mu = tf.pack([mu[..., 0], 1e-10 * mu[..., 1] + naive_mu], axis=-1)
+            # TODO haven't figured out yet
+            pass
 
-        # Convert mu_steer (mu[..., 1]) to mu_yawrate
-        mu = s2y(mu, self.get_forward_velocity())
+        # Turn steering angle to yawrate basedon forward velocity
+        vf = self.get_forward_velocity()[..., 0][None, ...]
+        def forward_fn(x):
+            yawrate = steer_to_yawrate(x, vf)
+            yawrate = tf_print(yawrate)
+            return yawrate
 
-        pi = create_distribution(mu, sigma)
+        def inverse_fn(x):
+            steer = yawrate_to_steer(x, vf) * 0
+            steer = tf_print(steer)
+            return steer
+
+        bijectors = [
+            None,
+            AttrDict(
+                forward_fn = forward_fn,
+                inverse_fn = inverse_fn,
+            )
+        ]
+
+        pi = create_distribution(
+            dist_type="beta", bijectors=bijectors, alpha=alpha, beta=beta
+        )
 
         pi_behavior = create_distribution(
-            mu    = tf.placeholder(tf.float32, [seq_length, batch_size, 2], "mu"),
-            sigma = tf.placeholder(tf.float32, [seq_length, batch_size, 2], "sigma")
+            dist_type="beta", 
+            bijectors=bijectors,
+            alpha = [
+                tf.placeholder(tf.float32, [seq_length, batch_size], "alpha_vf"),
+                tf.placeholder(tf.float32, [seq_length, batch_size], "alpha_steer"),
+            ],
+            beta  = [
+                tf.placeholder(tf.float32, [seq_length, batch_size], "beta_vf"),
+                tf.placeholder(tf.float32, [seq_length, batch_size], "beta_steer"),
+            ]
         )
+
+        return pi, pi_behavior
+
+    def gaussian_policy(self, input, use_naive_policy):
+
+        mu, sigma = policy_network(input, FLAGS.action_space.n_actions, clip_mu=False)
+
+        # Add naive policy as baseline bias
+        if use_naive_policy:
+            mu[1] = mu[1] + naive_mean_steer_policy(self.state.front_view)
+
+        # Turn steering angle to yawrate basedon forward velocity
+        mu[1] = steer_to_yawrate(mu[1], self.get_forward_velocity()[..., 0])
+
+        # Confine action space
+        AS = FLAGS.action_space
+        for i in range(len(mu)):
+            mu[i]    = softclip(mu[i], AS.low[i], AS.high[i])
+            sigma[i] = softclip(sigma[i], AS.sigma_low[i], AS.sigma_high[i])
+
+            # For debugging
+            mu[i]    = tf_check_numerics(mu[i])
+            sigma[i] = tf_check_numerics(sigma[i])
+
+        pi = create_distribution(dist_type="normal", mu=mu, sigma=sigma)
+
+        pi_behavior = create_distribution(
+            dist_type="normal", 
+            mu    = [
+                tf.placeholder(tf.float32, [seq_length, batch_size], "mu_vf"),
+                tf.placeholder(tf.float32, [seq_length, batch_size], "mu_steer"),
+            ],
+            sigma = [
+                tf.placeholder(tf.float32, [seq_length, batch_size], "sigma_vf"),
+                tf.placeholder(tf.float32, [seq_length, batch_size], "sigma_steer"),
+            ]
+        )
+
+        # self.pi_mu    = pi.mu
+        # self.pi_sigma = pi.sigma
+        # self.mu_mu    = pi_behavior.mu
+        # self.mu_sigma = pi_behavior.sigma
 
         return pi, pi_behavior
 
@@ -663,7 +674,5 @@ class AcerEstimator():
         if "average_net" not in AcerEstimator.__dict__:
             with tf.variable_scope("average_net"):
                 AcerEstimator.average_net = AcerEstimator(add_summaries=False, trainable=False)
-
-# AcerEstimator.create_averge_network = create_averge_network
 
 AcerEstimator.Worker = ac.acer.worker.AcerWorker

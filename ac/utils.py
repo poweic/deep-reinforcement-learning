@@ -15,52 +15,6 @@ def to_radian(deg):
 def to_degree(rad):
     return rad / np.pi * 180.
 
-def create_distribution(mu, sigma):
-    pi = AttrDict()
-
-    pi.mu = mu
-    pi.sigma = sigma
-    pi.phi = [mu, sigma]
-
-    pi.dist = tf.contrib.distributions.MultivariateNormalDiag(mu, sigma)
-
-    def _op(x, op):
-        return op(x)
-
-        """
-        # Now x is of shape [n, S, B, 2], where n can be 1
-        shape = tf.shape(x)
-        S = shape[0] if seq_length is None else seq_length
-        B = shape[1] if batch_size is None else batch_size
-
-        reshaped_x = tf.reshape(x, [1, S*B, 2])
-        p = op(reshaped_x)
-        p = tf.reshape(p, [S, B])
-        """
-        return p
-
-    def prob(x, name=None):
-        return _op(x, pi.dist.prob)
-
-    def log_prob(x, name=None):
-        return _op(x, pi.dist.log_prob)
-
-    def sample_n(n):
-        return pi.dist.sample_n(n)
-        """
-        samples = pi.dist.sample_n(n)
-        S, B = get_seq_length_batch_size(pi.mu)
-        samples = tf.reshape(samples, [n, S, B, 2])
-        return samples
-        """
-
-    pi.prob = prob
-    pi.log_prob = log_prob
-    pi.sample_n = sample_n
-
-    return pi
-
-
 def normalize(x):
     value_range = np.max(x) - np.min(x)
     if value_range != 0:
@@ -122,7 +76,8 @@ def steer_to_yawrate(steer, v):
       r = wheelbase / tan(steer)
       omega = v / r
     '''
-    assert steer.get_shape().as_list() == v.get_shape().as_list(), "steer = {}, v = {}".format(steer, v)
+    # assert steer.get_shape().as_list() == v.get_shape().as_list(), "steer = {}, v = {}".format(steer, v)
+    # print steer, v
     return v * tf.tan(steer) / FLAGS.wheelbase
 
 def yawrate_to_steer(omega, v):
@@ -132,8 +87,11 @@ def yawrate_to_steer(omega, v):
       r = v / omega
       steer = atan(wheelbase / r)
     '''
-    assert omega.get_shape().as_list() == v.get_shape().as_list()
-    return tf.atan(FLAGS.wheelbase * omega / v)
+    # assert omega.get_shape().as_list() == v.get_shape().as_list()
+
+    # FIXME TensorFlow has bug when dealing with NaN gradient even masked out
+    v = tf.maximum(v, 1e-2)
+    return tf.atan(FLAGS.wheelbase * omega / v) 
 
 def make_train_op(local_estimator, global_estimator):
     """
@@ -184,6 +142,9 @@ def discount(x, gamma):
     else:
         return scipy.signal.lfilter([1], [1, -gamma], x[:, ::-1], axis=1)[:, ::-1]
     '''
+
+def flatten_all(x):
+    return tf.reshape(x, [-1])
 
 def flatten(x): # flatten the first 2 axes
     try:
@@ -267,7 +228,17 @@ def varName(var):
             return name
     return None
 
-def tf_print(x, message=None, cond2=None):
+def tf_check_numerics(x, message=None):
+    if message is None:
+        message = varName(x)
+        if message is None:
+            return x
+        else:
+            message += " = "
+
+    return tf.check_numerics(x, message)
+
+def tf_print(x, message=None, cond2=None, flat_=True):
     if not FLAGS.debug:
         return x
 
@@ -288,7 +259,9 @@ def tf_print(x, message=None, cond2=None):
         cond = tf.logical_and(cond, cond2)
 
     message = "\33[93m" + message + "\33[0m"
-    return tf.cond(cond, lambda: tf.Print(x, [x], message=message, summarize=1000), lambda: x)
+    return tf.cond(cond, lambda: tf.Print(x, [
+        x if not flat_ else flat_(x)
+    ], message=message, summarize=1000), lambda: x)
 
 class AttrDict(dict):
     def __init__(self, *args, **kwargs):

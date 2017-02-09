@@ -191,8 +191,8 @@ class OffRoadNavEnv(gym.Env):
         for i, (x, y, theta, prev_action, state, current_reward, total_return) in enumerate(
                 zip(
                     xs, ys, thetas, self.prev_action.T, self.state.T,
-                    worker.current_reward.squeeze().T,
-                    worker.total_return.squeeze().T
+                    worker.current_reward.squeeze(0).T,
+                    worker.total_return.squeeze(0).T
                 )):
 
             # Draw vehicle on image without copying it first to leave a trajectory
