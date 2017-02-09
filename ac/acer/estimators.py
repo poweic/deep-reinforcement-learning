@@ -1,4 +1,5 @@
 import tensorflow as tf
+from pprint import pprint
 from tensorflow_helnet.layers import DenseLayer, Conv2DLayer, MaxPool2DLayer
 from ac.utils import *
 from ac.distributions import *
@@ -21,7 +22,6 @@ class AcerEstimator():
 
         with tf.name_scope("inputs"):
             self.state = get_state_placeholder()
-            # self.a = tf.to_float(tf.placeholder(tf.int32, [seq_length, batch_size, 2], "actions"))
             self.a = tf.placeholder(tf.float32, [seq_length, batch_size, 2], "actions")
             self.r = tf.placeholder(tf.float32, [seq_length, batch_size, 1], "rewards")
 
@@ -97,6 +97,19 @@ class AcerEstimator():
                 # self.optimizer = tf.train.GradientDescentOptimizer(FLAGS.learning_rate)
 
                 grads_and_vars = self.optimizer.compute_gradients(self.loss_sur)
+
+                none_grads = [
+                    (g, v) for g, v in grads_and_vars
+                    if tf.get_variable_scope().name in v.name and g is None
+                ]
+
+                if len(none_grads) > 0:
+                    print "\33[33m Detected None in grads_and_vars: \33[0m"
+                    pprint([(g, v.name) for g, v in none_grads])
+
+                    print "\33[33m All trainable variables:\33[0m"
+                    pprint([v.name for v in tf.trainable_variables()])
+                    import ipdb; ipdb.set_trace()
 
                 self.grad_norms = {
                     str(v.name): tf.sqrt(tf.reduce_sum(g**2))
@@ -483,8 +496,7 @@ class AcerEstimator():
                 diff = naive_mu[..., None] - tf.constant(steer_buckets[None, None, :], tf.float32)
                 logits_steer = -tf.square(diff * 7) + logits_steer * 0
 
-            # sigma_steer = softclip(sigma_steer, min_sigma, max_sigma)
-            sigma_steer = 0 * sigma_steer + max_sigma
+            sigma_steer = softclip(sigma_steer, min_sigma, max_sigma)
 
         print "mu_vf.shape        = {}".format(tf_shape(mu_vf))
         print "sigma_vf.shape     = {}".format(tf_shape(sigma_vf))
@@ -539,7 +551,8 @@ class AcerEstimator():
             return yawrate
 
         def inverse_fn(x):
-            steer = yawrate_to_steer(x, vf) * 0
+            x = tf_print(x)
+            steer = yawrate_to_steer(x, tf_print(vf))
             steer = tf_print(steer)
             return steer
 
@@ -584,7 +597,7 @@ class AcerEstimator():
         # Confine action space
         AS = FLAGS.action_space
         for i in range(len(mu)):
-            mu[i]    = softclip(mu[i], AS.low[i], AS.high[i])
+            mu[i]    = softclip(mu[i]   , AS.low[i]      , AS.high[i]      )
             sigma[i] = softclip(sigma[i], AS.sigma_low[i], AS.sigma_high[i])
 
             # For debugging
@@ -613,7 +626,14 @@ class AcerEstimator():
         return pi, pi_behavior
 
     def get_forward_velocity(self):
-        return self.state.vehicle_state[..., 4:5]
+        v = self.state.vehicle_state[..., 4:5]
+        
+        # FIXME TensorFlow has bug when dealing with NaN gradient even masked out
+        # so I have to make sure abs(v) is not too small
+        # v = tf.Print(v, [flatten_all(v)], message="\33[33m before v = \33[0m", summarize=100)
+        v = tf.sign(v) * tf.maximum(tf.abs(v), 1e-3)
+        # v = tf.Print(v, [flatten_all(v)], message="\33[33m after  v = \33[0m", summarize=100)
+        return v
 
     def advantage_network(self, input):
 

@@ -66,13 +66,18 @@ def add_eps_exploration(dists, broadcaster):
     action_space = 2
     for i in range(action_space):
 
-        # eps-greedy-like policy for steering angle
-        eps = 0.05
-        prob = tf.constant([[[1. - eps, eps]]], tf.float32) + broadcaster[..., None]
+        # eps-greedy-like policy with epsilon decays over time.
+        # NOTE I use (t / 100 + 1) rather than t so that it looks like:
+        # 1.00, 1.01, 1.02, ... instead of 1, 2, 3, 4, which decays too fast
+        global_step = tf.contrib.framework.get_global_step()
+        eps = 0.10 / (tf.to_float(global_step) / 100. + 1.)
+
+        # With eps probability, we sample our action from random uniform
+        prob = tf.pack([1. - eps, eps], axis=-1)[None, None, ...] + broadcaster[..., None]
         cat = tf.contrib.distributions.Categorical(p=prob, allow_nan_stats=False)
         print cat.sample_n(1)
 
-        # Create uniform dist with compatible size using broadcaster
+        # Create uniform dist
         uniform = tf.contrib.distributions.Uniform(a=a[i], b=b[i], allow_nan_stats=False)
         print uniform.sample_n(1)
 
@@ -102,7 +107,7 @@ def to_joint_distribution(dists, bijectors):
             )[0, ...], message="log_prob[..., {}] = ".format(i)) for i in range(len(dists))
         ])
 
-        log_p = tf_print(log_p, message="in to_joint_distribution: log_p = ")
+        # log_p = tf_print(log_p, message="in to_joint_distribution: log_p = ")
 
         return log_p
 

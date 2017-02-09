@@ -48,22 +48,22 @@ def naive_mean_steer_policy(front_view):
     return num / denom
 
 def LSTM(input, num_outputs, scope=None):
-    # lstm = tf.nn.rnn_cell.BasicLSTMCell(
-    lstm = tf.nn.rnn_cell.LSTMCell(
-        num_outputs, state_is_tuple=True, cell_clip=10., use_peepholes=True,
-        # num_proj=num_outputs/2, proj_clip=1.
-    )
 
     with tf.variable_scope(scope):
+        lstm = tf.nn.rnn_cell.LSTMCell(
+            num_outputs, state_is_tuple=True, use_peepholes=True,
+            # cell_clip=10., num_proj=num_outputs, proj_clip=10.
+        )
+
         state_in = [
             tf.placeholder(tf.float32, [batch_size, lstm.state_size.c], name="c"),
             tf.placeholder(tf.float32, [batch_size, lstm.state_size.h], name="h")
         ]
 
-    lstm_outputs, state_out = tf.nn.dynamic_rnn(
-        lstm, input, dtype=tf.float32, time_major=True, scope=scope,
-        initial_state=tf.nn.rnn_cell.LSTMStateTuple(*state_in)
-    )
+        lstm_outputs, state_out = tf.nn.dynamic_rnn(
+            lstm, input, dtype=tf.float32, time_major=True, scope=scope,
+            initial_state=tf.nn.rnn_cell.LSTMStateTuple(*state_in)
+        )
 
     return AttrDict(
         output    = lstm_outputs,
@@ -102,17 +102,19 @@ def build_shared_network(state, add_summaries=False):
         # (see Issue: https://github.com/tensorflow/tensorflow/issues/6087)
         batch_norm = None # tf.contrib.layers.batch_norm
 
-        conv1 = conv2d(input, 64, 5, activation_fn=tf.nn.relu, normalizer_fn=batch_norm, scope="conv1")
-        conv2 = conv2d(conv1, 64, 5, activation_fn=tf.nn.relu, normalizer_fn=batch_norm, scope="conv2")
+        conv1 = conv2d(input, 32, 5, activation_fn=tf.nn.relu, normalizer_fn=batch_norm, scope="conv1")
+        conv2 = conv2d(conv1, 32, 5, activation_fn=tf.nn.relu, normalizer_fn=batch_norm, scope="conv2")
         pool1 = MaxPool2DLayer(conv2, pool_size=3, stride=2, name='pool1')
 
-        conv3 = conv2d(pool1, 64, 5, activation_fn=tf.nn.relu, normalizer_fn=batch_norm, scope="conv3")
-        conv4 = conv2d(conv3, 64, 5, activation_fn=tf.nn.relu, normalizer_fn=batch_norm, scope="conv4")
+        conv3 = conv2d(pool1, 32, 5, activation_fn=tf.nn.relu, normalizer_fn=batch_norm, scope="conv3")
+        conv4 = conv2d(conv3, 32, 5, activation_fn=tf.nn.relu, normalizer_fn=batch_norm, scope="conv4")
         pool2 = MaxPool2DLayer(conv4, pool_size=3, stride=2, name='pool2')
 
-        # conv5 = conv2d(pool2, 64, 5, activation_fn=tf.nn.relu, normalizer_fn=batch_norm, scope="conv5")
-        # conv6 = conv2d(conv5, 64, 5, activation_fn=tf.nn.relu, normalizer_fn=batch_norm, scope="conv6")
-        # pool3 = MaxPool2DLayer(conv6, pool_size=3, stride=2, name='pool3')
+        """
+        conv5 = conv2d(pool2, 64, 5, activation_fn=tf.nn.relu, normalizer_fn=batch_norm, scope="conv5")
+        conv6 = conv2d(conv5, 64, 5, activation_fn=tf.nn.relu, normalizer_fn=batch_norm, scope="conv6")
+        pool3 = MaxPool2DLayer(conv6, pool_size=3, stride=2, name='pool3')
+        """
 
         flat = tf.contrib.layers.flatten(pool2)
 
@@ -129,20 +131,24 @@ def build_shared_network(state, add_summaries=False):
         # LSTM-1
         # Concatenate encoder's output (i.e. flattened result from conv net)
         # with previous reward (see https://arxiv.org/abs/1611.03673)
-        concat1 = tf.concat(2, [fc, prev_reward])
-        # concat1 = fc
-        lstm1 = LSTM(concat1, 64, scope="LSTM-1")
+        # concat1 = tf.concat(2, [fc, prev_reward])
+        concat1 = fc
+        lstm1 = LSTM(concat1, 128, scope="LSTM-1")
 
         # LSTM-2
         # Concatenate previous output with vehicle_state and prev_action
-        concat2 = tf.concat(2, [fc, lstm1.output, vehicle_state, prev_action])
-        # concat2 = lstm1.output
+        # concat2 = tf.concat(2, [fc, lstm1.output, vehicle_state, prev_action])
+        """
+        concat2 = lstm1.output
         lstm2 = LSTM(concat2, 256, scope="LSTM-2")
+        """
 
-        output = lstm2.output
+        output = lstm1.output
 
-    layers = [conv1, conv2, pool1, conv3, conv4, pool2, # conv5, conv6, pool3,
-              flat, fc, concat1, lstm1.output, concat2, lstm2.output]
+    layers = [
+        conv1, conv2, pool1, conv3, conv4, pool2, # conv5, conv6, pool3,
+        flat, fc, concat1, lstm1.output, # concat2, lstm2.output
+    ]
 
     if add_summaries:
         with tf.name_scope("summaries"):
@@ -158,8 +164,8 @@ def build_shared_network(state, add_summaries=False):
         print layer
 
     return output, AttrDict(
-        state_in  = lstm1.state_in  + lstm2.state_in,
-        state_out = lstm1.state_out + lstm2.state_out,
+        state_in  = lstm1.state_in ,# + lstm2.state_in,
+        state_out = lstm1.state_out,# + lstm2.state_out,
         prev_state_out = None
     )
 
@@ -171,13 +177,11 @@ def policy_network(input, num_outputs, clip_mu=True):
         S, B = get_seq_length_batch_size(input)
         input = flatten(input)
 
-    '''
     input = DenseLayer(
         input=input,
         num_outputs=256,
         nonlinearity="relu",
         name="policy-input-dense")
-    '''
 
     # Linear classifiers for mu and sigma
     mu = DenseLayer(
@@ -190,33 +194,11 @@ def policy_network(input, num_outputs, clip_mu=True):
         num_outputs=num_outputs,
         name="policy-sigma")
 
-    if num_outputs <= 2:
-        with tf.name_scope("mu_sigma_constraints"):
-            """
-            min_mu = tf.constant([[FLAGS.min_mu_vf] + ([FLAGS.min_mu_steer] if num_outputs == 2 else [])], dtype=tf.float32)
-            max_mu = tf.constant([[FLAGS.max_mu_vf] + ([FLAGS.max_mu_steer] if num_outputs == 2 else [])], dtype=tf.float32)
-
-            min_sigma = tf.constant([[FLAGS.min_sigma_vf] + ([FLAGS.min_sigma_steer] if num_outputs == 2 else [])], dtype=tf.float32)
-            max_sigma = tf.constant([[FLAGS.max_sigma_vf] + ([FLAGS.max_sigma_steer] if num_outputs == 2 else [])], dtype=tf.float32)
-
-            # Clip mu by min and max, use softplus and capping for sigma
-            # mu = clip(mu, min_mu, max_mu)
-            # sigma = tf.minimum(tf.nn.softplus(sigma) + min_sigma, max_sigma)
-            # sigma = tf.nn.sigmoid(sigma) * 1e-20 + max_sigma
-
-            if clip_mu:
-                mu = softclip(mu, min_mu, max_mu)
-
-            sigma = softclip(sigma, min_sigma, max_sigma)
-            # sigma = tf.nn.softplus(sigma) + min_sigma
-            """
-
     if rank == 3:
         mu = deflatten(mu, S, B)
         sigma = deflatten(sigma, S, B)
 
-    return tf.unstack(mu, axis=-1), tf.unstack(mu, axis=-1)
-    # return mu, sigma
+    return tf.unstack(mu, axis=-1), tf.unstack(sigma, axis=-1)
 
 def state_value_network(input, num_outputs=1):
     """

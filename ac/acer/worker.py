@@ -285,7 +285,8 @@ class AcerWorker(Worker):
         grad_norms = OrderedDict(sorted(loss.grad_norms.items()))
         max_len = max(map(len, grad_norms.keys()))
         for k, v in grad_norms.iteritems():
-            print "{} grad norm: \33[94m{:12.6e}\33[0m".format(k.ljust(max_len), v)
+            print "{} grad norm: {}{:12.6e}\33[0m".format(
+                k.ljust(max_len), "\33[94m" if v > 0 else "\33[2m", v)
 
         # ======================= DEBUG =================================
         if np.isnan(loss.total):

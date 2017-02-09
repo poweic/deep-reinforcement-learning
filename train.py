@@ -51,13 +51,13 @@ tf.flags.DEFINE_float("entropy-cost-mult", 1e-3, "multiplier used by entropy reg
 tf.flags.DEFINE_float("discount-factor", 0.995, "discount factor in Markov decision process (MDP)")
 tf.flags.DEFINE_float("lambda_", 0.50, "lambda in TD-Lambda (temporal difference learning)")
 
-tf.flags.DEFINE_float("min-mu-vf", 7. / 3.6, "Minimum forward velocity of vehicle (m/s)")
-tf.flags.DEFINE_float("max-mu-vf", 40. / 3.6, "Maximum forward velocity of vehicle (m/s)")
+tf.flags.DEFINE_float("min-mu-vf", 13. / 3.6, "Minimum forward velocity of vehicle (m/s)")
+tf.flags.DEFINE_float("max-mu-vf", 14. / 3.6, "Maximum forward velocity of vehicle (m/s)")
 tf.flags.DEFINE_float("min-mu-steer", -30 * np.pi / 180, "Minimum steering angle (rad)")
 tf.flags.DEFINE_float("max-mu-steer", +30 * np.pi / 180, "Maximum steering angle (rad)")
 
-tf.flags.DEFINE_float("min-sigma-vf", 1. / 3.6, "Minimum variance of forward velocity")
-tf.flags.DEFINE_float("max-sigma-vf", 3. / 3.6, "Maximum variance of forward velocity")
+tf.flags.DEFINE_float("min-sigma-vf", 1.0 / 3.6, "Minimum variance of forward velocity")
+tf.flags.DEFINE_float("max-sigma-vf", 1.1 / 3.6, "Maximum variance of forward velocity")
 tf.flags.DEFINE_float("min-sigma-steer", 3. * np.pi / 180, "Minimum variance of steering angle (rad)")
 tf.flags.DEFINE_float("max-sigma-steer", 20 * np.pi / 180, "Maximum variance of steering angle (rad)")
 '''
@@ -92,10 +92,10 @@ FLAGS.checkpoint_dir = FLAGS.model_dir + "/checkpoints/" + FLAGS.game
 FLAGS.save_path = FLAGS.checkpoint_dir + "/model"
 FLAGS.action_space = AttrDict(
     n_actions   = 2,
-    low        = [FLAGS.min_mu_vf, FLAGS.min_mu_steer],
-    high       = [FLAGS.max_mu_vf, FLAGS.max_mu_steer],
+    low        = [FLAGS.min_mu_vf   , FLAGS.min_mu_steer   ],
+    high       = [FLAGS.max_mu_vf   , FLAGS.max_mu_steer   ],
     sigma_low  = [FLAGS.min_sigma_vf, FLAGS.min_sigma_steer],
-    sigma_high = [FLAGS.min_sigma_vf, FLAGS.min_sigma_steer],
+    sigma_high = [FLAGS.max_sigma_vf, FLAGS.max_sigma_steer],
 )
 pprint(FLAGS.__flags)
 
@@ -169,8 +169,6 @@ def save_model_every_nth_minutes(sess, saver):
 
     schedule.every(FLAGS.save_every_n_minutes).minutes.do(save_model)
 
-Estimator = get_estimator(FLAGS.estimator_type)
-
 config = tf.ConfigProto()
 # config.gpu_options.per_process_gpu_memory_fraction = 0.3
 with tf.Session(config=config) as sess:
@@ -178,8 +176,11 @@ with tf.Session(config=config) as sess:
     global_step = tf.Variable(0, name="global_step", trainable=False)
     max_return = 0
 
+    # Get estimator class by type name
+    Estimator = get_estimator(FLAGS.estimator_type)
+
     # Global policy and value nets
-    with tf.variable_scope("global"):
+    with tf.variable_scope("global_net"):
         global_net = Estimator(trainable=False)
 
     # Global step iterator

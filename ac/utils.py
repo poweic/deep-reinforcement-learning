@@ -88,9 +88,6 @@ def yawrate_to_steer(omega, v):
       steer = atan(wheelbase / r)
     '''
     # assert omega.get_shape().as_list() == v.get_shape().as_list()
-
-    # FIXME TensorFlow has bug when dealing with NaN gradient even masked out
-    v = tf.maximum(v, 1e-2)
     return tf.atan(FLAGS.wheelbase * omega / v) 
 
 def make_train_op(local_estimator, global_estimator):
@@ -260,7 +257,7 @@ def tf_print(x, message=None, cond2=None, flat_=True):
 
     message = "\33[93m" + message + "\33[0m"
     return tf.cond(cond, lambda: tf.Print(x, [
-        x if not flat_ else flat_(x)
+        x if not flat_ else flatten_all(x)
     ], message=message, summarize=1000), lambda: x)
 
 class AttrDict(dict):
