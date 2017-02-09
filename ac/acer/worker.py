@@ -95,6 +95,9 @@ class AcerWorker(Worker):
         self.sess.run(self.copy_params_op)
 
     def store_experience(self, transitions):
+        if len(transitions) == 0:
+            return
+
         # Store transitions in the replay buffer, discard the oldest by popping
         # the 1st element if it exceeds maximum buffer size
         rp = AcerWorker.replay_buffer
@@ -197,6 +200,9 @@ class AcerWorker(Worker):
         return transitions, local_t, global_t
 
     def update(self, trans, on_policy=True):
+
+        if len(trans) == 0:
+            return
 
         mdp_states = AttrDict({
             key: np.concatenate([
