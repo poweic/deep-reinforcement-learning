@@ -27,8 +27,6 @@ class OffRoadNavEnv(gym.Env):
 
         self.prev_action = np.zeros((2, 1))
 
-        self.front_view_disp = np.zeros((400, 400, 3), np.uint8)
-
         self.highlight = False
 
     def _step(self, action):
@@ -156,15 +154,6 @@ class OffRoadNavEnv(gym.Env):
             # print "[{}:{}, {}:{}]".format(cy-fov, cy, cx-fov/2, cx+fov/2)
             img[i, :, :] = rotated[cy-fov:cy, cx-fov/2:cx+fov/2]
 
-        '''
-        front_view = to_image(img[0], self.K * 2)
-        front_view[0, :, :] = 255
-        front_view[-1, :, :] = 255
-        front_view[:, 1, :] = 255
-        front_view[:, -1, :] = 255
-        self.front_view_disp = front_view
-        '''
-
         return img[..., None]
 
     def _render(self, info, mode='human', close=False):
@@ -230,4 +219,3 @@ class OffRoadNavEnv(gym.Env):
         idx = int(worker.name[-1])
         cv2.imshow4(idx, disp_img)
         self.to_disp = disp_img
-        # cv2.imshow4(2*idx + 1, self.front_view_disp)
