@@ -72,7 +72,8 @@ import schedule
 from pprint import pprint
 
 from ac.estimators import get_estimator
-from ac.utils import make_copy_params_op, AttrDict
+from ac.worker import Worker
+from ac.utils import make_copy_params_op, AttrDict, save_model_every_nth_minutes
 # from ac.a3c.monitor import server
 
 from gym_offroad_nav.envs import OffRoadNavEnv
@@ -129,10 +130,6 @@ if FLAGS.reset:
     shutil.rmtree(FLAGS.model_dir, ignore_errors=True)
 '''
 
-def mkdir_p(dirname):
-    if not os.path.exists(dirname):
-        os.makedirs(dirname)
-
 def compute_mean_steering_angle(reward):
     from ac.utils import to_image
     rimg = to_image(reward, 20)
@@ -152,17 +149,6 @@ def compute_mean_steering_angle(reward):
     cv2.imshow("theta", np.abs(theta))
     cv2.waitKey(0)
     sys.exit()
-
-def save_model_every_nth_minutes(sess, saver):
-
-    mkdir_p(FLAGS.checkpoint_dir)
-
-    def save_model():
-        step = sess.run(tf.contrib.framework.get_global_step())
-        fn = saver.save(sess, FLAGS.save_path, global_step=step)
-        print time.strftime('[%H:%M:%S %Y/%m/%d] model saved to '), fn
-
-    schedule.every(FLAGS.save_every_n_minutes).minutes.do(save_model)
 
 config = tf.ConfigProto()
 # config.gpu_options.per_process_gpu_memory_fraction = 0.3
@@ -203,13 +189,13 @@ with tf.Session(config=config) as sess:
 
     workers[0].summary_writer = summary_writer
 
-    saver = tf.train.Saver(max_to_keep=10, var_list=[
+    FLAGS.saver = tf.train.Saver(max_to_keep=10, var_list=[
         v for v in tf.trainable_variables() if "worker" not in v.name
     ] + [global_step])
 
     sess.run(tf.global_variables_initializer())
 
-    save_model_every_nth_minutes(sess, saver)
+    save_model_every_nth_minutes(sess)
 
     coord = tf.train.Coordinator()
 
@@ -218,7 +204,7 @@ with tf.Session(config=config) as sess:
         latest_checkpoint = tf.train.latest_checkpoint(FLAGS.checkpoint_dir)
         if latest_checkpoint:
             tf.logging.info("Loading model checkpoint: {}".format(latest_checkpoint))
-            saver.restore(sess, latest_checkpoint)
+            FLAGS.saver.restore(sess, latest_checkpoint)
 
     # Start worker threads
     worker_threads = []
@@ -234,7 +220,7 @@ with tf.Session(config=config) as sess:
     # Show how agent behaves in envs in main thread
     if FLAGS.display:
         counter = 0
-        while True:
+        while not Worker.stop:
             for worker in workers:
                 if worker.max_return > max_return:
                     max_return = worker.max_return

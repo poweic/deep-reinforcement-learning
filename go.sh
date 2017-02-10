@@ -1,7 +1,7 @@
 #!/bin/bash
 ./train.py \
-  --model-dir /Data3/acer-offroad-2/ \
-  --parallelism 1 \
+  --model-dir /Data3/acer-offroad-icml2017/ \
+  --parallelism 2 \
   --game s_shape \
   --save-every-n-minutes 10 \
   --t-max 20 \
@@ -10,7 +10,7 @@
   --timestep 0.001 \
   --replay-ratio 0.125 \
   --avg-net-momentum 0.95 \
-  --max-replay-buffer-size 5000 \
+  --max-replay-buffer-size 1000 \
   --command-freq 5 \
   --learning-rate 1e-3 \
   --discount-factor 0.99 \

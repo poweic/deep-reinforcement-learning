@@ -1,3 +1,5 @@
+# -*- coding: utf-8 -*-
+
 from collections import OrderedDict
 import tensorflow as tf
 import ac.acer.estimators
@@ -35,6 +37,8 @@ class AcerWorker(Worker):
 
         self.prev_debug = None
         self.prev_mdp_states = None
+
+        self.avg_total_returns = []
 
         def copy_global_to_avg():
             msg = "\33[94mInitialize average net when global_step = \33[0m"
@@ -86,6 +90,9 @@ class AcerWorker(Worker):
         # Run off-policy ACER N times
         self._run_off_policy_n_times()
 
+        if self.is_problem_solved():
+            Worker.stop = True
+
         if self.max_global_steps is not None and global_t >= self.max_global_steps:
             tf.logging.info("Reached global step {}. Stopping.".format(global_t))
             self.coord.request_stop()
@@ -107,7 +114,26 @@ class AcerWorker(Worker):
         if len(rp) > FLAGS.max_replay_buffer_size:
             rp.pop(0)
 
-        tf.logging.info("len(replay_buffer) = \33[93m{}\33[0m".format(len(rp)))
+        if len(rp) % 20 == 0:
+            tf.logging.info("len(replay_buffer) = {}".format(len(rp)))
+
+    def is_problem_solved(self):
+        min_episodes = 50
+        min_score = 45.0
+        last_50 = self.avg_total_returns[-min_episodes:]
+
+        tf.logging.info("np.mean(last_50) = {}".format(np.mean(last_50)))
+        if len(self.avg_total_returns) > min_episodes and np.mean(last_50) > min_score:
+            gstep = self.sess.run(self.global_step)
+            tf.logging.info("Problem solved @ step {} !".format(gstep))
+            tf.logging.info("Last 50 episodes' score: {} ± {}".format(
+                np.mean(last_50), np.std(last_50)
+            ))
+            tf.logging.info("Total returns: {}".format(self.avg_total_returns))
+            save_model(self.sess)
+            return True
+
+        return False
 
     def _run_on_policy(self):
         self.copy_params_from_global()
@@ -198,6 +224,8 @@ class AcerWorker(Worker):
             else:
                 self.state = next_state
 
+        self.avg_total_returns.append(np.mean(self.total_return))
+
         return transitions, local_t, global_t
 
     def update(self, trans, on_policy=True):
@@ -269,11 +297,12 @@ class AcerWorker(Worker):
         loss = AttrDict(loss)
 
         gstep = self.sess.run(self.inc_global_step)
-        tf.logging.info("#{:6d}: pi_loss = {:+12.3f}, vf_loss = {:+12.3f}, loss = {:+12.3f} {}".format(
+        tf.logging.info((
+            "#{:6d}: pi_loss = {:+12.3f}, vf_loss = {:+12.3f}, "
+            "loss = {:+12.3f} {}\33[0m S = {:3d}, B = {} [{}] global_norm = {}"
+        ).format(
             gstep, loss.pi, loss.vf, loss.total,
-            "\33[92m[on  policy]\33[0m" if on_policy else "\33[93m[off policy]\33[0m",
-        ))
-        tf.logging.info("#{:6d}: S = {:3d}, B = {} [{}] global_norm = {}".format(
+            "\33[92m[on  policy]" if on_policy else "\33[93m[off policy]",
             gstep, S, B, self.name, loss.global_norm
         ))
 

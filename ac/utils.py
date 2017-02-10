@@ -1,13 +1,31 @@
+import os
+import cv2
+import time
 import collections
 import numpy as np
 import scipy.signal
 import scipy.interpolate as interpolate
 import tensorflow as tf
 import inspect
-import cv2
+import schedule
 FLAGS = tf.flags.FLAGS
 batch_size = FLAGS.batch_size
 seq_length = FLAGS.seq_length
+
+def mkdir_p(dirname):
+    if not os.path.exists(dirname):
+        os.makedirs(dirname)
+
+def save_model_every_nth_minutes(sess):
+    mkdir_p(FLAGS.checkpoint_dir)
+    schedule.every(FLAGS.save_every_n_minutes).minutes.do(
+        lambda: save_model(sess)
+    )
+
+def save_model(sess):
+    step = sess.run(tf.contrib.framework.get_global_step())
+    fn = FLAGS.saver.save(sess, FLAGS.save_path, global_step=step)
+    print time.strftime('[%H:%M:%S %Y/%m/%d] model saved to '), fn
 
 def to_radian(deg):
     return deg / 180. * np.pi
