@@ -78,6 +78,8 @@ from ac.utils import make_copy_params_op, AttrDict
 from gym_offroad_nav.envs import OffRoadNavEnv
 from gym_offroad_nav.vehicle_model import VehicleModel
 
+import my_logger
+
 # Parse command line arguments, add some additional flags, and print them out
 FLAGS = tf.flags.FLAGS
 FLAGS.checkpoint_dir = "{}/checkpoints/{}{}".format(
@@ -165,6 +167,7 @@ def save_model_every_nth_minutes(sess, saver):
 config = tf.ConfigProto()
 # config.gpu_options.per_process_gpu_memory_fraction = 0.3
 with tf.Session(config=config) as sess:
+
     # Keeps track of the number of updates we've performed
     global_step = tf.Variable(0, name="global_step", trainable=False)
     max_return = 0
@@ -183,7 +186,7 @@ with tf.Session(config=config) as sess:
     workers = []
     for i in range(FLAGS.parallelism):
         name = "worker_%d" % i
-        print "Initializing {} ...".format(name)
+        tf.logging.info("Initializing {} ...".format(name))
 
         worker = Estimator.Worker(
             name=name,
@@ -214,7 +217,7 @@ with tf.Session(config=config) as sess:
     if FLAGS.resume:
         latest_checkpoint = tf.train.latest_checkpoint(FLAGS.checkpoint_dir)
         if latest_checkpoint:
-            print("Loading model checkpoint: {}".format(latest_checkpoint))
+            tf.logging.info("Loading model checkpoint: {}".format(latest_checkpoint))
             saver.restore(sess, latest_checkpoint)
 
     # Start worker threads

@@ -107,7 +107,7 @@ class AcerWorker(Worker):
         if len(rp) > FLAGS.max_replay_buffer_size:
             rp.pop(0)
 
-        print "len(replay_buffer) = \33[93m{}\33[0m".format(len(rp))
+        tf.logging.info("len(replay_buffer) = \33[93m{}\33[0m".format(len(rp)))
 
     def _run_on_policy(self):
         self.copy_params_from_global()
@@ -115,7 +115,7 @@ class AcerWorker(Worker):
         # Collect transitions {(s_0, a_0, r_0, mu_0), (s_1, ...), ... }
         n = int(np.ceil(FLAGS.t_max * FLAGS.command_freq))
         transitions, local_t, global_t = self.run_n_steps(n)
-        # print "Average time to predict actions: {}".format(self.timer / self.timer_counter)
+        # tf.logging.info("Average time to predict actions: {}".format(self.timer / self.timer_counter))
 
         # Compute gradient and Perform update
         self.update(transitions)
@@ -269,18 +269,21 @@ class AcerWorker(Worker):
         loss = AttrDict(loss)
 
         gstep = self.sess.run(self.inc_global_step)
-        print "#{:6d}, pi_loss = {:+12.3f}, vf_loss = {:+12.3f}, loss = {:+12.3f} {}".format(
+        tf.logging.info((
+            "#{:6d}, pi_loss = {:+12.3f}, vf_loss = {:+12.3f}"
+            ", loss = {:+12.3f} {}"
+            "S = {:3d}, B = {} [{}] global_norm = {}"
+        ).format(
             gstep, loss.pi, loss.vf, loss.total,
             "\33[92m[on  policy]\33[0m" if on_policy else "\33[93m[off policy]\33[0m",
-        ),
-
-        print "S = {:3d}, B = {} [{}] global_norm = {}".format(S, B, self.name, loss.global_norm)
+            S, B, self.name, loss.global_norm
+        ))
 
         grad_norms = OrderedDict(sorted(loss.grad_norms.items()))
         max_len = max(map(len, grad_norms.keys()))
         for k, v in grad_norms.iteritems():
-            print "{} grad norm: {}{:12.6e}\33[0m".format(
-                k.ljust(max_len), "\33[94m" if v > 0 else "\33[2m", v)
+            tf.logging.info("{} grad norm: {}{:12.6e}\33[0m".format(
+                k.ljust(max_len), "\33[94m" if v > 0 else "\33[2m", v))
 
         # ======================= DEBUG =================================
         if FLAGS.dump_crash_report and np.isnan(loss.total):
@@ -289,7 +292,7 @@ class AcerWorker(Worker):
             })
             
             for k in debug_keys:
-                print "\33[93m {} [{}] = \33[0m\n{}".format(k, debug[k].shape, debug[k])
+                tf.logging.info("\33[93m {} [{}] = \33[0m\n{}".format(k, debug[k].shape, debug[k]))
 
             import scipy.io
             scipy.io.savemat("debug.mat", debug)

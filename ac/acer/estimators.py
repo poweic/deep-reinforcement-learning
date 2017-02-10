@@ -62,7 +62,7 @@ class AcerEstimator():
 
             with tf.name_scope("c_i"):
                 self.c = tf.minimum(1., self.rho ** (1. / 2), "c_i")
-                print "c.shape = {}".format(tf_shape(self.c))
+                tf.logging.info("c.shape = {}".format(tf_shape(self.c)))
 
             with tf.name_scope("Q_Retrace"):
                 self.Q_ret, self.Q_opc = self.compute_Q_ret_Q_opc_recursively(
@@ -96,7 +96,7 @@ class AcerEstimator():
                 self.optimizer = tf.train.RMSPropOptimizer(FLAGS.learning_rate)
                 # self.optimizer = tf.train.GradientDescentOptimizer(FLAGS.learning_rate)
 
-                print "Computing gradients ..."
+                tf.logging.info("Computing gradients ...")
                 grads_and_vars = self.optimizer.compute_gradients(self.loss_sur)
 
                 none_grads = [
@@ -105,10 +105,10 @@ class AcerEstimator():
                 ]
 
                 if len(none_grads) > 0:
-                    print "\33[33m Detected None in grads_and_vars: \33[0m"
+                    tf.logging.warn("\33[33m Detected None in grads_and_vars: \33[0m")
                     pprint([(g, v.name) for g, v in none_grads])
 
-                    print "\33[33m All trainable variables:\33[0m"
+                    tf.logging.warn("\33[33m All trainable variables:\33[0m")
                     pprint([v.name for v in tf.trainable_variables()])
                     import ipdb; ipdb.set_trace()
 
@@ -123,7 +123,7 @@ class AcerEstimator():
             # Collect all trainable variables initialized here
             self.var_list = [v for g, v in self.grads_and_vars]
 
-        print "Adding summaries ..."
+        tf.logging.info("Adding summaries ...")
         self.summaries = self.summarize(add_summaries)
 
     def compute_rho(self, a, a_prime, pi, pi_behavior):
@@ -149,12 +149,12 @@ class AcerEstimator():
         rho = tf_print(rho)
         rho_prime = tf_print(rho_prime)
 
-        print "pi_a.shape = {}".format(tf_shape(pi_a))
-        print "mu_a.shape = {}".format(tf_shape(mu_a))
-        print "pi_a_prime.shape = {}".format(tf_shape(pi_a_prime))
-        print "mu_a_prime.shape = {}".format(tf_shape(mu_a_prime))
-        print "rho.shape = {}".format(tf_shape(rho))
-        print "rho_prime.shape = {}".format(tf_shape(rho_prime))
+        tf.logging.info("pi_a.shape = {}".format(tf_shape(pi_a)))
+        tf.logging.info("mu_a.shape = {}".format(tf_shape(mu_a)))
+        tf.logging.info("pi_a_prime.shape = {}".format(tf_shape(pi_a_prime)))
+        tf.logging.info("mu_a_prime.shape = {}".format(tf_shape(mu_a_prime)))
+        tf.logging.info("rho.shape = {}".format(tf_shape(rho)))
+        tf.logging.info("rho_prime.shape = {}".format(tf_shape(rho_prime)))
 
         rho = tf.stop_gradient(rho, name="rho")
         rho_prime = tf.stop_gradient(rho_prime, name="rho_prime")
@@ -169,7 +169,7 @@ class AcerEstimator():
         # Q_opc = tf.zeros_like(self.value)
         # return Q_ret, Q_opc
 
-        print "Compute Q_ret & Q_opc recursively ..."
+        tf.logging.info("Compute Q_ret & Q_opc recursively ...")
         gamma = tf.constant(FLAGS.discount_factor, dtype=tf.float32)
         # gamma = tf_print(gamma, "gamma = ")
 
@@ -181,13 +181,6 @@ class AcerEstimator():
 
             Q_ret = Q_ret_0
             Q_opc = Q_opc_0
-
-            '''
-            print "Q_ret_0.shape = {}".format(tf_shape(Q_ret_0))
-            print "Q_opc_0.shape = {}".format(tf_shape(Q_opc_0))
-            print "Q_ret.shape = {}".format(tf_shape(Q_ret))
-            print "Q_opc.shape = {}".format(tf_shape(Q_opc))
-            '''
 
             k = tf.shape(values)[0] # if seq_length is None else seq_length
             i_0 = k - 1
@@ -328,7 +321,7 @@ class AcerEstimator():
     def get_policy_loss(self, rho, pi, a, Q_opc, value, rho_prime,
                         Q_tilt_a_prime, a_prime):
 
-        print "Computing policy loss ..."
+        tf.logging.info("Computing policy loss ...")
 
         with tf.name_scope("ACER"):
             pi_obj = self.compute_ACER_policy_obj(
@@ -380,7 +373,7 @@ class AcerEstimator():
         Q_tilt_a = tf_print(Q_tilt_a, "Q_tilt_a = ", cond)
         """
 
-        print "Computing value loss ..."
+        tf.logging.info("Computing value loss ...")
 
         Q_diff = Q_ret - Q_tilt_a
         if FLAGS.max_Q_diff is not None:
@@ -476,6 +469,7 @@ class AcerEstimator():
 
         return Q_tilt
 
+    """
     def mixture_density_policy(self, input, use_naive_policy):
 
         def get_steer_buckets(w):
@@ -490,7 +484,7 @@ class AcerEstimator():
             steer_buckets = get_steer_buckets(FLAGS.bucket_width)
             n_buckets = len(steer_buckets)
 
-            print "steer_buckets      = {} degree".format(steer_buckets)
+            tf.logging.info("steer_buckets      = {} degree".format(steer_buckets))
             steer_buckets = to_radian(steer_buckets)
 
             min_sigma = to_radian(0.1)
@@ -505,10 +499,10 @@ class AcerEstimator():
 
             sigma_steer = softclip(sigma_steer, min_sigma, max_sigma)
 
-        print "mu_vf.shape        = {}".format(tf_shape(mu_vf))
-        print "sigma_vf.shape     = {}".format(tf_shape(sigma_vf))
-        print "logits_steer.shape = {}".format(tf_shape(logits_steer))
-        print "sigma_steer.shape  = {}".format(tf_shape(sigma_steer))
+        tf.logging.info("mu_vf.shape        = {}".format(tf_shape(mu_vf)))
+        tf.logging.info("sigma_vf.shape     = {}".format(tf_shape(sigma_vf)))
+        tf.logging.info("logits_steer.shape = {}".format(tf_shape(logits_steer)))
+        tf.logging.info("sigma_steer.shape  = {}".format(tf_shape(sigma_steer)))
 
         pi = mixture_density(mu_vf, sigma_vf, logits_steer, sigma_steer,
                              self.get_forward_velocity(), steer_buckets,
@@ -529,6 +523,7 @@ class AcerEstimator():
         self.mu_prob_steer = pi_behavior.prob_steer
 
         return pi, pi_behavior
+    """
 
     def beta_policy(self, input, use_naive_policy):
 

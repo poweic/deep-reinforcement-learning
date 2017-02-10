@@ -75,11 +75,11 @@ def add_eps_exploration(dists, broadcaster):
         # With eps probability, we sample our action from random uniform
         prob = tf.pack([1. - eps, eps], axis=-1)[None, None, ...] + broadcaster[..., None]
         cat = tf.contrib.distributions.Categorical(p=prob, allow_nan_stats=False)
-        print cat.sample_n(1)
+        tf.logging.info(cat.sample_n(1))
 
         # Create uniform dist
         uniform = tf.contrib.distributions.Uniform(a=a[i], b=b[i], allow_nan_stats=False)
-        print uniform.sample_n(1)
+        tf.logging.info(uniform.sample_n(1))
 
         # Eps-Normal as policy
         dists[i] = tf.contrib.distributions.Mixture(

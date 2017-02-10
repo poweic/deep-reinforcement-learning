@@ -194,7 +194,7 @@ def build_shared_network(state, add_summaries=False):
             # for layer in layers: tf.contrib.layers.summarize_activation(layer)
 
     for layer in layers:
-        print layer
+        tf.logging.info(layer)
 
     return output, AttrDict(
         state_in  = lstm1.state_in  + lstm2.state_in,
