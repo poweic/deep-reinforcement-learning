@@ -124,10 +124,7 @@ def to_joint_distribution(dists, bijectors):
             ) for i in range(len(dists))
         ]
 
-        s = tf.pack(samples, axis=-1)
-        print "\33[94ms = \33[0m", s
-
-        return s
+        return tf.pack(samples, axis=-1)
 
     dist = AttrDict(
         prob = prob,

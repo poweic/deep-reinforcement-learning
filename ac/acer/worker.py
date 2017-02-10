@@ -61,7 +61,7 @@ class AcerWorker(Worker):
 
     def reset_env(self):
 
-        self.state = np.array([0, 1, -20 * np.pi / 180, 0, 0, 0])
+        self.state = np.array([0, 1, +15 * np.pi / 180, 0, 0, 0])
         self.action = np.array([0, 0])
 
         # Reshape to compatiable format
@@ -233,11 +233,6 @@ class AcerWorker(Worker):
                     t.pi_stats[k][i] for t in trans
                 ], axis=0)
 
-        '''
-        for k, v in feed_dict.viewitems():
-            print "feed_dict[{}].shape = {}".format(k.name, v.shape)
-        '''
-
         ops = [
             {
                 'pi': net.pi_loss,
@@ -247,22 +242,22 @@ class AcerWorker(Worker):
                 'grad_norms': net.grad_norms
             },
             net.summaries,
-            self.train_and_update_avgnet_op
+            self.train_and_update_avgnet_op,
+            tf.no_op()
         ]
 
         # ======================= DEBUG =================================
-        debug_keys = [
-            'a', 'pi_a', 'mu_a', 'a_prime', 'pi_a_prime', 'mu_a_prime',
-            'rho', 'g_phi', 'g_acer',
-            'Q_ret', 'Q_opc', 'Q_tilt_a', 'Q_tilt_a_prime',
-            'rho_bar', 'log_a' , 'target_1', 'value',
-            'plus'   , 'log_ap', 'target_2',
-            # 'pi_mu', 'mu_mu', 'pi_sigma', 'mu_sigma'
-        ]
+        if FLAGS.dump_crash_report:
+            debug_keys = [
+                'a', 'pi_a', 'mu_a', 'a_prime', 'pi_a_prime', 'mu_a_prime',
+                'rho', 'g_phi', 'g_acer',
+                'Q_ret', 'Q_opc', 'Q_tilt_a', 'Q_tilt_a_prime',
+                'rho_bar', 'log_a' , 'target_1', 'value',
+                'plus'   , 'log_ap', 'target_2',
+                # 'pi_mu', 'mu_mu', 'pi_sigma', 'mu_sigma'
+            ]
 
-        ops.append({
-            k: getattr(net, k) for k in debug_keys
-        })
+            ops[-1] = { k: getattr(net, k) for k in debug_keys }
         # ======================= DEBUG =================================
 
         net.reset_lstm_state()
@@ -271,7 +266,6 @@ class AcerWorker(Worker):
         loss, summaries, _, debug = net.predict(ops, feed_dict, self.sess)
         loss = AttrDict(loss)
 
-        self.counter += 1
         gstep = self.sess.run(self.inc_global_step)
         print "#{:6d}, pi_loss = {:+12.3f}, vf_loss = {:+12.3f}, loss = {:+12.3f} {}".format(
             gstep, loss.pi, loss.vf, loss.total,
@@ -289,19 +283,13 @@ class AcerWorker(Worker):
                 k.ljust(max_len), "\33[94m" if v > 0 else "\33[2m", v)
 
         # ======================= DEBUG =================================
-        if np.isnan(loss.total):
+        if FLAGS.dump_crash_report and np.isnan(loss.total):
             np.set_printoptions(precision=4, linewidth=500, suppress=True, formatter={
                 'float_kind': lambda x: ("\33[2m" if x == 0 else "") + (("{:+12.5e}" if abs(x) < 1e-9 or abs(x) > 10 else "{:+12.9f}").format(x)) + "\33[0m"
             })
             
             for k in debug_keys:
                 print "\33[93m {} [{}] = \33[0m\n{}".format(k, debug[k].shape, debug[k])
-                """
-                v = debug[k] = debug[k].squeeze(1).T
-                if v.shape[0] == 4:
-                    v = v[:2]
-                print "\33[93m {} = \33[0m\n{}".format(k, v[:, :10])
-                """
 
             import scipy.io
             scipy.io.savemat("debug.mat", debug)
@@ -311,15 +299,16 @@ class AcerWorker(Worker):
             scipy.io.savemat("prev_mdp_states.mat", self.prev_mdp_states)
 
             import ipdb; ipdb.set_trace()
+
             np.set_printoptions()
+
+            self.prev_debug = debug
+            self.prev_mdp_states = mdp_states
         # ======================= DEBUG =================================
 
         # Write summaries
         if self.summary_writer is not None:
             self.summary_writer.add_summary(summaries, gstep)
             self.summary_writer.flush()
-
-        self.prev_debug = debug
-        self.prev_mdp_states = mdp_states
 
 AcerWorker.replay_buffer = []

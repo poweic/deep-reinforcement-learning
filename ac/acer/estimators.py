@@ -84,7 +84,7 @@ class AcerEstimator():
             # Therefore it's different from the true loss (self.loss)
             self.loss_sur = self.pi_loss_sur + self.vf_loss_sur
 
-            self.g_phi = tf.pack(tf.gradients(self.loss_sur, self.pi.phi), axis=-1)
+            # self.g_phi = tf.pack(tf.gradients(self.loss_sur, self.pi.phi), axis=-1)
 
             self.loss = self.pi_loss + self.vf_loss
 
@@ -96,6 +96,7 @@ class AcerEstimator():
                 self.optimizer = tf.train.RMSPropOptimizer(FLAGS.learning_rate)
                 # self.optimizer = tf.train.GradientDescentOptimizer(FLAGS.learning_rate)
 
+                print "Computing gradients ..."
                 grads_and_vars = self.optimizer.compute_gradients(self.loss_sur)
 
                 none_grads = [
@@ -122,6 +123,7 @@ class AcerEstimator():
             # Collect all trainable variables initialized here
             self.var_list = [v for g, v in self.grads_and_vars]
 
+        print "Adding summaries ..."
         self.summaries = self.summarize(add_summaries)
 
     def compute_rho(self, a, a_prime, pi, pi_behavior):
@@ -167,6 +169,7 @@ class AcerEstimator():
         # Q_opc = tf.zeros_like(self.value)
         # return Q_ret, Q_opc
 
+        print "Compute Q_ret & Q_opc recursively ..."
         gamma = tf.constant(FLAGS.discount_factor, dtype=tf.float32)
         # gamma = tf_print(gamma, "gamma = ")
 
@@ -325,6 +328,8 @@ class AcerEstimator():
     def get_policy_loss(self, rho, pi, a, Q_opc, value, rho_prime,
                         Q_tilt_a_prime, a_prime):
 
+        print "Computing policy loss ..."
+
         with tf.name_scope("ACER"):
             pi_obj = self.compute_ACER_policy_obj(
                 rho, pi, a, Q_opc, value, rho_prime, Q_tilt_a_prime, a_prime)
@@ -374,6 +379,8 @@ class AcerEstimator():
         Q_ret = tf_print(Q_ret, "Q_ret = ", cond)
         Q_tilt_a = tf_print(Q_tilt_a, "Q_tilt_a = ", cond)
         """
+
+        print "Computing value loss ..."
 
         Q_diff = Q_ret - Q_tilt_a
         if FLAGS.max_Q_diff is not None:

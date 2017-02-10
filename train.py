@@ -37,6 +37,7 @@ tf.flags.DEFINE_boolean("reset", False, "If set, delete the existing model direc
 tf.flags.DEFINE_boolean("display", True, "If set, no imshow will be called")
 tf.flags.DEFINE_boolean("resume", False, "If set, resume training from the corresponding last checkpoint file")
 tf.flags.DEFINE_boolean("debug", False, "If set, turn on the debug flag")
+tf.flags.DEFINE_boolean("dump-crash-report", False, "If set, dump mdp_states and internal TF variables when crashed.")
 
 tf.flags.DEFINE_float("t-max", 30, "Maximum elasped time per simulation (in seconds)")
 tf.flags.DEFINE_float("command-freq", 20, "How frequent we send command to vehicle (in Hz)")
@@ -60,17 +61,6 @@ tf.flags.DEFINE_float("min-sigma-vf", 1.0 / 3.6, "Minimum variance of forward ve
 tf.flags.DEFINE_float("max-sigma-vf", 1.1 / 3.6, "Maximum variance of forward velocity")
 tf.flags.DEFINE_float("min-sigma-steer", 3. * np.pi / 180, "Minimum variance of steering angle (rad)")
 tf.flags.DEFINE_float("max-sigma-steer", 20 * np.pi / 180, "Maximum variance of steering angle (rad)")
-'''
-tf.flags.DEFINE_float("min-mu-vf", 7  / 3.6 - 0.0001, "Minimum forward velocity of vehicle (m/s)")
-tf.flags.DEFINE_float("max-mu-vf", 7  / 3.6 + 0.0001, "Maximum forward velocity of vehicle (m/s)")
-tf.flags.DEFINE_float("min-mu-steer", -30 * np.pi / 180, "Minimum steering angle (rad)")
-tf.flags.DEFINE_float("max-mu-steer", +30 * np.pi / 180, "Maximum steering angle (rad)")
-
-tf.flags.DEFINE_float("min-sigma-vf", 0.05 / 3.6 - 0.001, "Minimum variance of forward velocity")
-tf.flags.DEFINE_float("max-sigma-vf", 0.05 / 3.6 + 0.001, "Maximum variance of forward velocity")
-tf.flags.DEFINE_float("min-sigma-steer", 1 * np.pi / 180 - 0.001, "Minimum variance of steering angle (rad)")
-tf.flags.DEFINE_float("max-sigma-steer", 15 * np.pi / 180 + 0.001, "Maximum variance of steering angle (rad)")
-'''
 
 import itertools
 import shutil
