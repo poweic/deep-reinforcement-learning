@@ -241,7 +241,7 @@ class AcerWorker(Worker):
                 'vf': net.vf_loss,
                 'total': net.loss,
                 'global_norm': net.global_norm,
-                'grad_norms': net.grad_norms
+                # 'grad_norms': net.grad_norms
             },
             net.summaries,
             self.train_and_update_avgnet_op,
@@ -269,21 +269,20 @@ class AcerWorker(Worker):
         loss = AttrDict(loss)
 
         gstep = self.sess.run(self.inc_global_step)
-        tf.logging.info((
-            "#{:6d}, pi_loss = {:+12.3f}, vf_loss = {:+12.3f}"
-            ", loss = {:+12.3f} {}"
-            "S = {:3d}, B = {} [{}] global_norm = {}"
-        ).format(
+        tf.logging.info("#{:6d}: pi_loss = {:+12.3f}, vf_loss = {:+12.3f}, loss = {:+12.3f} {}".format(
             gstep, loss.pi, loss.vf, loss.total,
             "\33[92m[on  policy]\33[0m" if on_policy else "\33[93m[off policy]\33[0m",
-            S, B, self.name, loss.global_norm
+        ))
+        tf.logging.info("#{:6d}: S = {:3d}, B = {} [{}] global_norm = {}".format(
+            gstep, S, B, self.name, loss.global_norm
         ))
 
-        grad_norms = OrderedDict(sorted(loss.grad_norms.items()))
-        max_len = max(map(len, grad_norms.keys()))
-        for k, v in grad_norms.iteritems():
-            tf.logging.info("{} grad norm: {}{:12.6e}\33[0m".format(
-                k.ljust(max_len), "\33[94m" if v > 0 else "\33[2m", v))
+        if "grad_norms" in loss:
+            grad_norms = OrderedDict(sorted(loss.grad_norms.items()))
+            max_len = max(map(len, grad_norms.keys()))
+            for k, v in grad_norms.iteritems():
+                tf.logging.info("{} grad norm: {}{:12.6e}\33[0m".format(
+                    k.ljust(max_len), "\33[94m" if v > 0 else "\33[2m", v))
 
         # ======================= DEBUG =================================
         if FLAGS.dump_crash_report and np.isnan(loss.total):
