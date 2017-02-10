@@ -565,10 +565,7 @@ class AcerEstimator():
 
         bijectors = [
             None,
-            AttrDict(
-                forward_fn = forward_fn,
-                inverse_fn = inverse_fn,
-            )
+            AttrDict(forward_fn = forward_fn, inverse_fn = inverse_fn)
         ]
 
         pi = create_distribution(
