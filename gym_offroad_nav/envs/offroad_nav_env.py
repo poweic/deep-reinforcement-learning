@@ -9,6 +9,7 @@ from ac.utils import to_image
 from time import time
 
 FLAGS = tf.flags.FLAGS
+RAD2DEG = 180. / np.pi
 
 class OffRoadNavEnv(gym.Env):
 
@@ -214,8 +215,8 @@ class OffRoadNavEnv(gym.Env):
             text = "reward = {:.3f}, return = {:.3f} / {:.3f}".format(current_reward, total_return, worker.max_return)
             cv2.putText(disp_img, text, (10, 20), font, font_size, color, 1, cv2.CV_AA)
 
-            text = "action = ({:+.2f}, {:+.2f})".format(
-                prev_action[0], prev_action[1])
+            text = "action = ({:+.2f} km/h, {:+.2f}) rad/s".format(
+                prev_action[0] * 3.6, prev_action[1] * RAD2DEG)
             cv2.putText(disp_img, text, (10, 40 * self.K - 50), font, font_size, color, 1, cv2.CV_AA)
 
             text = "(x, y, theta)  = ({:+.2f}, {:+.2f}, {:+.2f})".format(
