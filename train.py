@@ -24,7 +24,7 @@ tf.flags.DEFINE_integer("save-every-n-minutes", 10, "Save model every N minutes"
 
 tf.flags.DEFINE_integer("field-of-view", 20, "size of front view (N x N) passed to network")
 
-tf.flags.DEFINE_integer("replay-ratio", 10, "off-policy memory replay ratio, choose a number from {0, 1, 4, 8}")
+tf.flags.DEFINE_float("replay-ratio", 10, "off-policy memory replay ratio, choose a number from {0, 1, 4, 8}")
 tf.flags.DEFINE_integer("max-replay-buffer-size", 100, "off-policy memory replay buffer")
 tf.flags.DEFINE_float("avg-net-momentum", 0.995, "soft update momentum for average policy network in TRPO")
 tf.flags.DEFINE_float("max-Q-diff", None, "Maximum Q difference (for robustness)")
@@ -52,7 +52,7 @@ tf.flags.DEFINE_float("entropy-cost-mult", 1e-3, "multiplier used by entropy reg
 tf.flags.DEFINE_float("discount-factor", 0.995, "discount factor in Markov decision process (MDP)")
 tf.flags.DEFINE_float("lambda_", 0.50, "lambda in TD-Lambda (temporal difference learning)")
 
-tf.flags.DEFINE_float("min-mu-vf", 13. / 3.6, "Minimum forward velocity of vehicle (m/s)")
+tf.flags.DEFINE_float("min-mu-vf", 6. / 3.6, "Minimum forward velocity of vehicle (m/s)")
 tf.flags.DEFINE_float("max-mu-vf", 14. / 3.6, "Maximum forward velocity of vehicle (m/s)")
 tf.flags.DEFINE_float("min-mu-steer", -30 * np.pi / 180, "Minimum steering angle (rad)")
 tf.flags.DEFINE_float("max-mu-steer", +30 * np.pi / 180, "Maximum steering angle (rad)")
