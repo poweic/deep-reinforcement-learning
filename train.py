@@ -9,6 +9,7 @@ import numpy as np
 import tensorflow as tf
 
 tf.flags.DEFINE_string("model-dir", "/Data3/a3c-offroad/", "Directory to write Tensorboard summaries and models to.")
+tf.flags.DEFINE_string("tag", None, "Optional experiment tag")
 tf.flags.DEFINE_string("game", "line", "Game environment")
 tf.flags.DEFINE_string("estimator-type", "A3C", "Choose A3C or ACER")
 
@@ -32,6 +33,7 @@ tf.flags.DEFINE_boolean("mixture-model", False, "Use single Gaussian if set to T
 tf.flags.DEFINE_string("policy-dist", "Gaussian", "Either Gaussian, Beta, or StudentT")
 tf.flags.DEFINE_integer("bucket-width", 10, "bucket_width")
 
+tf.flags.DEFINE_boolean("bi-directional", False, "If set, use bi-directional RNN/LSTM")
 tf.flags.DEFINE_boolean("drift", False, "If set, turn on drift")
 tf.flags.DEFINE_boolean("reset", False, "If set, delete the existing model directory and start training from scratch.")
 tf.flags.DEFINE_boolean("display", True, "If set, no imshow will be called")
@@ -78,7 +80,9 @@ from gym_offroad_nav.vehicle_model import VehicleModel
 
 # Parse command line arguments, add some additional flags, and print them out
 FLAGS = tf.flags.FLAGS
-FLAGS.checkpoint_dir = FLAGS.model_dir + "/checkpoints/" + FLAGS.game
+FLAGS.checkpoint_dir = "{}/checkpoints/{}{}".format(
+    FLAGS.model_dir, FLAGS.game, "-" + FLAGS.tag if FLAGS.tag is not None else ""
+)
 FLAGS.save_path = FLAGS.checkpoint_dir + "/model"
 FLAGS.action_space = AttrDict(
     n_actions   = 2,
@@ -109,10 +113,9 @@ def make_env():
     # rewards -= 100
     # rewards -= 15
     rewards = (rewards - np.min(rewards)) / (np.max(rewards) - np.min(rewards))
-    rewards = (rewards - 0.5) * 2 # 128
-    # rewards = (rewards - 0.6) * 2
-
-    # compute_mean_steering_angle(rewards)
+    # rewards = (rewards - 0.5) * 2 # 128
+    rewards = (rewards - 0.7) * 2
+    rewards[rewards > 0] *= 10
 
     # rewards[rewards < 0.1] = -1
     env = OffRoadNavEnv(rewards, vehicle_model)

@@ -536,8 +536,8 @@ class AcerEstimator():
         alpha, beta = policy_network(input, AS.n_actions, clip_mu=False)
 
         for i in range(len(alpha)):
-            alpha[i] = tf.nn.sigmoid(alpha[i]) * 10 + 2
-            beta[i]  = tf.nn.sigmoid(beta[i])  * 10 + 2
+            alpha[i] = tf.nn.softplus(alpha[i]) + 2
+            beta[i]  = tf.nn.softplus(beta[i])  + 2
 
             alpha[i] = tf_check_numerics(alpha[i])
             beta[i]  = tf_check_numerics(beta[i])

@@ -50,20 +50,55 @@ def naive_mean_steer_policy(front_view):
 def LSTM(input, num_outputs, scope=None):
 
     with tf.variable_scope(scope):
-        lstm = tf.nn.rnn_cell.LSTMCell(
+        # Forward LSTM Cell and its initial state placeholder
+        lstm_fw = tf.nn.rnn_cell.LSTMCell(
             num_outputs, state_is_tuple=True, use_peepholes=True,
             # cell_clip=10., num_proj=num_outputs, proj_clip=10.
         )
 
-        state_in = [
-            tf.placeholder(tf.float32, [batch_size, lstm.state_size.c], name="c"),
-            tf.placeholder(tf.float32, [batch_size, lstm.state_size.h], name="h")
+        state_in_fw = [
+            tf.placeholder(tf.float32, [batch_size, lstm_fw.state_size.c], name="c_fw"),
+            tf.placeholder(tf.float32, [batch_size, lstm_fw.state_size.h], name="h_fw")
         ]
 
-        lstm_outputs, state_out = tf.nn.dynamic_rnn(
-            lstm, input, dtype=tf.float32, time_major=True, scope=scope,
-            initial_state=tf.nn.rnn_cell.LSTMStateTuple(*state_in)
-        )
+        if FLAGS.bi_directional:
+            # Backward LSTM Cell and its initial state placeholder
+            lstm_bw = tf.nn.rnn_cell.LSTMCell(
+                num_outputs, state_is_tuple=True, use_peepholes=True,
+                # cell_clip=10., num_proj=num_outputs, proj_clip=10.
+            )
+
+            state_in_bw = [
+                tf.placeholder(tf.float32, [batch_size, lstm_bw.state_size.c], name="c_bw"),
+                tf.placeholder(tf.float32, [batch_size, lstm_bw.state_size.h], name="h_bw")
+            ]
+
+            broadcaster = tf.to_int32(input[0, :, 0]) * 0
+            sequence_length = tf.shape(input)[0] + broadcaster
+
+            # bi-directional LSTM (forward + backward)
+            lstm_outputs, state_out = tf.nn.bidirectional_dynamic_rnn(
+                lstm_fw, lstm_bw, input, dtype=tf.float32, time_major=True, scope=scope,
+                sequence_length=sequence_length,
+                initial_state_fw=tf.nn.rnn_cell.LSTMStateTuple(*state_in_fw),
+                initial_state_bw=tf.nn.rnn_cell.LSTMStateTuple(*state_in_bw)
+            )
+
+            # Concate forward/backward output to create a tensor of shape
+            # [seq_length, batch_size, 2 * num_outputs]
+            lstm_outputs = tf_concat(-1, lstm_outputs)
+
+            # Group forward/backward states into a single list
+            state_out = state_out[0] + state_out[1]
+            state_in = state_in_fw + state_in_bw
+        else:
+            # 1-directional LSTM (forward only)
+            lstm_outputs, state_out = tf.nn.dynamic_rnn(
+                lstm_fw, input, dtype=tf.float32, time_major=True, scope=scope,
+                initial_state=tf.nn.rnn_cell.LSTMStateTuple(*state_in_fw)
+            )
+
+            state_in = state_in_fw
 
     return AttrDict(
         output    = lstm_outputs,
@@ -102,12 +137,12 @@ def build_shared_network(state, add_summaries=False):
         # (see Issue: https://github.com/tensorflow/tensorflow/issues/6087)
         batch_norm = None # tf.contrib.layers.batch_norm
 
-        conv1 = conv2d(input, 32, 5, activation_fn=tf.nn.relu, normalizer_fn=batch_norm, scope="conv1")
-        conv2 = conv2d(conv1, 32, 5, activation_fn=tf.nn.relu, normalizer_fn=batch_norm, scope="conv2")
+        conv1 = conv2d(input, 64, 5, activation_fn=tf.nn.relu, normalizer_fn=batch_norm, scope="conv1")
+        conv2 = conv2d(conv1, 64, 5, activation_fn=tf.nn.relu, normalizer_fn=batch_norm, scope="conv2")
         pool1 = MaxPool2DLayer(conv2, pool_size=3, stride=2, name='pool1')
 
-        conv3 = conv2d(pool1, 32, 5, activation_fn=tf.nn.relu, normalizer_fn=batch_norm, scope="conv3")
-        conv4 = conv2d(conv3, 32, 5, activation_fn=tf.nn.relu, normalizer_fn=batch_norm, scope="conv4")
+        conv3 = conv2d(pool1, 64, 5, activation_fn=tf.nn.relu, normalizer_fn=batch_norm, scope="conv3")
+        conv4 = conv2d(conv3, 64, 5, activation_fn=tf.nn.relu, normalizer_fn=batch_norm, scope="conv4")
         pool2 = MaxPool2DLayer(conv4, pool_size=3, stride=2, name='pool2')
 
         """
@@ -131,23 +166,21 @@ def build_shared_network(state, add_summaries=False):
         # LSTM-1
         # Concatenate encoder's output (i.e. flattened result from conv net)
         # with previous reward (see https://arxiv.org/abs/1611.03673)
-        # concat1 = tf.concat(2, [fc, prev_reward])
-        concat1 = fc
+        concat1 = tf.concat(2, [fc, prev_reward])
+        # concat1 = fc
         lstm1 = LSTM(concat1, 128, scope="LSTM-1")
 
         # LSTM-2
         # Concatenate previous output with vehicle_state and prev_action
-        # concat2 = tf.concat(2, [fc, lstm1.output, vehicle_state, prev_action])
-        """
-        concat2 = lstm1.output
+        concat2 = tf.concat(2, [fc, lstm1.output, vehicle_state, prev_action])
+        # concat2 = lstm1.output
         lstm2 = LSTM(concat2, 256, scope="LSTM-2")
-        """
 
-        output = lstm1.output
+        output = lstm2.output
 
     layers = [
         conv1, conv2, pool1, conv3, conv4, pool2, # conv5, conv6, pool3,
-        flat, fc, concat1, lstm1.output, # concat2, lstm2.output
+        flat, fc, concat1, lstm1.output, concat2, lstm2.output
     ]
 
     if add_summaries:
@@ -164,8 +197,8 @@ def build_shared_network(state, add_summaries=False):
         print layer
 
     return output, AttrDict(
-        state_in  = lstm1.state_in ,# + lstm2.state_in,
-        state_out = lstm1.state_out,# + lstm2.state_out,
+        state_in  = lstm1.state_in  + lstm2.state_in,
+        state_out = lstm1.state_out + lstm2.state_out,
         prev_state_out = None
     )
 

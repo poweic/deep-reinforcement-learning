@@ -61,7 +61,7 @@ class AcerWorker(Worker):
 
     def reset_env(self):
 
-        self.state = np.array([0, 1, +15 * np.pi / 180, 0, 0, 0])
+        self.state = np.array([+1, 1, -10 * np.pi / 180, 0, 0, 0])
         self.action = np.array([0, 0])
 
         # Reshape to compatiable format
@@ -212,6 +212,8 @@ class AcerWorker(Worker):
             for key in trans[0].mdp_state.keys()
         })
 
+        S, B = mdp_states.front_view.shape[:2]
+
         action = np.concatenate([t.action.T[None, ...] for t in trans], axis=0)
         reward = np.concatenate([t.reward.T[None, ...] for t in trans], axis=0)
 
@@ -272,9 +274,7 @@ class AcerWorker(Worker):
             "\33[92m[on  policy]\33[0m" if on_policy else "\33[93m[off policy]\33[0m",
         ),
 
-        print "S = {:3d}, B = {}".format(*(mdp_states.front_view.shape[:2])),
-        print "[{}]".format(self.name),
-        print "global_norm = {}".format(loss.global_norm)
+        print "S = {:3d}, B = {} [{}] global_norm = {}".format(S, B, self.name, loss.global_norm)
 
         grad_norms = OrderedDict(sorted(loss.grad_norms.items()))
         max_len = max(map(len, grad_norms.keys()))
