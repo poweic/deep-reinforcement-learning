@@ -184,7 +184,9 @@ class AcerWorker(Worker):
 
         self.gstep = self.sess.run(self.inc_global_step)
         if self.gstep % 10 == 0:
-            print >> open(FLAGS.stats_file, 'w'), self.global_episode_stats
+            # also print experiment configuration in MATLAB parseable JSON
+            cfg = "'" + repr(FLAGS.exp_config)[1:-1].replace("'", '"') + "'\n"
+            print >> open(FLAGS.stats_file, 'w'), cfg, self.global_episode_stats
 
     def _run_off_policy_n_times(self):
         N = np.random.poisson(FLAGS.replay_ratio)

@@ -112,7 +112,9 @@ FLAGS.action_space = AttrDict(
 )
 import my_logger
 
-tf.logging.info(pprint.pformat(FLAGS.__flags))
+exp_config = pprint.pformat(FLAGS.__flags)
+FLAGS.exp_config = exp_config
+tf.logging.info(exp_config)
 
 # 
 W = 400
