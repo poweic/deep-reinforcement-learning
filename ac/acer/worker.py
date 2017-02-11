@@ -59,9 +59,24 @@ class AcerWorker(Worker):
 
             with tf.control_dependencies([train_op]):
 
-                self.train_and_update_avgnet_op = make_copy_params_op(
+                train_and_update_avgnet_op = make_copy_params_op(
                     global_vars, avg_vars, alpha=FLAGS.avg_net_momentum
                 )
+
+                net = self.local_net
+
+                self.step_op = [
+                    {
+                        'pi': net.pi_loss,
+                        'vf': net.vf_loss,
+                        'total': net.loss,
+                        'global_norm': net.global_norm,
+                        # 'grad_norms': net.grad_norms
+                    },
+                    net.summaries,
+                    train_and_update_avgnet_op,
+                    tf.no_op()
+                ]
 
         self.inc_global_step = tf.assign_add(self.global_step, 1)
 
@@ -274,19 +289,6 @@ class AcerWorker(Worker):
                     t.pi_stats[k][i] for t in trans
                 ], axis=0)
 
-        ops = [
-            {
-                'pi': net.pi_loss,
-                'vf': net.vf_loss,
-                'total': net.loss,
-                'global_norm': net.global_norm,
-                # 'grad_norms': net.grad_norms
-            },
-            net.summaries,
-            self.train_and_update_avgnet_op,
-            tf.no_op()
-        ]
-
         # ======================= DEBUG =================================
         if FLAGS.dump_crash_report:
             debug_keys = [
@@ -304,7 +306,7 @@ class AcerWorker(Worker):
         net.reset_lstm_state()
         avg_net.reset_lstm_state()
 
-        loss, summaries, _, debug = net.predict(ops, feed_dict, self.sess)
+        loss, summaries, _, debug = net.predict(self.step_op, feed_dict, self.sess)
         loss = AttrDict(loss)
 
         self.gstep = self.sess.run(self.inc_global_step)

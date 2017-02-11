@@ -205,6 +205,7 @@ with tf.Session(config=config) as sess:
     ] + [global_step])
 
     sess.run(tf.global_variables_initializer())
+    tf.get_default_graph().finalize()
 
     save_model_every_nth_minutes(sess)
 
