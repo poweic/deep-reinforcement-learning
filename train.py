@@ -55,6 +55,8 @@ tf.flags.DEFINE_float("t-max", 30, "Maximum elasped time per simulation (in seco
 tf.flags.DEFINE_float("command-freq", 20, "How frequent we send command to vehicle (in Hz)")
 
 tf.flags.DEFINE_float("learning-rate", 2e-4, "Learning rate for policy net and value net")
+tf.flags.DEFINE_boolean("random-learning-rate", False, "Random sample learning rate from LogUniform(1e-4, 1e-2)")
+
 tf.flags.DEFINE_float("l2-reg", 1e-4, "L2 regularization multiplier")
 tf.flags.DEFINE_float("max-gradient", 10, "Threshold for gradient clipping used by tf.clip_by_global_norm")
 tf.flags.DEFINE_float("timestep", 0.025, "Simulation timestep")
@@ -110,6 +112,10 @@ FLAGS.action_space = AttrDict(
     sigma_low  = [FLAGS.min_sigma_vf, FLAGS.min_sigma_steer],
     sigma_high = [FLAGS.max_sigma_vf, FLAGS.max_sigma_steer],
 )
+
+if FLAGS.random_learning_rate:
+    FLAGS.learning_rate = np.random.uniform(1e-4, 1e-2)
+
 import my_logger
 
 exp_config = pprint.pformat(FLAGS.__flags)
