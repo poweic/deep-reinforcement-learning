@@ -1,5 +1,5 @@
 # -*- coding: utf-8 -*-
-
+import gc
 from collections import OrderedDict
 import tensorflow as tf
 import ac.acer.estimators
@@ -39,6 +39,8 @@ class AcerWorker(Worker):
         self.prev_mdp_states = None
 
         self.avg_total_returns = []
+        self.episode_lengths = []
+        self.timestamps = []
 
         def copy_global_to_avg():
             msg = "\33[94mInitialize average net when global_step = \33[0m"
@@ -71,8 +73,8 @@ class AcerWorker(Worker):
         # Reshape to compatiable format
         self.state = self.state.astype(np.float32).reshape(6, -1)
         self.action = np.zeros((2, self.n_agents), dtype=np.float32)
-        self.total_return = np.zeros((1, self.n_agents))
-        self.current_reward = np.zeros((1, self.n_agents))
+        self.total_return = np.zeros((1, self.n_agents), dtype=np.float32)
+        self.current_reward = np.zeros((1, self.n_agents), dtype=np.float32)
 
         # Add some noise to have diverse start points
         noise = np.random.randn(6, self.n_agents).astype(np.float32) * 0.5
@@ -81,9 +83,12 @@ class AcerWorker(Worker):
         self.state = self.state + noise
 
         self.env._reset(self.state)
+        self.initial_reset_timestamp = time.time()
 
     def _run(self):
         
+        show_mem_usage()
+
         # Run on-policy ACER
         self._run_on_policy()
 
@@ -91,11 +96,8 @@ class AcerWorker(Worker):
         self._run_off_policy_n_times()
 
         if self.is_problem_solved():
-            Worker.stop = True
-
-        if self.max_global_steps is not None and global_t >= self.max_global_steps:
-            tf.logging.info("Reached global step {}. Stopping.".format(global_t))
             self.coord.request_stop()
+            Worker.stop = True
             return
 
     def copy_params_from_global(self):
@@ -113,6 +115,7 @@ class AcerWorker(Worker):
         rp.append(transitions)
         if len(rp) > FLAGS.max_replay_buffer_size:
             rp.pop(0)
+            gc.collect()
 
         if len(rp) % 20 == 0:
             tf.logging.info("len(replay_buffer) = {}".format(len(rp)))
@@ -124,12 +127,14 @@ class AcerWorker(Worker):
 
         tf.logging.info("np.mean(last_50) = {}".format(np.mean(last_50)))
         if len(self.avg_total_returns) > min_episodes and np.mean(last_50) > min_score:
-            gstep = self.sess.run(self.global_step)
-            tf.logging.info("Problem solved @ step {} !".format(gstep))
+            tf.logging.info("Problem solved @ step {} !".format(self.gstep))
             tf.logging.info("Last 50 episodes' score: {} ± {}".format(
                 np.mean(last_50), np.std(last_50)
             ))
             tf.logging.info("Total returns: {}".format(self.avg_total_returns))
+            tf.logging.info("Episode lengths: {}".format(self.episode_lengths))
+            tf.logging.info("initial_reset_timestamp: {}".format(self.initial_reset_timestamp))
+            tf.logging.info("timestamps: {}".format(self.timestamps))
             save_model(self.sess)
             return True
 
@@ -140,7 +145,7 @@ class AcerWorker(Worker):
 
         # Collect transitions {(s_0, a_0, r_0, mu_0), (s_1, ...), ... }
         n = int(np.ceil(FLAGS.t_max * FLAGS.command_freq))
-        transitions, local_t, global_t = self.run_n_steps(n)
+        transitions = self.run_n_steps(n)
         # tf.logging.info("Average time to predict actions: {}".format(self.timer / self.timer_counter))
 
         # Compute gradient and Perform update
@@ -212,21 +217,27 @@ class AcerWorker(Worker):
                 done=done.copy()
             ))
 
-            # Increase local and global counters
-            local_t = next(self.local_counter)
-            global_t = next(self.global_counter)
-
-            if local_t % 100 == 0:
-                tf.logging.info("{}: local Step {}, global step {}".format(self.name, local_t, global_t))
-
             if np.any(done):
                 break
             else:
                 self.state = next_state
 
-        self.avg_total_returns.append(np.mean(self.total_return))
+        self.gstep = self.sess.run(self.inc_global_step)
+        avg_total_return = np.mean(self.total_return)
 
-        return transitions, local_t, global_t
+        # Dump episodes stats
+        np.set_printoptions(formatter={'float_kind': lambda x: "{:.2f}".format(x)})
+        tf.logging.info(
+            "Episode {:05d}: total return: {} [mean = {:.2f}], length = {}".format(
+                self.gstep, self.total_return.flatten(),
+                avg_total_return, len(transitions)
+        ))
+        np.set_printoptions()
+        self.episode_lengths.append(len(transitions))
+        self.avg_total_returns.append(avg_total_return)
+        self.timestamps.append(time.time())
+
+        return transitions
 
     def update(self, trans, on_policy=True):
 
@@ -296,14 +307,14 @@ class AcerWorker(Worker):
         loss, summaries, _, debug = net.predict(ops, feed_dict, self.sess)
         loss = AttrDict(loss)
 
-        gstep = self.sess.run(self.inc_global_step)
+        self.gstep = self.sess.run(self.inc_global_step)
         tf.logging.info((
             "#{:6d}: pi_loss = {:+12.3f}, vf_loss = {:+12.3f}, "
             "loss = {:+12.3f} {}\33[0m S = {:3d}, B = {} [{}] global_norm = {}"
         ).format(
-            gstep, loss.pi, loss.vf, loss.total,
+            self.gstep, loss.pi, loss.vf, loss.total,
             "\33[92m[on  policy]" if on_policy else "\33[93m[off policy]",
-            gstep, S, B, self.name, loss.global_norm
+            S, B, self.name, loss.global_norm
         ))
 
         if "grad_norms" in loss:
@@ -339,7 +350,7 @@ class AcerWorker(Worker):
 
         # Write summaries
         if self.summary_writer is not None:
-            self.summary_writer.add_summary(summaries, gstep)
+            self.summary_writer.add_summary(summaries, self.gstep)
             self.summary_writer.flush()
 
 AcerWorker.replay_buffer = []

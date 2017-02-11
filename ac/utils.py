@@ -1,6 +1,7 @@
 import os
 import cv2
 import time
+import psutil
 import collections
 import numpy as np
 import scipy.signal
@@ -15,6 +16,16 @@ seq_length = FLAGS.seq_length
 def mkdir_p(dirname):
     if not os.path.exists(dirname):
         os.makedirs(dirname)
+
+def show_mem_usage():
+    process = psutil.Process(os.getpid())
+    usage = float(process.memory_info().rss)
+
+    for order, unit in zip([10, 20, 30], ["KB", "MB", "GB"]):
+        if usage > 2. ** order:
+            usage_v = "{:.3f} {}".format(usage / (2. ** order), unit)
+
+    tf.logging.info("Memory usage: {} ({} Bytes)".format(usage_v, usage))
 
 def save_model_every_nth_minutes(sess):
     mkdir_p(FLAGS.checkpoint_dir)

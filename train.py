@@ -8,14 +8,18 @@ import scipy.io
 import numpy as np
 import tensorflow as tf
 
-tf.flags.DEFINE_string("model-dir", "/Data3/a3c-offroad/", "Directory to write Tensorboard summaries and models to.")
+tf.flags.DEFINE_string("base-dir", "/Data3/a3c-offroad/", "Directory to write Tensorboard summaries and models to.")
 tf.flags.DEFINE_string("tag", None, "Optional experiment tag")
+tf.flags.DEFINE_string("log-file", None, "log file")
 tf.flags.DEFINE_string("game", "line", "Game environment")
 tf.flags.DEFINE_string("estimator-type", "A3C", "Choose A3C or ACER")
 
 tf.flags.DEFINE_integer("max-global-steps", None, "Stop training after this many steps in the environment. Defaults to running indefinitely.")
 tf.flags.DEFINE_integer("seq-length", None, "sequence length used for construct TF graph")
 tf.flags.DEFINE_integer("batch-size", None, "batch size used for construct TF graph")
+
+tf.flags.DEFINE_float("eps-init", 0.10, "initial value for epsilon in eps-greedy algorithm")
+tf.flags.DEFINE_integer("effective-timescale", 20, "Effective timestep = (global_step / effective_timescale) + 1")
 
 tf.flags.DEFINE_integer("eval-every", 30, "Evaluate the policy every N seconds")
 tf.flags.DEFINE_integer("parallelism", 1, "Number of threads to run. If not set we run [num_cpu_cores] threads.")
@@ -69,24 +73,28 @@ import shutil
 import threading
 import time
 import schedule
-from pprint import pprint
+import pprint
 
 from ac.estimators import get_estimator
 from ac.worker import Worker
-from ac.utils import make_copy_params_op, AttrDict, save_model_every_nth_minutes
+from ac.utils import (make_copy_params_op, AttrDict,
+                      save_model_every_nth_minutes)
 # from ac.a3c.monitor import server
 
+from gym import wrappers
 from gym_offroad_nav.envs import OffRoadNavEnv
 from gym_offroad_nav.vehicle_model import VehicleModel
 
-import my_logger
-
 # Parse command line arguments, add some additional flags, and print them out
 FLAGS = tf.flags.FLAGS
-FLAGS.checkpoint_dir = "{}/checkpoints/{}{}".format(
-    FLAGS.model_dir, FLAGS.game, "-" + FLAGS.tag if FLAGS.tag is not None else ""
+FLAGS.exp_dir = "{}/{}{}".format(
+    FLAGS.base_dir, FLAGS.game, "-" + FLAGS.tag if FLAGS.tag is not None else ""
 )
-FLAGS.save_path = FLAGS.checkpoint_dir + "/model"
+FLAGS.log_dir        = FLAGS.exp_dir + "/log/"
+# FLAGS.monitor_dir    = FLAGS.exp_dir + "/monitor"
+FLAGS.checkpoint_dir = FLAGS.exp_dir + "/checkpoint"
+FLAGS.save_path      = FLAGS.checkpoint_dir + "/model"
+
 FLAGS.action_space = AttrDict(
     n_actions   = 2,
     low        = [FLAGS.min_mu_vf   , FLAGS.min_mu_steer   ],
@@ -94,7 +102,9 @@ FLAGS.action_space = AttrDict(
     sigma_low  = [FLAGS.min_sigma_vf, FLAGS.min_sigma_steer],
     sigma_high = [FLAGS.max_sigma_vf, FLAGS.max_sigma_steer],
 )
-pprint(FLAGS.__flags)
+import my_logger
+
+tf.logging.info(pprint.pformat(FLAGS.__flags))
 
 # 
 W = 400
@@ -122,12 +132,13 @@ def make_env():
 
     # rewards[rewards < 0.1] = -1
     env = OffRoadNavEnv(rewards, vehicle_model)
+    # env = wrappers.Monitor(env, FLAGS.monitor_dir, video_callable=False)
     return env
 
 # Optionally empty model directory
 '''
 if FLAGS.reset:
-    shutil.rmtree(FLAGS.model_dir, ignore_errors=True)
+    shutil.rmtree(FLAGS.base_dir, ignore_errors=True)
 '''
 
 def compute_mean_steering_angle(reward):
@@ -184,7 +195,7 @@ with tf.Session(config=config) as sess:
 
         workers.append(worker)
 
-    summary_dir = os.path.join(FLAGS.model_dir, "train")
+    summary_dir = os.path.join(FLAGS.base_dir, "train")
     summary_writer = tf.summary.FileWriter(summary_dir, sess.graph)
 
     workers[0].summary_writer = summary_writer

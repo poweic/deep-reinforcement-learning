@@ -67,10 +67,11 @@ def add_eps_exploration(dists, broadcaster):
     for i in range(action_space):
 
         # eps-greedy-like policy with epsilon decays over time.
-        # NOTE I use (t / 100 + 1) rather than t so that it looks like:
+        # NOTE I use (t / N + 1) rather than t so that it looks like:
         # 1.00, 1.01, 1.02, ... instead of 1, 2, 3, 4, which decays too fast
         global_step = tf.contrib.framework.get_global_step()
-        eps = 0.10 / (tf.to_float(global_step) / 100. + 1.)
+        eff_timestep = (tf.to_float(global_step) / FLAGS.effective_timescale + 1.)
+        eps = FLAGS.eps_init / eff_timestep
 
         # With eps probability, we sample our action from random uniform
         prob = tf.pack([1. - eps, eps], axis=-1)[None, None, ...] + broadcaster[..., None]
