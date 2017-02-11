@@ -94,7 +94,14 @@ class AcerEstimator():
             update_ops = tf.get_collection(tf.GraphKeys.UPDATE_OPS)
             with tf.control_dependencies(update_ops):
 
-                self.optimizer = tf.train.RMSPropOptimizer(FLAGS.learning_rate)
+                global_step = tf.contrib.framework.get_global_step()
+
+                self.lr = tf.train.exponential_decay(
+                    FLAGS.learning_rate, global_step,
+                    FLAGS.decay_steps, FLAGS.decay_rate, staircase=True
+                )
+
+                self.optimizer = tf.train.RMSPropOptimizer(self.lr)
                 # self.optimizer = tf.train.GradientDescentOptimizer(FLAGS.learning_rate)
 
                 tf.logging.info("Computing gradients ...")

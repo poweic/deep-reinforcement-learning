@@ -18,6 +18,8 @@ tf.flags.DEFINE_string("estimator-type", "A3C", "Choose A3C or ACER")
 tf.flags.DEFINE_integer("max-global-steps", None, "Stop training after this many steps in the environment. Defaults to running indefinitely.")
 tf.flags.DEFINE_integer("seq-length", None, "sequence length used for construct TF graph")
 tf.flags.DEFINE_integer("batch-size", None, "batch size used for construct TF graph")
+tf.flags.DEFINE_integer("decay-steps", 1000, "Decay learning using exponential_decay with staircase=True")
+tf.flags.DEFINE_integer("decay-rate", 0.7071, "Decay learning using exponential_decay with staircase=True")
 
 tf.flags.DEFINE_float("eps-init", 0.10, "initial value for epsilon in eps-greedy algorithm")
 tf.flags.DEFINE_integer("effective-timescale", 20, "Effective timestep = (global_step / effective_timescale) + 1")
