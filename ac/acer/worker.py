@@ -332,7 +332,7 @@ class AcerWorker(Worker):
         self.gstep = self.sess.run(self.inc_global_step)
         tf.logging.info((
             "#{:6d}: pi_loss = {:+12.3f}, vf_loss = {:+12.3f}, "
-            "loss = {:+12.3f} {}\33[0m S = {:3d}, B = {} [{}] global_norm = {}"
+            "loss = {:+12.3f} {}\33[0m S = {:3d}, B = {} [{}] global_norm = {:.2f}"
         ).format(
             self.gstep, loss.pi, loss.vf, loss.total,
             "\33[92m[on  policy]" if on_policy else "\33[93m[off policy]",
