@@ -9,7 +9,7 @@ import numpy as np
 import tensorflow as tf
 
 tf.flags.DEFINE_string("base-dir", "/Data3/a3c-offroad/", "Directory to write Tensorboard summaries and models to.")
-tf.flags.DEFINE_string("tag", None, "Optional experiment tag")
+tf.flags.DEFINE_string("exp", None, "Optional experiment tag")
 tf.flags.DEFINE_string("log-file", None, "log file")
 tf.flags.DEFINE_string("stats-file", None, "stats file")
 tf.flags.DEFINE_string("game", "line", "Game environment")
@@ -89,8 +89,9 @@ from gym_offroad_nav.vehicle_model import VehicleModel
 # Parse command line arguments, add some additional flags, and print them out
 FLAGS = tf.flags.FLAGS
 FLAGS.exp_dir = "{}/{}{}".format(
-    FLAGS.base_dir, FLAGS.game, "-" + FLAGS.tag if FLAGS.tag is not None else ""
+    FLAGS.base_dir, FLAGS.game, "-" + FLAGS.exp if FLAGS.exp is not None else ""
 )
+
 FLAGS.log_dir        = FLAGS.exp_dir + "/log/"
 # FLAGS.monitor_dir    = FLAGS.exp_dir + "/monitor"
 FLAGS.checkpoint_dir = FLAGS.exp_dir + "/checkpoint"
