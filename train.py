@@ -15,6 +15,9 @@ tf.flags.DEFINE_string("stats-file", None, "stats file")
 tf.flags.DEFINE_string("game", "line", "Game environment")
 tf.flags.DEFINE_string("estimator-type", "A3C", "Choose A3C or ACER")
 
+tf.flags.DEFINE_integer("min-episodes", 100, "minimum episodes to play")
+tf.flags.DEFINE_float("score-to-win", 60.0, "score to win if the average of last N episodes is greater than this number")
+
 tf.flags.DEFINE_integer("max-global-steps", None, "Stop training after this many steps in the environment. Defaults to running indefinitely.")
 tf.flags.DEFINE_integer("seq-length", None, "sequence length used for construct TF graph")
 tf.flags.DEFINE_integer("batch-size", None, "batch size used for construct TF graph")
@@ -80,8 +83,9 @@ import pprint
 
 from ac.estimators import get_estimator
 from ac.worker import Worker
-from ac.utils import (make_copy_params_op, AttrDict,
-                      save_model_every_nth_minutes)
+from ac.utils import (
+    make_copy_params_op, AttrDict, save_model_every_nth_minutes, EpisodeStats
+)
 # from ac.a3c.monitor import server
 
 from gym import wrappers
@@ -144,31 +148,11 @@ def make_env():
 if FLAGS.reset:
     shutil.rmtree(FLAGS.base_dir, ignore_errors=True)
 '''
-
-def compute_mean_steering_angle(reward):
-    from ac.utils import to_image
-    rimg = to_image(reward, 20)
-    cv2.imshow("reward", rimg)
-
-    H, W = reward.shape
-    yv, xv = np.meshgrid(range(H), range(W))
-    xv = xv.astype(np.float32)
-    yv = yv.astype(np.float32)
-
-    theta = np.arctan((yv - W / 2 + 0.5) / (H - xv))
-
-    mean_steer = np.mean(theta * reward)
-
-    print "mean_steer = {} degree".format(mean_steer / np.pi * 180)
-
-    cv2.imshow("theta", np.abs(theta))
-    cv2.waitKey(0)
-    sys.exit()
-
 config = tf.ConfigProto()
 # config.gpu_options.per_process_gpu_memory_fraction = 0.3
 with tf.Session(config=config) as sess:
 
+    global_episode_stats = EpisodeStats()
     # Keeps track of the number of updates we've performed
     global_step = tf.Variable(0, name="global_step", trainable=False)
     max_return = 0
@@ -193,6 +177,7 @@ with tf.Session(config=config) as sess:
             name=name,
             env=make_env(),
             global_counter=global_counter,
+            global_episode_stats=global_episode_stats,
             global_net=global_net,
             add_summaries=(i == 0),
             n_agents=FLAGS.n_agents_per_worker)
@@ -204,10 +189,12 @@ with tf.Session(config=config) as sess:
 
     workers[0].summary_writer = summary_writer
 
+    tf.logging.info("Creating TensorFlow graph Saver ...")
     FLAGS.saver = tf.train.Saver(max_to_keep=10, var_list=[
         v for v in tf.trainable_variables() if "worker" not in v.name
     ] + [global_step])
 
+    tf.logging.info("Initializing all TensorFlow variables ...")
     sess.run(tf.global_variables_initializer())
     tf.get_default_graph().finalize()
 
@@ -224,6 +211,7 @@ with tf.Session(config=config) as sess:
 
     # Start worker threads
     worker_threads = []
+    tf.logging.info("Launching worker threads ...")
     for i in range(len(workers)):
         worker_fn = lambda j=i: workers[j].run(sess, coord)
         t = threading.Thread(target=worker_fn)

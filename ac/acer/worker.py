@@ -39,11 +39,6 @@ class AcerWorker(Worker):
         self.prev_debug = None
         self.prev_mdp_states = None
 
-        self.total_returns = []
-        self.avg_total_returns = []
-        self.episode_lengths = []
-        self.timestamps = []
-
         def copy_global_to_avg():
             msg = "\33[94mInitialize average net when global_step = \33[0m"
             disp_op = tf.Print(self.global_step, [self.global_step], msg)
@@ -100,7 +95,9 @@ class AcerWorker(Worker):
         self.state = self.state + noise
 
         self.env._reset(self.state)
-        self.initial_reset_timestamp = time.time()
+
+        # Set initial timestamp
+        self.global_episode_stats.set_initial_timestamp()
 
     def _run(self):
         
@@ -129,6 +126,8 @@ class AcerWorker(Worker):
         if len(transitions) <= 1:
             return
 
+        self._collect_statistics(transitions)
+
         # Store transitions in the replay buffer, discard the oldest by popping
         # the 1st element if it exceeds maximum buffer size
         rp = AcerWorker.replay_buffer
@@ -147,20 +146,17 @@ class AcerWorker(Worker):
 
         # Condition 2: problem solved by achieving a high average reward over
         # last consecutive N episodes
-        min_episodes, min_score = 100, 60.0 # 50, 45.0
-        last_n = self.avg_total_returns[-min_episodes:]
-        mean = np.mean(last_n)
-        tf.logging.info("np.mean(last_n) = {}".format(mean))
+        stats = self.global_episode_stats
+        mean, std, msg = stats.last_n_stats()
+        tf.logging.info(msg)
 
-        problem_solved = len(self.avg_total_returns) > min_episodes and mean > min_score
+        solved = stats.num_episodes() > FLAGS.min_episodes and mean > FLAGS.score_to_win
 
-        if max_step_reached or problem_solved:
-            tf.logging.info("Optimization done. @ step {}".format(self.gstep))
-            tf.logging.info("Last {} episodes' score: {} ± {}".format(min_episodes, mean, np.std(last_n)))
-            tf.logging.info("Total returns: {}".format(self.avg_total_returns))
-            tf.logging.info("Episode lengths: {}".format(self.episode_lengths))
-            tf.logging.info("initial_reset_timestamp: {}".format(self.initial_reset_timestamp))
-            tf.logging.info("timestamps: {}".format(self.timestamps))
+        if max_step_reached or solved:
+            tf.logging.info("Optimization done. @ step {} because {}".format(
+                self.gstep, "problem solved." if solved else "maximum steps reached"
+            ))
+            tf.logging.info(stats.summary())
             save_model(self.sess)
             return True
 
@@ -170,14 +166,25 @@ class AcerWorker(Worker):
         self.copy_params_from_global()
 
         # Collect transitions {(s_0, a_0, r_0, mu_0), (s_1, ...), ... }
-        n = int(np.ceil(FLAGS.t_max * FLAGS.command_freq))
-        transitions = self.run_n_steps(n)
+        n_steps = int(np.ceil(FLAGS.t_max * FLAGS.command_freq))
+        transitions = self.run_n_steps(n_steps)
         # tf.logging.info("Average time to predict actions: {}".format(self.timer / self.timer_counter))
 
         # Compute gradient and Perform update
         self.update(transitions)
 
+        # Store experience and collect statistics
         self.store_experience(transitions)
+
+    def _collect_statistics(self, transitions):
+        avg_total_return = np.mean(self.total_return)
+        self.global_episode_stats.append(
+            len(transitions), avg_total_return, self.total_return.flatten()
+        )
+
+        self.gstep = self.sess.run(self.inc_global_step)
+        if self.gstep % 10 == 0:
+            print >> open(FLAGS.stats_file, 'w'), self.global_episode_stats
 
     def _run_off_policy_n_times(self):
         N = np.random.poisson(FLAGS.replay_ratio)
@@ -247,30 +254,6 @@ class AcerWorker(Worker):
                 break
             else:
                 self.state = next_state
-
-        self.gstep = self.sess.run(self.inc_global_step)
-        avg_total_return = np.mean(self.total_return)
-
-        # Dump episodes stats
-        np.set_printoptions(formatter={'float_kind': lambda x: "{:.2f}".format(x)})
-        tf.logging.info(
-            "Episode {:05d}: total return: {} [mean = {:.2f}], length = {}".format(
-                self.gstep, self.total_return.flatten(),
-                avg_total_return, len(transitions)
-        ))
-        np.set_printoptions()
-        self.episode_lengths.append(len(transitions))
-        self.total_returns.append(self.total_return.flatten())
-        self.avg_total_returns.append(avg_total_return)
-        self.timestamps.append(time.time())
-
-        if self.gstep % 10 == 0:
-            stats_f = open(FLAGS.stats_file, 'w')
-            for i, (el, r, t, rs) in enumerate(zip(
-                    self.episode_lengths, self.avg_total_returns,
-                    self.timestamps, self.total_returns
-            )):
-                print >> stats_f, "{}\t{}\t{}\t{}\t{}".format(i, el, r, t, rs.tolist())
 
         return transitions
 

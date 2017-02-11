@@ -14,12 +14,13 @@ class Worker(object):
     global_counter: Iterator that holds the global step
     summary_writer: A tf.train.SummaryWriter for Tensorboard summaries
     """
-    def __init__(self, name, env, global_counter, global_net, add_summaries,
+    def __init__(self, name, env, global_counter, global_episode_stats, global_net, add_summaries,
                  n_agents=1):
 
         self.name = name
         self.env = env
         self.global_counter = global_counter
+        self.global_episode_stats = global_episode_stats
         self.global_net = global_net
         self.add_summaries = add_summaries
         self.n_agents = n_agents

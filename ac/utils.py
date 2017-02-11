@@ -1,3 +1,4 @@
+# -*- coding: utf-8 -*-
 import os
 import cv2
 import time
@@ -12,6 +13,80 @@ import schedule
 FLAGS = tf.flags.FLAGS
 batch_size = FLAGS.batch_size
 seq_length = FLAGS.seq_length
+
+class EpisodeStats(object):
+    def __init__(self):
+        self.episode_lengths = []
+        self.episode_rewards = []
+
+        # This is different from OpenAI gym spec because we run multiple agents
+        self.episode_rewards_all_agents = []
+        self.episode_types = []
+        self.initial_reset_timestamp = None
+        self.timestamps = []
+
+    def set_initial_timestamp(self):
+        if self.initial_reset_timestamp is None:
+            self.initial_reset_timestamp = time.time()
+
+    def append(self, length, reward, rewards_all_agent):
+        self.episode_lengths.append(length)
+        self.episode_rewards_all_agents.append(rewards_all_agent)
+        self.episode_rewards.append(reward)
+        self.timestamps.append(time.time())
+
+        # set print options and keep the old one
+        printoptions = np.get_printoptions()
+        np.set_printoptions(formatter={'float_kind': lambda x: "{:.2f}".format(x)})
+        tf.logging.info(
+            "Episode {:05d}: total return: {} [mean = {:.2f}], length = {}".format(
+                self.num_episodes(), rewards_all_agent, reward, length
+        ))
+        # restore print options
+        np.set_printoptions(printoptions)
+
+    def __str__(self):
+
+        stats = zip(
+            self.episode_lengths, self.episode_rewards,
+            self.timestamps, self.episode_rewards_all_agents
+        )
+
+        # set print options and keep the old one
+        printoptions = np.get_printoptions()
+        np.set_printoptions(
+            linewidth=1000,
+            formatter={'float_kind': lambda x: "{:.5f}".format(x)}
+        )
+
+        HEADER = "{}\t{}\t{}\t{}\t{}\t{}\n"
+        s = HEADER.format("Episode", "Length", "Reward", "Timestamp", "NumAgents", "Rewards")
+
+        ROW = "{}\t{}\t{:.5f}\t{}\t{}\t{}\n"
+        for i, (l, r, t, rs) in enumerate(stats):
+            s += ROW.format(i, l, r, t, len(rs), rs)
+
+        # restore print options
+        np.set_printoptions(printoptions)
+
+        return s
+
+    def last_n_stats(self):
+        N = FLAGS.min_episodes
+        last_n = self.episode_rewards[-N:]
+        mean, std = np.mean(last_n), np.std(last_n)
+        return mean, std, "Last {} episodes' score: {} ± {}".format(N, mean, std)
+
+    def num_episodes(self):
+        return len(self.episode_lengths)
+
+    def summary(self):
+        _, _, s = self.last_n_stats()
+        s += "Total returns: {}".format(self.episode_rewards)
+        s += "Episode lengths: {}".format(self.episode_lengths)
+        s += "initial_reset_timestamp: {}".format(self.initial_reset_timestamp)
+        s += "timestamps: {}".format(self.timestamps)
+        return s
 
 def mkdir_p(dirname):
     if not os.path.exists(dirname):
@@ -344,3 +419,23 @@ def put_kernels_on_grid(kernel, pad = 1):
 
     # scaling to [0, 255] is not necessary for tensorboard
     return x7
+
+def compute_mean_steering_angle(reward):
+    from ac.utils import to_image
+    rimg = to_image(reward, 20)
+    cv2.imshow("reward", rimg)
+
+    H, W = reward.shape
+    yv, xv = np.meshgrid(range(H), range(W))
+    xv = xv.astype(np.float32)
+    yv = yv.astype(np.float32)
+
+    theta = np.arctan((yv - W / 2 + 0.5) / (H - xv))
+
+    mean_steer = np.mean(theta * reward)
+
+    print "mean_steer = {} degree".format(mean_steer / np.pi * 180)
+
+    cv2.imshow("theta", np.abs(theta))
+    cv2.waitKey(0)
+    sys.exit()
