@@ -40,6 +40,7 @@ class AcerEstimator():
 
         with tf.name_scope("output"):
             self.a_prime = tf.squeeze(self.pi.sample_n(1), 0)
+            self.action_and_stats = [self.a_prime, self.pi.stats]
 
         with tf.variable_scope("V"):
             # self.value = state_value_network(tf.stop_gradient(shared))
@@ -306,13 +307,9 @@ class AcerEstimator():
 
     def predict_actions(self, state, sess=None):
 
-        # Sample in TF
-        tensors = [self.a_prime, self.pi.stats]
-
         feed_dict = self.to_feed_dict(state)
 
-        # a_prime, mu, sigma = self.predict(tensors, feed_dict, sess)
-        a_prime, stats = self.predict(tensors, feed_dict, sess)
+        a_prime, stats = self.predict(self.action_and_stats, feed_dict, sess)
 
         a_prime = a_prime[0, ...].T
 

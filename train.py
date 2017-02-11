@@ -11,6 +11,7 @@ import tensorflow as tf
 tf.flags.DEFINE_string("base-dir", "/Data3/a3c-offroad/", "Directory to write Tensorboard summaries and models to.")
 tf.flags.DEFINE_string("tag", None, "Optional experiment tag")
 tf.flags.DEFINE_string("log-file", None, "log file")
+tf.flags.DEFINE_string("stats-file", None, "stats file")
 tf.flags.DEFINE_string("game", "line", "Game environment")
 tf.flags.DEFINE_string("estimator-type", "A3C", "Choose A3C or ACER")
 

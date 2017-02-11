@@ -3,13 +3,14 @@
   --base-dir /Data3/acer-offroad-icml2017/ \
   --estimator-type ACER \
   --log-file train.$(date +%s).log \
-  --parallelism 4 \
+  --stats-file train.$(date +%s).stats.csv \
+  --parallelism 2 \
   --game s_shape \
   --save-every-n-minutes 10 \
   --t-max 20 \
   --max-gradient 100.0 \
   --field-of-view 20 \
-  --timestep 0.001 \
+  --timestep 0.01 \
   --replay-ratio 0.250 \
   --avg-net-momentum 0.95 \
   --max-replay-buffer-size 1000 \

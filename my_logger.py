@@ -25,6 +25,8 @@ if FLAGS.log_file is not None:
     fh.setFormatter(formatter)
     tf.logging._logger.addHandler(fh)
 
+    FLAGS.stats_file = FLAGS.log_dir + FLAGS.stats_file
+
 cwd = os.getcwd() + "/"
 
 def my_logger_factory(level):

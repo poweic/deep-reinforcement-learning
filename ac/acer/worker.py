@@ -38,6 +38,7 @@ class AcerWorker(Worker):
         self.prev_debug = None
         self.prev_mdp_states = None
 
+        self.total_returns = []
         self.avg_total_returns = []
         self.episode_lengths = []
         self.timestamps = []
@@ -249,8 +250,17 @@ class AcerWorker(Worker):
         ))
         np.set_printoptions()
         self.episode_lengths.append(len(transitions))
+        self.total_returns.append(self.total_return.flatten())
         self.avg_total_returns.append(avg_total_return)
         self.timestamps.append(time.time())
+
+        if self.gstep % 10 == 0:
+            stats_f = open(FLAGS.stats_file, 'w')
+            for i, (el, r, t, rs) in enumerate(zip(
+                    self.episode_lengths, self.avg_total_returns,
+                    self.timestamps, self.total_returns
+            )):
+                print >> stats_f, "{}\t{}\t{}\t{}\t{}".format(i, el, r, t, rs.tolist())
 
         return transitions
 
