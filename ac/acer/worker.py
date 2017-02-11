@@ -32,6 +32,7 @@ class AcerWorker(Worker):
         self.copy_params_op = make_copy_params_op(global_vars, local_vars)
 
         self.global_net = global_net
+        self.gstep = 0
         self.timer = 0
         self.timer_counter = 0
 
@@ -103,6 +104,10 @@ class AcerWorker(Worker):
 
     def _run(self):
         
+        # Show learning rate every FLAGS.decay_steps
+        if self.gstep % FLAGS.decay_steps == 0:
+            tf.logging.info("learning rate = {}".format(self.sess.run(self.local_net.lr)))
+
         show_mem_usage()
 
         # Run on-policy ACER
@@ -111,17 +116,17 @@ class AcerWorker(Worker):
         # Run off-policy ACER N times
         self._run_off_policy_n_times()
 
-        if self.is_problem_solved():
-            self.coord.request_stop()
+        if self.should_stop():
             Worker.stop = True
-            return
+            self.coord.request_stop()
 
     def copy_params_from_global(self):
         # Copy Parameters from the global networks
         self.sess.run(self.copy_params_op)
 
     def store_experience(self, transitions):
-        if len(transitions) == 0:
+        # Some bad simulation can have episode length 0 or 1, and that's outlier
+        if len(transitions) <= 1:
             return
 
         # Store transitions in the replay buffer, discard the oldest by popping
@@ -136,17 +141,22 @@ class AcerWorker(Worker):
         if len(rp) % 20 == 0:
             tf.logging.info("len(replay_buffer) = {}".format(len(rp)))
 
-    def is_problem_solved(self):
-        min_episodes = 50
-        min_score = 45.0
-        last_50 = self.avg_total_returns[-min_episodes:]
+    def should_stop(self):
+        # Condition 1: maximum step reached
+        max_step_reached = self.gstep > FLAGS.max_global_steps
 
-        tf.logging.info("np.mean(last_50) = {}".format(np.mean(last_50)))
-        if len(self.avg_total_returns) > min_episodes and np.mean(last_50) > min_score:
-            tf.logging.info("Problem solved @ step {} !".format(self.gstep))
-            tf.logging.info("Last 50 episodes' score: {} ± {}".format(
-                np.mean(last_50), np.std(last_50)
-            ))
+        # Condition 2: problem solved by achieving a high average reward over
+        # last consecutive N episodes
+        min_episodes, min_score = 100, 60.0 # 50, 45.0
+        last_n = self.avg_total_returns[-min_episodes:]
+        mean = np.mean(last_n)
+        tf.logging.info("np.mean(last_n) = {}".format(mean))
+
+        problem_solved = len(self.avg_total_returns) > min_episodes and mean > min_score
+
+        if max_step_reached or problem_solved:
+            tf.logging.info("Optimization done. @ step {}".format(self.gstep))
+            tf.logging.info("Last {} episodes' score: {} ± {}".format(min_episodes, mean, np.std(last_n)))
             tf.logging.info("Total returns: {}".format(self.avg_total_returns))
             tf.logging.info("Episode lengths: {}".format(self.episode_lengths))
             tf.logging.info("initial_reset_timestamp: {}".format(self.initial_reset_timestamp))
