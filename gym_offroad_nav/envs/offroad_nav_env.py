@@ -204,7 +204,7 @@ class OffRoadNavEnv(gym.Env):
             text = "reward = {:.3f}, return = {:.3f} / {:.3f}".format(current_reward, total_return, worker.max_return)
             cv2.putText(disp_img, text, (10, 20), font, font_size, color, 1, cv2.CV_AA)
 
-            text = "action = ({:+.2f} km/h, {:+.2f}) rad/s".format(
+            text = "action = ({:+.2f} km/h, {:+.2f} deg/s)".format(
                 prev_action[0] * 3.6, prev_action[1] * RAD2DEG)
             cv2.putText(disp_img, text, (10, 40 * self.K - 50), font, font_size, color, 1, cv2.CV_AA)
 
