@@ -35,15 +35,14 @@ class EpisodeStats(object):
         self.episode_rewards.append(reward)
         self.timestamps.append(time.time())
 
-        # set print options and keep the old one
-        printoptions = np.get_printoptions()
+        # set print options
         np.set_printoptions(formatter={'float_kind': lambda x: "{:.2f}".format(x)})
         tf.logging.info(
             "Episode {:05d}: total return: {} [mean = {:.2f}], length = {}".format(
                 self.num_episodes(), rewards_all_agent, reward, length
         ))
-        # restore print options
-        np.set_printoptions(printoptions)
+        # reset print options
+        np.set_printoptions()
 
     def __str__(self):
 
@@ -52,8 +51,7 @@ class EpisodeStats(object):
             self.timestamps, self.episode_rewards_all_agents
         )
 
-        # set print options and keep the old one
-        printoptions = np.get_printoptions()
+        # set print options
         np.set_printoptions(
             linewidth=1000,
             formatter={'float_kind': lambda x: "{:.5f}".format(x)}
@@ -66,8 +64,8 @@ class EpisodeStats(object):
         for i, (l, r, t, rs) in enumerate(stats):
             s += ROW.format(i, l, r, t, len(rs), rs)
 
-        # restore print options
-        np.set_printoptions(printoptions)
+        # reset print options
+        np.set_printoptions()
 
         return s
 
