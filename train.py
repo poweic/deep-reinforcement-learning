@@ -55,7 +55,9 @@ tf.flags.DEFINE_float("t-max", 30, "Maximum elasped time per simulation (in seco
 tf.flags.DEFINE_float("command-freq", 20, "How frequent we send command to vehicle (in Hz)")
 
 tf.flags.DEFINE_float("learning-rate", 2e-4, "Learning rate for policy net and value net")
-tf.flags.DEFINE_boolean("random-learning-rate", False, "Random sample learning rate from LogUniform(1e-4, 1e-2)")
+tf.flags.DEFINE_boolean("random-learning-rate", False, "Random sample learning rate from LogUniform(min, max)")
+tf.flags.DEFINE_boolean("min-learning-rate", 1e-4, "min learning rate used in LogUniform")
+tf.flags.DEFINE_boolean("max-learning-rate", 5e-4, "max learning rate used in LogUniform")
 
 tf.flags.DEFINE_float("l2-reg", 1e-4, "L2 regularization multiplier")
 tf.flags.DEFINE_float("max-gradient", 10, "Threshold for gradient clipping used by tf.clip_by_global_norm")
@@ -114,7 +116,9 @@ FLAGS.action_space = AttrDict(
 )
 
 if FLAGS.random_learning_rate:
-    FLAGS.learning_rate = np.random.uniform(1e-4, 1e-2)
+    low  = np.log10(FLAGS.min_learning_rate)
+    high = np.log10(FLAGS.max_learning_rate)
+    FLAGS.learning_rate = 10. ** np.random.uniform(low=low, high=high)
 
 import my_logger
 
