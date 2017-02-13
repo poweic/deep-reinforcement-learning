@@ -80,10 +80,10 @@ class EpisodeStats(object):
 
     def summary(self):
         _, _, s = self.last_n_stats()
-        s += "Total returns: {}".format(self.episode_rewards)
-        s += "Episode lengths: {}".format(self.episode_lengths)
-        s += "initial_reset_timestamp: {}".format(self.initial_reset_timestamp)
-        s += "timestamps: {}".format(self.timestamps)
+        s += "\nTotal returns: {}".format(self.episode_rewards)
+        s += "\nEpisode lengths: {}".format(self.episode_lengths)
+        s += "\ninitial_reset_timestamp: {}".format(self.initial_reset_timestamp)
+        s += "\ntimestamps: {}".format(self.timestamps)
         return s
 
 def mkdir_p(dirname):
