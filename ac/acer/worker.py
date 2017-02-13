@@ -39,41 +39,22 @@ class AcerWorker(Worker):
         self.prev_debug = None
         self.prev_mdp_states = None
 
-        def copy_global_to_avg():
-            msg = "\33[94mInitialize average net when global_step = \33[0m"
-            disp_op = tf.Print(self.global_step, [self.global_step], msg)
-            copy_op = make_copy_params_op(global_vars, avg_vars)
-            return tf.group(*[copy_op, disp_op])
-
-        init_avg_net = tf.cond(
-            tf.equal(self.global_step, 0),
-            copy_global_to_avg,
-            lambda: tf.no_op()
+        train_and_update_avgnet_op = ac.acer.estimators.create_avgnet_init_op(
+            self.global_step, avg_vars, global_net, self.local_net
         )
 
-        with tf.control_dependencies([init_avg_net]):
-            train_op = make_train_op(self.local_net, global_net)
-
-            with tf.control_dependencies([train_op]):
-
-                train_and_update_avgnet_op = make_copy_params_op(
-                    global_vars, avg_vars, alpha=FLAGS.avg_net_momentum
-                )
-
-                net = self.local_net
-
-                self.step_op = [
-                    {
-                        'pi': net.pi_loss,
-                        'vf': net.vf_loss,
-                        'total': net.loss,
-                        'global_norm': net.global_norm,
-                        # 'grad_norms': net.grad_norms
-                    },
-                    net.summaries,
-                    train_and_update_avgnet_op,
-                    tf.no_op()
-                ]
+        net = self.local_net
+        self.step_op = [
+            {
+                'pi': net.pi_loss,
+                'vf': net.vf_loss,
+                'total': net.loss,
+                'global_norm': net.global_norm,
+            },
+            net.summaries,
+            train_and_update_avgnet_op,
+            tf.no_op()
+        ]
 
         self.inc_global_step = tf.assign_add(self.global_step, 1)
 
