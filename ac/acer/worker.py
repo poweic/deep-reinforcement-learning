@@ -214,8 +214,18 @@ class AcerWorker(Worker):
             # Take several sub-steps in environment (the smaller the timestep,
             # the smaller each sub-step, the more accurate the simulation
             n_sub_steps = int(1. / FLAGS.command_freq / FLAGS.timestep)
+            # state___ = self.env.state.copy()
             for j in range(n_sub_steps):
                 next_state, reward, done, _ = self.env.step(self.action)
+
+            """
+            # self.env.state = state___.copy()
+            next_state, reward, done, _ = self.env._step_2(self.action, n_sub_steps)
+
+            print np.linalg.norm(next_state - next_state_2)
+            print np.linalg.norm(reward     - reward_2    )
+            print np.linalg.norm(done       - done_2      )
+            """
 
             self.current_reward = reward
             self.total_return += reward

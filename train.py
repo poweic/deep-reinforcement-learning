@@ -25,6 +25,7 @@ from ac.utils import (
 from gym import wrappers
 from gym_offroad_nav.envs import OffRoadNavEnv
 from gym_offroad_nav.vehicle_model import VehicleModel
+from gym_offroad_nav.vehicle_model_tf import VehicleModelGPU
 
 # 
 W = 400
@@ -41,6 +42,7 @@ cv2.imshow4 = imshow4
 
 def make_env():
     vehicle_model = VehicleModel(FLAGS.timestep, FLAGS.vehicle_model_noise_level)
+    # vehicle_model_gpu = VehicleModelGPU(FLAGS.timestep, FLAGS.vehicle_model_noise_level)
     reward_fn = "data/{}.mat".format(FLAGS.game)
     rewards = scipy.io.loadmat(reward_fn)["reward"].astype(np.float32)
     # rewards -= 100
@@ -52,6 +54,7 @@ def make_env():
 
     # rewards[rewards < 0.1] = -1
     env = OffRoadNavEnv(rewards, vehicle_model)
+    # env = OffRoadNavEnv(rewards, vehicle_model, vehicle_model_gpu)
     # env = wrappers.Monitor(env, FLAGS.monitor_dir, video_callable=False)
     return env
 

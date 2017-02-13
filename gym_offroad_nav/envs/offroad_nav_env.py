@@ -13,13 +13,14 @@ RAD2DEG = 180. / np.pi
 
 class OffRoadNavEnv(gym.Env):
 
-    def __init__(self, rewards, vehicle_model):
+    def __init__(self, rewards, vehicle_model): #, vehicle_model_gpu):
         self.viewer = None
 
         # A tf.tensor (or np) containing rewards, we need a constant version and 
         self.rewards = rewards
 
         self.vehicle_model = vehicle_model
+        # self.vehicle_model_gpu = vehicle_model_gpu
 
         self.K = 10
 
@@ -28,6 +29,39 @@ class OffRoadNavEnv(gym.Env):
         self.prev_action = np.zeros((2, 1))
 
         self.highlight = False
+
+    def _step_2(self, action, N):
+        ''' Take one step in the environment
+        state is the vehicle state, not the full MDP state including history.
+
+        Parameters
+        ----------
+        action : Numpy array
+            The control input for vehicle. [v_forward, yaw_rate]
+
+        Returns
+        -------
+        Tuple
+            A 4-element tuple (state, reward, done, info)
+        '''
+        state = self.state.copy().astype(np.float64)
+        action = action.astype(np.float64)
+        self.state = self.vehicle_model_gpu.predict(state, action, N)
+
+        # Y forward, X lateral
+        # ix = -19, -18, ...0, 1, 20, iy = 0, 1, ... 39
+        x, y = self.state[:2]
+        ix, iy = self.get_ixiy(x, y)
+        done = (ix < -19) | (ix > 20) | (iy < 0) | (iy > 39)
+
+        reward = self._bilinear_reward_lookup(x, y)
+
+        # debug info
+        info = {}
+
+        self.prev_action = action.copy()
+
+        return self.state.copy(), reward, done, info
 
     def _step(self, action):
         ''' Take one step in the environment
@@ -115,6 +149,7 @@ class OffRoadNavEnv(gym.Env):
 
         self.disp_img = np.copy(self.bR)
         self.vehicle_model.reset(s0)
+        # self.vehicle_model_gpu.reset(s0)
         self.state = s0.copy()
         return self.state
 
