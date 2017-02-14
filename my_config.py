@@ -10,9 +10,9 @@ tf.flags.DEFINE_string("game", "line", "Game environment")
 tf.flags.DEFINE_string("estimator-type", "ACER", "Choose A3C or ACER")
 
 tf.flags.DEFINE_integer("min-episodes", 100, "minimum episodes to play")
-tf.flags.DEFINE_float("score-to-win", 80.0, "score to win if the average of last N episodes is greater than this number")
+tf.flags.DEFINE_float("score-to-win", 100.0, "score to win if the average of last N episodes is greater than this number")
 
-tf.flags.DEFINE_integer("max-global-steps", None, "Stop training after this many steps in the environment. Defaults to running indefinitely.")
+tf.flags.DEFINE_integer("max-global-steps", None, "Stop training after this many updates of neural network. Defaults to run forever.")
 tf.flags.DEFINE_integer("seq-length", None, "sequence length used for construct TF graph")
 tf.flags.DEFINE_integer("batch-size", None, "batch size used for construct TF graph")
 tf.flags.DEFINE_integer("decay-steps", 1000, "Decay learning using exponential_decay with staircase=True")
