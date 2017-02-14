@@ -70,6 +70,7 @@ with tf.Session(config=cfg) as sess:
     global_episode_stats = EpisodeStats()
     # Keeps track of the number of updates we've performed
     global_step = tf.Variable(0, name="global_step", trainable=False)
+    FLAGS.global_step = global_step
     max_return = 0
 
     # Get estimator class by type name
