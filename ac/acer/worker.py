@@ -122,6 +122,7 @@ class AcerWorker(Worker):
             tf.logging.info("len(replay_buffer) = {}".format(len(rp)))
 
     def should_stop(self):
+
         # Condition 1: maximum step reached
         max_step_reached = self.gstep > FLAGS.max_global_steps
 
@@ -131,12 +132,16 @@ class AcerWorker(Worker):
         mean, std, msg = stats.last_n_stats()
         tf.logging.info(msg)
 
+        """
         solved = stats.num_episodes() > FLAGS.min_episodes and mean > FLAGS.score_to_win
+        """
 
-        if max_step_reached or solved:
-            tf.logging.info("Optimization done. @ step {} because {}".format(
+        # if max_step_reached or solved:
+        if max_step_reached:
+            """ tf.logging.info("Optimization done. @ step {} because {}".format(
                 self.gstep, "problem solved." if solved else "maximum steps reached"
-            ))
+            )) """
+            tf.logging.info("Optimization done. @ step {}".format(self.gstep))
             tf.logging.info(stats.summary())
             save_model(self.sess)
             return True
