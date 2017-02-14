@@ -82,10 +82,6 @@ class AcerWorker(Worker):
 
     def _run(self):
         
-        # Show learning rate every FLAGS.decay_steps
-        if self.gstep % FLAGS.decay_steps == 0:
-            tf.logging.info("learning rate = {}".format(self.sess.run(self.local_net.lr)))
-
         show_mem_usage()
 
         # Run on-policy ACER
@@ -124,7 +120,11 @@ class AcerWorker(Worker):
     def should_stop(self):
 
         # Condition 1: maximum step reached
-        max_step_reached = self.gstep > FLAGS.max_global_steps
+        # max_step_reached = self.gstep > FLAGS.max_global_steps
+        global_timestep = self.sess.run(FLAGS.global_timestep)
+        t, lr = self.sess.run([FLAGS.global_timestep, self.local_net.lr])
+        tf.logging.info("global_timestep = {}, learning rate = {}".format(t, lr))
+        max_step_reached = global_timestep > FLAGS.max_global_steps
 
         # Condition 2: problem solved by achieving a high average reward over
         # last consecutive N episodes
@@ -350,6 +350,10 @@ class AcerWorker(Worker):
             self.prev_debug = debug
             self.prev_mdp_states = mdp_states
         # ======================= DEBUG =================================
+
+        self.sess.run(FLAGS.set_time_op, feed_dict={
+            FLAGS.global_timestep_placeholder: int(time.time())
+        })
 
         # Write summaries
         if self.summary_writer is not None:

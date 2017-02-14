@@ -123,11 +123,13 @@ class AcerEstimator():
 
                 global_step = FLAGS.global_step
 
+                """
                 boundaries = [8000, 12000, 14000, 15000, 16000, 17000, 18000, 19000]
                 values = (float(FLAGS.learning_rate) / (2 ** np.arange(9))).tolist()
                 tf.logging.info("boundaries = {}".format(boundaries))
                 tf.logging.info("values = {}".format(values))
                 self.lr = tf.train.piecewise_constant(global_step, boundaries, values)
+                """
 
                 """
                 self.lr = tf.train.exponential_decay(
@@ -135,6 +137,11 @@ class AcerEstimator():
                     FLAGS.decay_steps, FLAGS.decay_rate, staircase=True
                 )
                 """
+
+                self.lr = tf.train.exponential_decay(
+                    FLAGS.learning_rate, FLAGS.global_timestep,
+                    FLAGS.decay_steps, FLAGS.decay_rate, staircase=False
+                )
 
                 self.optimizer = tf.train.RMSPropOptimizer(self.lr)
                 # self.optimizer = tf.train.GradientDescentOptimizer(FLAGS.learning_rate)

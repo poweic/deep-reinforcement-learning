@@ -71,6 +71,15 @@ with tf.Session(config=cfg) as sess:
     # Keeps track of the number of updates we've performed
     global_step = tf.Variable(0, name="global_step", trainable=False)
     FLAGS.global_step = global_step
+
+    t = int(time.time())
+    global_time_init = tf.Variable(t, name="global_time_init", dtype=tf.int32, trainable=False)
+    global_time      = tf.Variable(t, name="global_time"     , dtype=tf.int32, trainable=False)
+    FLAGS.global_timestep_placeholder = tf.placeholder(tf.int32, [])
+    FLAGS.set_time_op = tf.assign(global_time, FLAGS.global_timestep_placeholder)
+
+    FLAGS.global_timestep = global_time - global_time_init
+
     max_return = 0
 
     # Get estimator class by type name
