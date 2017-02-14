@@ -4,7 +4,7 @@ import numpy as np
 class VehicleModel():
 
     def __init__(self, timestep, noise_level=0., drift=False):
-        model = scipy.io.loadmat("../vehicle_modeling/vehicle_model_ABCD.mat")
+        model = scipy.io.loadmat("data/vehicle_model_ABCD.mat")
         self.A = model["A"]
         self.B = model["B"]
         self.C = model["C"]
