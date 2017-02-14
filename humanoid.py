@@ -19,16 +19,20 @@ from sklearn.kernel_approximation import RBFSampler
 
 EpisodeStats = namedtuple("Stats",["episode_lengths", "episode_rewards"])
 
+tf.flags.DEFINE_string("game", "Humanoid-v1", "Game name")
 tf.flags.DEFINE_string("dist", "Gaussian", "Choose distributions. Either gaussian, student-t, beta")
 tf.flags.DEFINE_string("logfile", None, "logfile")
 tf.flags.DEFINE_string("exp", None, "experiment name (folder to save)")
 
 tf.flags.DEFINE_boolean("record-video", None, "Record video for openai gym upload")
 tf.flags.DEFINE_integer("render-every", None, "Render environment every n episodes")
-tf.flags.DEFINE_integer("max-episodes", "1001", "Maximum steps per episode")
+tf.flags.DEFINE_integer("max-episodes", "100000", "Maximum steps per episode")
 tf.flags.DEFINE_integer("max-steps", "5000", "Maximum steps per episode")
 
-tf.flags.DEFINE_float("learning-rate", "0.01", "Learning rate for policy estimator")
+tf.flags.DEFINE_integer("min-episodes", "100", "Maximum steps per episode")
+tf.flags.DEFINE_integer("score-to-win", "6000", "Maximum steps per episode")
+
+tf.flags.DEFINE_float("learning-rate", "0.001", "Learning rate for policy estimator")
 tf.flags.DEFINE_float("df", "5", "Degree of freedom for StudentT distribution")
 
 tf.flags.DEFINE_integer("random-seed", None, "Random seed for gym.env and TensorFlow")
@@ -41,13 +45,13 @@ f = open(FLAGS.logfile, "w")
 print >> f, "episode length reward"
 
 # Create Environments
-env = gym.envs.make("MountainCarContinuous-v0")
+env = gym.envs.make(FLAGS.game)
 if FLAGS.random_seed is not None:
     env.seed(FLAGS.random_seed)
 
+env.reset()
 # Add monitor (None will use default video recorder, False will disable video recording)
-env = wrappers.Monitor(env, '/Data3/gym-exp/' + FLAGS.exp, video_callable=None if FLAGS.record_video else False)
-env.observation_space.sample()
+env = wrappers.Monitor(env, FLAGS.exp, force=True, video_callable=None if FLAGS.record_video else False)
 
 if FLAGS.record_video:
     FLAGS.render_every = None
@@ -56,32 +60,11 @@ if FLAGS.record_video or FLAGS.render_every is not None:
     env.render()
 
 # Get Low/High of action space
-LOW  = env.action_space.low[0]
-HIGH = env.action_space.high[0]
+LOW  = env.action_space.low
+HIGH = env.action_space.high
 
-# Feature Preprocessing: Normalize to zero mean and unit variance
-# We use a few samples from the observation space to do this
-observation_examples = np.array([env.observation_space.sample() for x in range(10000)])
-scaler = sklearn.preprocessing.StandardScaler()
-scaler.fit(observation_examples)
-
-# Used to converte a state to a featurizes represenation.
-# We use RBF kernels with different variances to cover different parts of the space
-featurizer = sklearn.pipeline.FeatureUnion([
-    ("rbf1", RBFSampler(gamma=5.0, n_components=100)),
-    ("rbf2", RBFSampler(gamma=2.0, n_components=100)),
-    ("rbf3", RBFSampler(gamma=1.0, n_components=100)),
-    ("rbf4", RBFSampler(gamma=0.5, n_components=100))
-])
-featurizer.fit(scaler.transform(observation_examples))
-
-def featurize_state(state):
-    """
-    Returns the featurized representation for a state.
-    """
-    scaled = scaler.transform([state])
-    featurized = featurizer.transform(scaled)
-    return featurized[0]
+# Number of state
+num_states = 376
 
 class PolicyEstimator():
     """
@@ -90,7 +73,7 @@ class PolicyEstimator():
 
     def __init__(self, learning_rate=FLAGS.learning_rate, scope="policy_estimator"):
         with tf.variable_scope(scope):
-            self.state = tf.placeholder(tf.float32, [400], "state")
+            self.state = tf.placeholder(tf.float32, [num_states], "state")
             self.target = tf.placeholder(dtype=tf.float32, name="target")
 
             # This is just linear classifier
@@ -98,18 +81,18 @@ class PolicyEstimator():
                 tf.squeeze(
                     tf.contrib.layers.fully_connected(
                         inputs=tf.expand_dims(self.state, 0),
-                        num_outputs=1,
+                        num_outputs=17,
                         activation_fn=None,
                         weights_initializer=tf.zeros_initializer
                     )
-                ) for i in range(3)
+                ) for i in range(2)
             ]
 
             mu    = params[0]
             sigma = tf.nn.softplus(params[1]) + 1e-5
 
-            alpha = tf.nn.sigmoid(params[0]) * 50 + 2
-            beta  = tf.nn.sigmoid(params[1]) * 50 + 2
+            alpha = tf.nn.softplus(params[0]) + 2
+            beta  = tf.nn.softplus(params[1]) + 2
 
             # alpha = tf.Print(alpha, [alpha, beta], "\33[93malpha, beta = \33[0m")
 
@@ -118,8 +101,6 @@ class PolicyEstimator():
             # Create Distribution
             if FLAGS.dist == "Gaussian":
                 dist = ds.Normal(mu, sigma)
-            elif FLAGS.dist == "StudentT":
-                dist = ds.StudentT(mu=mu, sigma=sigma, df=FLAGS.df)
             elif FLAGS.dist == "Beta":
                 scale = tf.constant(HIGH - LOW, tf.float32)
                 shift = tf.constant(LOW, tf.float32)
@@ -147,12 +128,10 @@ class PolicyEstimator():
 
     def predict(self, state, sess=None):
         sess = sess or tf.get_default_session()
-        state = featurize_state(state)
         return sess.run(self.action, { self.state: state })
 
     def update(self, state, target, action, sess=None):
         sess = sess or tf.get_default_session()
-        state = featurize_state(state)
         feed_dict = { self.state: state, self.target: target, self.action: action  }
         _, loss = sess.run([self.train_op, self.loss], feed_dict)
         return loss
@@ -164,7 +143,7 @@ class ValueEstimator():
 
     def __init__(self, learning_rate=0.1, scope="value_estimator"):
         with tf.variable_scope(scope):
-            self.state = tf.placeholder(tf.float32, [400], "state")
+            self.state = tf.placeholder(tf.float32, [num_states], "state")
             self.target = tf.placeholder(dtype=tf.float32, name="target")
 
             # This is just linear classifier
@@ -183,12 +162,10 @@ class ValueEstimator():
 
     def predict(self, state, sess=None):
         sess = sess or tf.get_default_session()
-        state = featurize_state(state)
         return sess.run(self.value_estimate, { self.state: state })
 
     def update(self, state, target, sess=None):
         sess = sess or tf.get_default_session()
-        state = featurize_state(state)
         feed_dict = { self.state: state, self.target: target }
         _, loss = sess.run([self.train_op, self.loss], feed_dict)
         return loss
@@ -216,7 +193,7 @@ def actor_critic(env, estimator_policy, estimator_value, num_episodes, discount_
     desc_tmpl = "reward = {:+8.2f} "
 
     # Train until reach maximum number of episodes or solved
-    for i_episode in trange(num_episodes, desc="Training Progress ", position=1):
+    for i in trange(num_episodes, desc="Training Progress ", position=1):
 
         # Reset the environment and pick the fisrst action
         state = env.reset()
@@ -227,7 +204,7 @@ def actor_critic(env, estimator_policy, estimator_value, num_episodes, discount_
         pbar = trange(FLAGS.max_steps, leave=False, desc=desc_tmpl.format(0), position=2, unit=" step")
         for t in pbar:
 
-            if FLAGS.render_every is not None and (i_episode + 1) % FLAGS.render_every == 0:
+            if FLAGS.render_every is not None and (i + 1) % FLAGS.render_every == 0:
                 env.render()
 
             # Take a step
@@ -240,8 +217,8 @@ def actor_critic(env, estimator_policy, estimator_value, num_episodes, discount_
                 state=state, action=action, reward=reward, next_state=next_state, done=done))
 
             # Update statistics
-            stats.episode_rewards[i_episode] += reward
-            stats.episode_lengths[i_episode] = t
+            stats.episode_rewards[i] += reward
+            stats.episode_lengths[i] = t
 
             # Calculate TD Target
             value_next = estimator_value.predict(next_state)
@@ -256,7 +233,7 @@ def actor_critic(env, estimator_policy, estimator_value, num_episodes, discount_
             estimator_policy.update(state, td_error, action)
 
             # set progress bar's description
-            pbar.set_description(desc_tmpl.format(stats.episode_rewards[i_episode]))
+            pbar.set_description(desc_tmpl.format(stats.episode_rewards[i]))
 
             if done:
                 pbar.refresh()
@@ -265,12 +242,11 @@ def actor_critic(env, estimator_policy, estimator_value, num_episodes, discount_
             state = next_state
 
         if f is not None:
-            print >> f, "{} {} {:.4f}".format(i_episode, t, stats.episode_rewards[i_episode])
+            print >> f, "{} {} {:.4f}".format(i, t, stats.episode_rewards[i])
             f.flush()
 
-        # getting average reward of 90.0 over 100 consecutive trials
-        if i_episode >= 100 and np.mean(stats.episode_rewards[i_episode-100:i_episode]) > 90:
-            print stats.episode_rewards[:i_episode]
+        if i >= FLAGS.min_episodes and np.mean(stats.episode_rewards[i-FLAGS.min_episodes:i]) > FLAGS.score_to_win:
+            print stats.episode_rewards[:i]
             break
 
     return stats
