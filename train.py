@@ -80,6 +80,7 @@ def make_env():
     return env
 
 env = make_env()
+env.close()
 
 from ac.estimators import get_estimator
 from ac.worker import Worker
@@ -97,7 +98,6 @@ with tf.Session(config=cfg) as sess:
     # Keeps track of the number of updates we've performed
     global_step = tf.Variable(0, name="global_step", trainable=False)
     FLAGS.global_step = global_step
-    max_return = 0
 
     # Get estimator class by type name
     Estimator = get_estimator(FLAGS.estimator_type)
@@ -117,7 +117,7 @@ with tf.Session(config=cfg) as sess:
 
         worker = Estimator.Worker(
             name=name,
-            env=env,
+            env=make_env(),
             global_counter=global_counter,
             global_episode_stats=global_episode_stats,
             global_net=global_net,
@@ -162,12 +162,9 @@ with tf.Session(config=cfg) as sess:
     if FLAGS.display:
         while not Worker.stop:
             for worker in workers:
-                if worker.max_return > max_return:
-                    max_return = worker.max_return
-
                 worker.env.render()
-		time.sleep(0.05)
 
+            time.sleep(0.05)
             schedule.run_pending()
 
     # Wait for all workers to finish

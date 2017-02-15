@@ -73,7 +73,7 @@ class AcerWorker(Worker):
         self.global_episode_stats.set_initial_timestamp()
 
     def _run(self):
-        
+
         # Show learning rate every FLAGS.decay_steps
         if self.gstep % FLAGS.decay_steps == 0:
             tf.logging.info("learning rate = {}".format(self.sess.run(self.local_net.lr)))
@@ -131,7 +131,7 @@ class AcerWorker(Worker):
         # if max_step_reached or solved:
         if max_step_reached:
             """ tf.logging.info("Optimization done. @ step {} because {}".format(
-                self.gstep, "problem solved." if solved else "maximum steps reached"
+            self.gstep, "problem solved." if solved else "maximum steps reached"
             )) """
             tf.logging.info("Optimization done. @ step {}".format(self.gstep))
             tf.logging.info(stats.summary())
@@ -144,7 +144,7 @@ class AcerWorker(Worker):
         self.copy_params_from_global()
 
         # Collect transitions {(s_0, a_0, r_0, mu_0), (s_1, ...), ... }
-	n_steps = FLAGS.max_steps
+        n_steps = FLAGS.max_steps
         transitions = self.run_n_steps(n_steps)
         # tf.logging.info("Average time to predict actions: {}".format(self.timer / self.timer_counter))
 
@@ -202,8 +202,8 @@ class AcerWorker(Worker):
             # Predict an action
             self.action, pi_stats = self.local_net.predict_actions(state, self.sess)
 
-            next_state, reward, done, _ = self.env.step(self.action)
-	    reward = np.array([reward], np.float32).reshape(1, self.n_agents)
+            next_state, reward, done, _ = self.env.step(self.action.squeeze())
+            reward = np.array([reward], np.float32).reshape(1, self.n_agents)
 
             self.current_reward = reward
             self.total_return += reward
@@ -221,10 +221,10 @@ class AcerWorker(Worker):
                 done=done
             ))
 
-	    if done:
+            if done:
                 break
-            else:
-                self.state = next_state
+
+            self.state = next_state
 
         return transitions
 
@@ -256,8 +256,8 @@ class AcerWorker(Worker):
         feed_dict.update({net.state[k]:     v for k, v in states.iteritems()})
         feed_dict.update({avg_net.state[k]: v for k, v in states.iteritems()})
 
-	for k in trans[0].pi_stats.keys():
-	    feed_dict.update({net.pi_behavior.stats[k]: np.concatenate([t.pi_stats[k] for t in trans], axis=0)})
+        for k in trans[0].pi_stats.keys():
+            feed_dict.update({net.pi_behavior.stats[k]: np.concatenate([t.pi_stats[k] for t in trans], axis=0)})
 
         net.reset_lstm_state()
         avg_net.reset_lstm_state()
