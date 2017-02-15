@@ -14,6 +14,8 @@ import time
 import schedule
 from my_config import parse_flags
 
+tf.flags.DEFINE_integer("max-steps", "5000", "Maximum steps per episode")
+
 tf.flags.DEFINE_boolean("record-video", None, "Record video for openai gym upload")
 tf.flags.DEFINE_integer("render-every", None, "Render environment every n episodes")
 tf.flags.DEFINE_integer("random-seed", None, "Random seed for gym.env and TensorFlow")
@@ -31,19 +33,49 @@ def make_env():
 
     env.reset()
     # Add monitor (None will use default video recorder, False will disable video recording)
-    env = wrappers.Monitor(env, FLAGS.exp, force=True, video_callable=False) #None if FLAGS.record_video else False)
+    # env = wrappers.Monitor(env, FLAGS.exp, force=True, video_callable=None if FLAGS.record_video else False)
 
     if FLAGS.record_video:
         FLAGS.render_every = None
 
-    """
     if FLAGS.record_video or FLAGS.render_every is not None:
         env.render()
-    """
 
     FLAGS.action_space = env.action_space
     FLAGS.num_actions = env.action_space.shape[0]
     FLAGS.num_states = env.observation_space.shape[0]
+
+    if FLAGS.game == "MountainCarContinuous-v0":
+	import sklearn.pipeline
+	import sklearn.preprocessing
+	from sklearn.kernel_approximation import RBFSampler
+
+	# Feature Preprocessing: Normalize to zero mean and unit variance
+	# We use a few samples from the observation space to do this
+	observation_examples = np.array([env.observation_space.sample() for x in range(10000)])
+	scaler = sklearn.preprocessing.StandardScaler()
+	scaler.fit(observation_examples)
+
+	# Used to converte a state to a featurizes represenation.
+	# We use RBF kernels with different variances to cover different parts of the space
+	featurizer = sklearn.pipeline.FeatureUnion([
+	    ("rbf1", RBFSampler(gamma=5.0, n_components=100)),
+	    ("rbf2", RBFSampler(gamma=2.0, n_components=100)),
+	    ("rbf3", RBFSampler(gamma=1.0, n_components=100)),
+	    ("rbf4", RBFSampler(gamma=0.5, n_components=100))
+	])
+	featurizer.fit(scaler.transform(observation_examples))
+
+	def featurize_state(state):
+	    """
+	    Returns the featurized representation for a state.
+	    """
+	    scaled = scaler.transform([state])
+	    featurized = featurizer.transform(scaled)
+	    return featurized[0]
+
+	FLAGS.featurize_state = featurize_state
+	FLAGS.num_states = 400
 
     return env
 
@@ -85,7 +117,7 @@ with tf.Session(config=cfg) as sess:
 
         worker = Estimator.Worker(
             name=name,
-            env=make_env(),
+            env=env,
             global_counter=global_counter,
             global_episode_stats=global_episode_stats,
             global_net=global_net,
@@ -127,22 +159,16 @@ with tf.Session(config=cfg) as sess:
     # server.start()
 
     # Show how agent behaves in envs in main thread
-    """
     if FLAGS.display:
-        counter = 0
         while not Worker.stop:
             for worker in workers:
                 if worker.max_return > max_return:
                     max_return = worker.max_return
 
                 worker.env.render()
-
-            cv2.imshow("result", disp_img)
-            cv2.waitKey(10)
-            counter += 1
+		time.sleep(0.05)
 
             schedule.run_pending()
-    """
 
     # Wait for all workers to finish
     coord.join(worker_threads)

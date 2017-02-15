@@ -15,6 +15,9 @@ batch_size = FLAGS.batch_size
 seq_length = FLAGS.seq_length
 
 def form_state(state=None, prev_action=None, prev_reward=None):
+    if FLAGS.game == "MountainCarContinuous-v0":
+	state = FLAGS.featurize_state(state.squeeze())
+
     return AttrDict(
         state = state.reshape(-1, 1).copy().T,
         prev_action = prev_action.copy().T,

@@ -144,7 +144,7 @@ class AcerWorker(Worker):
         self.copy_params_from_global()
 
         # Collect transitions {(s_0, a_0, r_0, mu_0), (s_1, ...), ... }
-        n_steps = int(np.ceil(FLAGS.t_max * FLAGS.command_freq))
+	n_steps = FLAGS.max_steps
         transitions = self.run_n_steps(n_steps)
         # tf.logging.info("Average time to predict actions: {}".format(self.timer / self.timer_counter))
 
@@ -197,7 +197,6 @@ class AcerWorker(Worker):
         reward = np.zeros((1, self.n_agents), dtype=np.float32)
         for i in range(n_steps):
 
-            print self.state.shape
             state = form_state(self.state, self.action, reward)
 
             # Predict an action

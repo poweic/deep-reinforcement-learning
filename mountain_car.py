@@ -46,7 +46,7 @@ if FLAGS.random_seed is not None:
     env.seed(FLAGS.random_seed)
 
 # Add monitor (None will use default video recorder, False will disable video recording)
-env = wrappers.Monitor(env, '/Data3/gym-exp/' + FLAGS.exp, video_callable=None if FLAGS.record_video else False)
+env = wrappers.Monitor(env, 'exp/' + FLAGS.exp, video_callable=None if FLAGS.record_video else False)
 env.observation_space.sample()
 
 if FLAGS.record_video:
