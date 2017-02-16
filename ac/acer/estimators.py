@@ -5,6 +5,7 @@ from ac.utils import *
 from ac.distributions import *
 from ac.models import *
 import ac.acer.worker
+import threading
 
 FLAGS = tf.flags.FLAGS
 batch_size = FLAGS.batch_size
@@ -161,6 +162,8 @@ class AcerEstimator():
 
             # Collect all trainable variables initialized here
             self.var_list = [v for g, v in self.grads_and_vars]
+
+        self.lock = None
 
         tf.logging.info("Adding summaries ...")
         self.summaries = self.summarize(add_summaries)
@@ -340,11 +343,17 @@ class AcerEstimator():
 
         B = feed_dict[self.state.prev_reward].shape[1]
         self.fill_lstm_state_placeholder(feed_dict, B)
-        self.avg_net.fill_lstm_state_placeholder(feed_dict, B)
 
-        output, self.lstm.prev_state_out = sess.run([
-            tensors, self.lstm.state_out
-        ], feed_dict)
+        # avg_net is shared by all workers, we need to use lock to make sure
+        # avg_net.LSTM states won't be changed by other threads before
+        # calling sess.run
+        with self.avg_net.lock:
+
+            self.avg_net.fill_lstm_state_placeholder(feed_dict, B)
+
+            output, self.lstm.prev_state_out = sess.run([
+                tensors, self.lstm.state_out
+            ], feed_dict)
 
         return output
 
@@ -611,5 +620,6 @@ class AcerEstimator():
         if "average_net" not in AcerEstimator.__dict__:
             with tf.variable_scope("average_net"):
                 AcerEstimator.average_net = AcerEstimator(add_summaries=False, trainable=False)
+                AcerEstimator.average_net.lock = threading.Lock()
 
 AcerEstimator.Worker = ac.acer.worker.AcerWorker

@@ -86,12 +86,13 @@ def to_joint_distribution(dists, bijectors):
     if bijectors is None:
         bijectors = [None] * len(dists)
 
-    identity = AttrDict(forward_fn=lambda x:x, inverse_fn=lambda x:x)
-    bijectors = [b if b is not None else identity for b in bijectors]
+    # identity = AttrDict(forward_fn=lambda x:x, inverse_fn=lambda x:x)
+    # bijectors = [b if b is not None else identity for b in bijectors]
 
     def log_prob(x, msg=None):
         x = x[None, ...]
 
+        """
         log_p = reduce(lambda a,b: a+b, [
             tf_print(dists[i].log_prob(
                 bijectors[i].inverse_fn(
@@ -99,8 +100,12 @@ def to_joint_distribution(dists, bijectors):
                 )
             )[0, ...], message="log_prob[..., {}] = ".format(i)) for i in range(len(dists))
         ])
-
         # log_p = tf_print(log_p, message="in to_joint_distribution: log_p = ")
+        """
+
+        log_p = reduce(lambda a,b: a+b, [
+            dists[i].log_prob(x[..., i])[0, ...] for i in range(len(dists))
+        ])
 
         return log_p
 
@@ -111,10 +116,16 @@ def to_joint_distribution(dists, bijectors):
     high = FLAGS.action_space.high
 
     def sample_n(n, msg=None):
+        """
         samples = [
             bijectors[i].forward_fn(
                 clip(dists[i].sample_n(n), low[i], high[i])
             ) for i in range(len(dists))
+        ]
+        """
+        samples = [
+            clip(dists[i].sample_n(n), low[i], high[i])
+            for i in range(len(dists))
         ]
 
         return tf.pack(samples, axis=-1)

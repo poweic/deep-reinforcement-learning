@@ -92,17 +92,26 @@ def build_shared_network(input, add_summaries=False):
     prev_action = input.prev_action
     prev_reward = input.prev_reward
 
+    input = flatten(state)
+
+    fc = tf.contrib.layers.fully_connected(
+        inputs=input,
+        num_outputs=256,
+        activation_fn=tf.nn.relu,
+        scope="state-hidden-dense")
+
     with tf.name_scope("lstm"):
         # Flatten convolutions output to fit fully connected layer
-        fc = state
+        fc = deflatten(fc, S, B)
 
         # LSTM-1
         # Concatenate encoder's output (i.e. flattened result from conv net)
         # with previous reward (see https://arxiv.org/abs/1611.03673)
-        concat1 = tf.concat(2, [fc, prev_reward])
-        # concat1 = fc
-        lstm1 = LSTM(concat1, 512, scope="LSTM-1")
+        # concat1 = tf.concat(2, [fc, prev_reward])
+        concat1 = fc
+        lstm1 = LSTM(concat1, 256, scope="LSTM-1")
 
+        """
         # LSTM-2
         # Concatenate previous output with vehicle_state and prev_action
         concat2 = tf.concat(2, [fc, lstm1.output, prev_action])
@@ -110,17 +119,20 @@ def build_shared_network(input, add_summaries=False):
         lstm2 = LSTM(concat2, 512, scope="LSTM-2")
 
         output = lstm2.output
+        """
+        output = lstm1.output
 
     layers = [
-        fc, concat1, lstm1.output, concat2, lstm2.output
+        fc, lstm1.output
+        # fc, concat1, lstm1.output , concat2, lstm2.output
     ]
 
     for layer in layers:
         tf.logging.info(layer)
 
     return output, AttrDict(
-        state_in  = lstm1.state_in  + lstm2.state_in,
-        state_out = lstm1.state_out + lstm2.state_out,
+        state_in  = lstm1.state_in , # + lstm2.state_in,
+        state_out = lstm1.state_out, # + lstm2.state_out,
         prev_state_out = None
     )
 
@@ -131,12 +143,6 @@ def policy_network(input, num_outputs, clip_mu=True):
     if rank == 3:
         S, B = get_seq_length_batch_size(input)
         input = flatten(input)
-
-    input = tf.contrib.layers.fully_connected(
-	inputs=input,
-	num_outputs=256,
-	activation_fn=tf.nn.relu,
-	scope="policy-input-dense")
 
     # Linear classifiers for mu and sigma
     mu = tf.contrib.layers.fully_connected(
@@ -169,11 +175,11 @@ def state_value_network(input, num_outputs=1):
 
     # This is just linear classifier
     value = tf.contrib.layers.fully_connected(
-	inputs=input,
-	num_outputs=num_outputs,
-	scope="value-dense")
+        inputs=input,
+        num_outputs=num_outputs,
+        scope="value-dense")
 
-    value = tf.reshape(value, [-1, 1], name="value")
+    # value = tf.reshape(value, [-1, 1], name="value")
 
     if rank == 3:
         value = deflatten(value, S, B)

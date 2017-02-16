@@ -49,6 +49,7 @@ tf.flags.DEFINE_float("t-max", 30, "Maximum elasped time per simulation (in seco
 tf.flags.DEFINE_float("command-freq", 20, "How frequent we send command to vehicle (in Hz)")
 
 tf.flags.DEFINE_float("learning-rate", 2e-4, "Learning rate for policy net and value net")
+tf.flags.DEFINE_float("lr-vp-ratio", 10, "Learning rate of value:Learning rate of policy")
 tf.flags.DEFINE_boolean("random-learning-rate", False, "Random sample learning rate from LogUniform(min, max)")
 tf.flags.DEFINE_boolean("min-learning-rate", 1e-4, "min learning rate used in LogUniform")
 tf.flags.DEFINE_boolean("max-learning-rate", 5e-4, "max learning rate used in LogUniform")
