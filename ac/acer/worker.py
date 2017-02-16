@@ -180,21 +180,22 @@ class AcerWorker(Worker):
     def _run_off_policy(self, N):
         rp = AcerWorker.replay_buffer
 
-        if len(rp) <= 0:
+        if len(rp) <= N:
             return
 
         # Random select on episode from past experiences
         # idx = np.random.randint(len(rp))
-        lengths = [len(t) for t in rp]
+        lengths = np.array([len(t) for t in rp], dtype=np.float32)
         prob = lengths / np.sum(lengths)
-        experiences = np.random.choice(rp, p=prob, replace=False)
-        tf.logging.info("prob = {}, len(experiences)".format(prob, len(experiences)))
+        # tf.logging.info("lengths = {}, prob = {}, len(prob) = {}, len(rp) = {}".format(lengths, prob, len(prob), len(rp)))
+        indices = np.random.choice(len(prob), N, p=prob, replace=False)
+        # tf.logging.info("len(indices) = {}".format(len(indices)))
 
-        for e in experiences:
+        for idx in indices:
             self.copy_params_from_global()
 
             # Compute gradient and Perform update
-            self.update(e, on_policy=False)
+            self.update(rp[idx], on_policy=False)
 
     def run_n_steps(self, n_steps):
 

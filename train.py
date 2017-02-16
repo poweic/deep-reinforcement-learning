@@ -14,7 +14,7 @@ import time
 import schedule
 from my_config import parse_flags
 
-tf.flags.DEFINE_integer("max-steps", "5000", "Maximum steps per episode")
+tf.flags.DEFINE_integer("max-steps", "1000", "Maximum steps per episode")
 
 tf.flags.DEFINE_boolean("record-video", None, "Record video for openai gym upload")
 tf.flags.DEFINE_integer("render-every", None, "Render environment every n episodes")
@@ -38,8 +38,10 @@ def make_env():
     if FLAGS.record_video:
         FLAGS.render_every = None
 
+    """
     if FLAGS.record_video or FLAGS.render_every is not None:
         env.render()
+    """
 
     FLAGS.action_space = env.action_space
     FLAGS.num_actions = env.action_space.shape[0]
@@ -80,6 +82,8 @@ def make_env():
     return env
 
 env = make_env()
+if FLAGS.display:
+    env.render()
 env.close()
 
 from ac.estimators import get_estimator
@@ -152,8 +156,11 @@ with tf.Session(config=cfg) as sess:
     for i in range(len(workers)):
         worker_fn = lambda j=i: workers[j].run(sess, coord)
         t = threading.Thread(target=worker_fn)
-        time.sleep(0.5)
         t.start()
+
+        if i == 0:
+            time.sleep(5)
+
         worker_threads.append(t)
 
     # server.start()
@@ -161,8 +168,11 @@ with tf.Session(config=cfg) as sess:
     # Show how agent behaves in envs in main thread
     if FLAGS.display:
         while not Worker.stop:
+            workers[0].env.render()
+            """
             for worker in workers:
                 worker.env.render()
+            """
 
             time.sleep(0.05)
             schedule.run_pending()
