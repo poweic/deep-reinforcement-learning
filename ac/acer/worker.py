@@ -43,6 +43,9 @@ class AcerWorker(Worker):
             self.global_step, avg_vars, global_net, self.local_net
         )
 
+        with tf.control_dependencies([train_and_update_avgnet_op]):
+            self.inc_global_step = tf.assign_add(self.global_step, 1)
+
         net = self.local_net
         self.step_op = [
             {
@@ -53,10 +56,9 @@ class AcerWorker(Worker):
             },
             net.summaries,
             train_and_update_avgnet_op,
-            tf.no_op()
+            tf.no_op(),
+            self.inc_global_step,
         ]
-
-        self.inc_global_step = tf.assign_add(self.global_step, 1)
 
     def reset_env(self):
 
@@ -122,7 +124,7 @@ class AcerWorker(Worker):
         # last consecutive N episodes
         stats = self.global_episode_stats
         mean, std, msg = stats.last_n_stats()
-        tf.logging.info(msg)
+        tf.logging.info("\33[94m" + msg + "\33[0m")
 
         """
         solved = stats.num_episodes() > FLAGS.min_episodes and mean > FLAGS.score_to_win
@@ -160,7 +162,7 @@ class AcerWorker(Worker):
             len(transitions), avg_total_return, self.total_return.flatten()
         )
 
-        self.gstep = self.sess.run(self.inc_global_step)
+        self.gstep = self.sess.run(self.global_step)
         if self.gstep % 10 == 0:
             # also print experiment configuration in MATLAB parseable JSON
             cfg = "'" + repr(FLAGS.exp_config)[1:-1].replace("'", '"') + "'\n"
@@ -169,22 +171,30 @@ class AcerWorker(Worker):
     def _run_off_policy_n_times(self):
         N = np.random.poisson(FLAGS.replay_ratio)
 
+        """
         for i in range(N):
             self._run_off_policy()
+        """
+        self._run_off_policy(N)
 
-    def _run_off_policy(self):
+    def _run_off_policy(self, N):
         rp = AcerWorker.replay_buffer
 
         if len(rp) <= 0:
             return
 
-        self.copy_params_from_global()
-
         # Random select on episode from past experiences
-        idx = np.random.randint(len(rp))
+        # idx = np.random.randint(len(rp))
+        lengths = [len(t) for t in rp]
+        prob = lengths / np.sum(lengths)
+        experiences = np.random.choice(rp, p=prob, replace=False)
+        tf.logging.info("prob = {}, len(experiences)".format(prob, len(experiences)))
 
-        # Compute gradient and Perform update
-        self.update(rp[idx], on_policy=False)
+        for e in experiences:
+            self.copy_params_from_global()
+
+            # Compute gradient and Perform update
+            self.update(e, on_policy=False)
 
     def run_n_steps(self, n_steps):
 
@@ -262,10 +272,9 @@ class AcerWorker(Worker):
         net.reset_lstm_state()
         avg_net.reset_lstm_state()
 
-        loss, summaries, _, debug = net.predict(self.step_op, feed_dict, self.sess)
+        loss, summaries, _, debug, self.gstep = net.predict(self.step_op, feed_dict, self.sess)
         loss = AttrDict(loss)
 
-        self.gstep = self.sess.run(self.inc_global_step)
         tf.logging.info((
             "#{:6d}: pi_loss = {:+12.3f}, vf_loss = {:+12.3f}, "
             "loss = {:+12.3f} {}\33[0m S = {:3d}, B = {} [{}] global_norm = {:.2f}"

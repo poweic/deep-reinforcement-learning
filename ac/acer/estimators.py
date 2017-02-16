@@ -1,3 +1,4 @@
+import sys
 import tensorflow as tf
 from pprint import pprint
 from ac.utils import *
@@ -106,7 +107,7 @@ class AcerEstimator():
             # Surrogate loss is the loss tensor we passed to optimizer for
             # automatic gradient computation, it uses lots of stop_gradient.
             # Therefore it's different from the true loss (self.loss)
-            self.loss_sur = self.pi_loss_sur + self.vf_loss_sur
+            self.loss_sur = self.pi_loss_sur + self.vf_loss_sur * FLAGS.lr_vp_ratio
 
             # self.g_phi = tf.pack(tf.gradients(self.loss_sur, self.pi.phi), axis=-1)
 
@@ -326,8 +327,13 @@ class AcerEstimator():
             ]
 
         # Set placeholders with previous LSTM state output
-        for sin, prev_sout in zip(self.lstm.state_in, self.lstm.prev_state_out):
-            feed_dict[sin] = prev_sout
+        try:
+            for sin, prev_sout in zip(self.lstm.state_in, self.lstm.prev_state_out):
+                feed_dict[sin] = prev_sout
+        except:
+            print "self.lstm.state_in = {}".format(self.lstm.state_in)
+            print "self.lstm.prev_state_out = {}".format(self.lstm.prev_state_out)
+            sys.exit()
 
     def predict(self, tensors, feed_dict, sess=None):
         sess = sess or tf.get_default_session()
@@ -510,21 +516,12 @@ class AcerEstimator():
         alpha = tf.nn.softplus(alpha) + 2
         beta  = tf.nn.softplus(beta)  + 2
 
-        alpha = tf_check_numerics(alpha)
-        beta  = tf_check_numerics(beta)
-
-        alpha = tf_print(alpha)
-        beta  = tf_print(beta)
-
-        bijectors = None
-
         pi = create_distribution(
-            dist_type="beta", bijectors=bijectors, param1=alpha, param2=beta
+            dist_type="beta", param1=alpha, param2=beta
         )
 
         pi_behavior = create_distribution(
             dist_type="beta", 
-            bijectors=bijectors,
             param1 = tf.placeholder(tf.float32, [seq_length, batch_size, FLAGS.num_actions], "param1"),
             param2 = tf.placeholder(tf.float32, [seq_length, batch_size, FLAGS.num_actions], "param2"),
         )
@@ -535,18 +532,15 @@ class AcerEstimator():
 
         mu, sigma = policy_network(input, FLAGS.num_actions, clip_mu=False)
 
-        # Confine action space
+        """
         AS = FLAGS.action_space
         broadcaster = mu[..., 0:1] * 0
         low  = tf.constant(AS.low , tf.float32)[None, None, :] + broadcaster
         high = tf.constant(AS.high, tf.float32)[None, None, :] + broadcaster
+        # mu    = softclip(mu,low , high)
+        """
 
-        mu    = softclip(mu,low , high)
         sigma = tf.nn.softplus(sigma)
-
-        # For debugging
-        mu    = tf_check_numerics(mu)
-        sigma = tf_check_numerics(sigma)
 
         pi = create_distribution(dist_type="normal", param1=mu, param2=sigma)
 

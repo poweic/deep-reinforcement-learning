@@ -13,6 +13,9 @@ def create_distribution(dist_type, bijectors=None, **stats):
 
     DIST = tf.contrib.distributions.Normal if dist_type == "normal" else tf.contrib.distributions.Beta
 
+    stats['params1'] = tf_check_numerics(stats['params1'])
+    stats['params2'] = tf_check_numerics(stats['params2'])
+
     dists = [
         DIST(
             stats['param1'][..., i], stats['param2'][..., i], allow_nan_stats=False
