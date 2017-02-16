@@ -187,9 +187,7 @@ class AcerWorker(Worker):
         # idx = np.random.randint(len(rp))
         lengths = np.array([len(t) for t in rp], dtype=np.float32)
         prob = lengths / np.sum(lengths)
-        # tf.logging.info("lengths = {}, prob = {}, len(prob) = {}, len(rp) = {}".format(lengths, prob, len(prob), len(rp)))
         indices = np.random.choice(len(prob), N, p=prob, replace=False)
-        # tf.logging.info("len(indices) = {}".format(len(indices)))
 
         for idx in indices:
             self.copy_params_from_global()

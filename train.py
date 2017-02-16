@@ -1,5 +1,4 @@
-#!/usr/bin/python
-import colored_traceback.always
+#!/usr/bin/env python
 
 import os
 import sys
@@ -13,6 +12,7 @@ import threading
 import time
 import schedule
 from my_config import parse_flags
+import multiprocessing
 
 tf.flags.DEFINE_integer("max-steps", "1000", "Maximum steps per episode")
 
@@ -91,6 +91,8 @@ from ac.worker import Worker
 from ac.utils import (
     make_copy_params_op, save_model_every_nth_minutes, EpisodeStats
 )
+
+tf.logging.info("Number of cpus = {}".format(multiprocessing.cpu_count()))
 
 # Optionally empty model directory
 cfg = tf.ConfigProto()

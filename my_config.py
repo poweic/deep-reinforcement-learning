@@ -76,7 +76,8 @@ tf.flags.DEFINE_float("max-sigma-steer", 20 * np.pi / 180, "Maximum variance of 
 def parse_flags():
     # Parse command line arguments, add some additional flags, and print them out
     FLAGS = tf.flags.FLAGS
-    FLAGS.exp_dir = "{}/{}{}".format(
+    base_dir = "/home/poweic/Stochastic-Policy-Gradient-for-Continuous-DRL"
+    FLAGS.exp_dir = base_dir + "{}/{}{}".format(
         FLAGS.base_dir, FLAGS.game, "-" + FLAGS.exp if FLAGS.exp is not None else ""
     )
 
