@@ -97,7 +97,7 @@ def build_shared_network(input, add_summaries=False):
     fc = tf.contrib.layers.fully_connected(
         inputs=input,
         num_outputs=256,
-        activation_fn=tf.nn.relu,
+        activation_fn=tf.nn.elu,
         scope="state-hidden-dense")
 
     with tf.name_scope("lstm"):
@@ -109,30 +109,32 @@ def build_shared_network(input, add_summaries=False):
         # with previous reward (see https://arxiv.org/abs/1611.03673)
         # concat1 = tf.concat(2, [fc, prev_reward])
         concat1 = fc
-        lstm1 = LSTM(concat1, 256, scope="LSTM-1")
+        lstms = []
+        lstms.append(LSTM(concat1, 256, scope="LSTM-1"))
 
-        """
         # LSTM-2
         # Concatenate previous output with vehicle_state and prev_action
-        concat2 = tf.concat(2, [fc, lstm1.output, prev_action])
-        # concat2 = lstm1.output
-        lstm2 = LSTM(concat2, 512, scope="LSTM-2")
-
-        output = lstm2.output
+        # concat2 = tf.concat(2, [fc, lstms[-1].output, prev_action])
         """
-        output = lstm1.output
+        concat2 = lstms[-1].output
+        lstms.append(LSTM(concat2, 256, scope="LSTM-2"))
+        """
 
-    layers = [
-        fc, lstm1.output
-        # fc, concat1, lstm1.output , concat2, lstm2.output
-    ]
+        output = lstms[-1].output
+
+    layers = [fc, concat1] + lstms
 
     for layer in layers:
         tf.logging.info(layer)
 
+    state_in, state_out = [], []
+    for lstm in lstms:
+        state_in  += lstm.state_in
+        state_out += lstm.state_out
+
     return output, AttrDict(
-        state_in  = lstm1.state_in , # + lstm2.state_in,
-        state_out = lstm1.state_out, # + lstm2.state_out,
+        state_in  = state_in,
+        state_out = state_out,
         prev_state_out = None
     )
 

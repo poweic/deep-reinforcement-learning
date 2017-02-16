@@ -124,7 +124,7 @@ class AcerWorker(Worker):
         # last consecutive N episodes
         stats = self.global_episode_stats
         mean, std, msg = stats.last_n_stats()
-        tf.logging.info("\33[94m" + msg + "\33[0m")
+        tf.logging.info("\33[93m" + msg + "\33[0m")
 
         """
         solved = stats.num_episodes() > FLAGS.min_episodes and mean > FLAGS.score_to_win
