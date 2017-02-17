@@ -80,7 +80,7 @@ class AcerWorker(Worker):
         if self.gstep % FLAGS.decay_steps == 0:
             tf.logging.info("learning rate = {}".format(self.sess.run(self.local_net.lr)))
 
-        # show_mem_usage()
+        show_mem_usage()
 
         # Run on-policy ACER
         self._run_on_policy()
@@ -186,9 +186,12 @@ class AcerWorker(Worker):
         # Random select on episode from past experiences
         # idx = np.random.randint(len(rp))
         # lengths = np.array([len(t) for t in rp], dtype=np.float32)
-        lengths = np.array([1 for t in rp], dtype=np.float32)
-        prob = lengths / np.sum(lengths)
-        indices = np.random.choice(len(prob), N, p=prob, replace=False)
+        if FLAGS.prioritize_replay:
+            lengths = np.array([len(t) for t in rp], dtype=np.float32)
+            prob = lengths / np.sum(lengths)
+            indices = np.random.choice(len(prob), N, p=prob, replace=False)
+        else:
+            indices = np.random.randint(len(rp), size=N)
 
         for idx in indices:
             self.copy_params_from_global()
@@ -275,7 +278,7 @@ class AcerWorker(Worker):
         loss, summaries, _, debug, self.gstep = net.update(self.step_op, feed_dict, self.sess)
         loss = AttrDict(loss)
 
-        if self.gstep % 100 == 0:
+        if self.gstep % 1 == 0:
             tf.logging.info((
                 "#{:6d}: pi_loss = {:+12.3f}, vf_loss = {:+12.3f}, "
                 "loss = {:+12.3f} {}\33[0m S = {:3d}, B = {} [{}] global_norm = {:.2f}"
