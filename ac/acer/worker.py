@@ -76,6 +76,13 @@ class AcerWorker(Worker):
 
     def _run(self):
 
+        # if resume from some unfinished training, we first re-generate
+        # lots of experiecnes before further training/updating
+        if FLAGS.regenerate_exp_after_resume:
+            for i in range(100):
+                self.store_experience(self.run_n_steps(FLAGS.max_steps))
+            FLAGS.regenerate_exp_after_resume = False
+
         # Show learning rate every FLAGS.decay_steps
         if self.gstep % FLAGS.decay_steps == 0:
             tf.logging.info("learning rate = {}".format(self.sess.run(self.local_net.lr)))
@@ -143,9 +150,7 @@ class AcerWorker(Worker):
         self.copy_params_from_global()
 
         # Collect transitions {(s_0, a_0, r_0, mu_0), (s_1, ...), ... }
-        n_steps = FLAGS.max_steps
-        transitions = self.run_n_steps(n_steps)
-        # tf.logging.info("Average time to predict actions: {}".format(self.timer / self.timer_counter))
+        transitions = self.run_n_steps(FLAGS.max_steps)
 
         # Compute gradient and Perform update
         self.update(transitions)
