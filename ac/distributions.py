@@ -53,22 +53,25 @@ def create_distribution(dist_type, bijectors=None, **stats):
 
 def add_eps_exploration(dists, broadcaster):
 
+    if FLAGS.eps_init == 0:
+        return dists
+
     a = tf.constant(FLAGS.action_space.low,  tf.float32)[:, None, None] + broadcaster[None, ...]
     b = tf.constant(FLAGS.action_space.high, tf.float32)[:, None, None] + broadcaster[None, ...]
 
+    # eps-greedy-like policy with epsilon decays over time.
+    # NOTE I use (t / N + 1) rather than t so that it looks like:
+    # 1.00, 1.01, 1.02, ... instead of 1, 2, 3, 4, which decays too fast
+    global_step = tf.contrib.framework.get_global_step()
+    eff_timestep = (tf.to_float(global_step) / FLAGS.effective_timescale + 1.)
+    eps = FLAGS.eps_init / eff_timestep
+
+    # With eps probability, we sample our action from random uniform
+    prob = tf.pack([1. - eps, eps], axis=-1)[None, None, ...] + broadcaster[..., None]
+    cat = tf.contrib.distributions.Categorical(p=prob, allow_nan_stats=False)
+    tf.logging.info(cat.sample_n(1))
+
     for i in range(FLAGS.num_actions):
-
-        # eps-greedy-like policy with epsilon decays over time.
-        # NOTE I use (t / N + 1) rather than t so that it looks like:
-        # 1.00, 1.01, 1.02, ... instead of 1, 2, 3, 4, which decays too fast
-        global_step = tf.contrib.framework.get_global_step()
-        eff_timestep = (tf.to_float(global_step) / FLAGS.effective_timescale + 1.)
-        eps = FLAGS.eps_init / eff_timestep
-
-        # With eps probability, we sample our action from random uniform
-        prob = tf.pack([1. - eps, eps], axis=-1)[None, None, ...] + broadcaster[..., None]
-        cat = tf.contrib.distributions.Categorical(p=prob, allow_nan_stats=False)
-        tf.logging.info(cat.sample_n(1))
 
         # Create uniform dist
         uniform = tf.contrib.distributions.Uniform(a=a[i], b=b[i], allow_nan_stats=False)
@@ -133,7 +136,8 @@ def to_joint_distribution(dists, bijectors):
     dist = AttrDict(
         prob = prob,
         log_prob = log_prob,
-        sample_n = sample_n
+        sample_n = sample_n,
+        dists = dists
     )
 
     return dist
