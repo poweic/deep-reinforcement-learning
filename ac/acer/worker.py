@@ -79,8 +79,7 @@ class AcerWorker(Worker):
         # if resume from some unfinished training, we first re-generate
         # lots of experiecnes before further training/updating
         if FLAGS.regenerate_exp_after_resume:
-            for i in range(100):
-                self.store_experience(self.run_n_steps(FLAGS.max_steps))
+            self.regenerate_experiences()
             FLAGS.regenerate_exp_after_resume = False
 
         # Show learning rate every FLAGS.decay_steps
@@ -98,6 +97,16 @@ class AcerWorker(Worker):
         if self.should_stop():
             Worker.stop = True
             self.coord.request_stop()
+
+    def regenerate_experiences(self):
+        N = FLAGS.regenerate_size
+        tf.logging.info("Re-generating {} experiences ...".format(N))
+
+        while len(AcerWorker.replay_buffer) < N:
+            self.store_experience(self.run_n_steps(FLAGS.max_steps))
+
+        tf.logging.info("Regeneration done. len(replay_buffer) = {}.".format(
+            len(AcerWorker.replay_buffer)))
 
     def copy_params_from_global(self):
         # Copy Parameters from the global networks

@@ -32,6 +32,7 @@ tf.flags.DEFINE_integer("field-of-view", 20, "size of front view (N x N) passed 
 tf.flags.DEFINE_float("replay-ratio", 10, "off-policy memory replay ratio, choose a number from {0, 1, 4, 8}")
 tf.flags.DEFINE_integer("max-replay-buffer-size", 50000, "off-policy memory replay buffer")
 tf.flags.DEFINE_boolean("prioritize-replay", False, "Use choice(length) to sample replay")
+tf.flags.DEFINE_integer("regenerate-size", 1000, "number of episodes experience to regenerate after resuming")
 
 tf.flags.DEFINE_float("avg-net-momentum", 0.995, "soft update momentum for average policy network in TRPO")
 tf.flags.DEFINE_float("max-Q-diff", None, "Maximum Q difference (for robustness)")
