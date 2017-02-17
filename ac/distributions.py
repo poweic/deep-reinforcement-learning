@@ -22,28 +22,9 @@ def create_distribution(dist_type, bijectors=None, **stats):
         ) for i in range(num_actions)
     ]
 
-    if dist_type == "normal":
-        pass
-
-    elif dist_type == "beta":
-
-        beta_bijectors = [
-            tf.contrib.distributions.bijector.ScaleAndShift(
-                shift = tf.constant(low[i], tf.float32),
-                scale = tf.constant(high[i] - low[i], tf.float32),
-            ) for i in range(num_actions)
-        ]
-
-        dists = [
-            tf.contrib.distributions.TransformedDistribution(
-                distribution = dist,
-                bijector = bijector
-            ) for dist, bijector in zip(dists, beta_bijectors)
-        ]
-
     dists = add_eps_exploration(dists, broadcaster)
 
-    pi = to_joint_distribution(dists, bijectors)
+    pi = to_joint_distribution(dists, bijectors, dist_type)
 
     pi.phi = [stats['param1'], stats['param2']]
     # pi.phi = reduce(lambda x,y:x+y, stats.itervalues())
@@ -84,10 +65,13 @@ def add_eps_exploration(dists, broadcaster):
 
     return dists
 
-def to_joint_distribution(dists, bijectors):
+def to_joint_distribution(dists, bijectors, dist_type):
 
     if bijectors is None:
         bijectors = [None] * len(dists)
+
+    low  = tf.constant(FLAGS.action_space.low , tf.float32)[None, None, None, ...]
+    high = tf.constant(FLAGS.action_space.high, tf.float32)[None, None, None, ...]
 
     # identity = AttrDict(forward_fn=lambda x:x, inverse_fn=lambda x:x)
     # bijectors = [b if b is not None else identity for b in bijectors]
@@ -105,6 +89,8 @@ def to_joint_distribution(dists, bijectors):
         ])
         # log_p = tf_print(log_p, message="in to_joint_distribution: log_p = ")
         """
+        if dist_type == "beta":
+            x = clip((x - low) / (high - low), 0., 1.)
 
         log_p = reduce(lambda a,b: a+b, [
             dists[i].log_prob(x[..., i])[0, ...] for i in range(len(dists))
@@ -115,28 +101,24 @@ def to_joint_distribution(dists, bijectors):
     def prob(x, msg=None):
         return tf.exp(log_prob(x))
 
-    low  = FLAGS.action_space.low
-    high = FLAGS.action_space.high
+    def entropy():
+        return sum([dists[i].entropy() for i in range(len(dists))])
 
     def sample_n(n, msg=None):
-        """
-        samples = [
-            bijectors[i].forward_fn(
-                clip(dists[i].sample_n(n), low[i], high[i])
-            ) for i in range(len(dists))
-        ]
-        """
-        samples = [
-            clip(dists[i].sample_n(n), low[i], high[i])
-            for i in range(len(dists))
-        ]
+        samples = tf.pack([dists[i].sample_n(n) for i in range(len(dists))], axis=-1)
 
-        return tf.pack(samples, axis=-1)
+        if dist_type == "normal":
+            samples = clip(samples, low, high)
+        else:
+            samples = samples * (high - low) + low
+
+        return samples
 
     dist = AttrDict(
         prob = prob,
         log_prob = log_prob,
         sample_n = sample_n,
+        entropy = entropy,
         dists = dists
     )
 

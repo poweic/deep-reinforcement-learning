@@ -108,7 +108,11 @@ class AcerEstimator():
             # Surrogate loss is the loss tensor we passed to optimizer for
             # automatic gradient computation, it uses lots of stop_gradient.
             # Therefore it's different from the true loss (self.loss)
-            self.loss_sur = self.pi_loss_sur + self.vf_loss_sur * FLAGS.lr_vp_ratio
+            self.loss_sur = (
+                self.pi_loss_sur +
+                self.vf_loss_sur * FLAGS.lr_vp_ratio +
+                self.pi.entropy() * FLAGS.entropy_cost_mult
+            )
 
             # self.g_phi = tf.pack(tf.gradients(self.loss_sur, self.pi.phi), axis=-1)
 
