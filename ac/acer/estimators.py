@@ -557,13 +557,11 @@ class AcerEstimator():
 
         mu, sigma = policy_network(input, FLAGS.num_actions, clip_mu=False)
 
-        """
         AS = FLAGS.action_space
         broadcaster = mu[..., 0:1] * 0
         low  = tf.constant(AS.low , tf.float32)[None, None, :] + broadcaster
         high = tf.constant(AS.high, tf.float32)[None, None, :] + broadcaster
-        # mu    = softclip(mu,low , high)
-        """
+        mu    = softclip(mu,low , high)
 
         sigma = tf.nn.softplus(sigma)
 
