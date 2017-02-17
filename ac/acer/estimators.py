@@ -280,10 +280,11 @@ class AcerEstimator():
         In ACER's original paper, they use delta uniformly sampled from [0.1, 2]
         """
         try:
+            # FIXME
             # Compute the KL-divergence between the policy distribution of the
             # average policy network and those of this network, i.e. KL(avg || this)
             KL_divergence = tf.contrib.distributions.kl(
-                pi_avg.dist, pi.dist, allow_nan=False)
+                pi_avg.dists[0], pi.dists[0], allow_nan=False)
 
             # Take the partial derivatives w.r.t. phi (i.e. mu and sigma)
             k = tf.pack(tf.gradients(KL_divergence, pi.phi), axis=-1)
@@ -298,7 +299,9 @@ class AcerEstimator():
 
             # z* is the TRPO regularized gradient
             z_star = g - correction
-        except:
+        except Exception as e:
+            print e
+            tf.logging.warn("\33[33mFailed to create TRPO update. Fall back to normal update\33[0m")
             z_star = g
 
         # By using stop_gradient, we make z_star being treated as a constant
@@ -344,16 +347,25 @@ class AcerEstimator():
         B = feed_dict[self.state.prev_reward].shape[1]
         self.fill_lstm_state_placeholder(feed_dict, B)
 
+        output, self.lstm.prev_state_out = sess.run([
+            tensors, self.lstm.state_out
+        ], feed_dict)
+
+        return output
+
+    def update(self, tensors, feed_dict, sess=None):
+        sess = sess or tf.get_default_session()
+
         # avg_net is shared by all workers, we need to use lock to make sure
         # avg_net.LSTM states won't be changed by other threads before
         # calling sess.run
         with self.avg_net.lock:
 
+            B = feed_dict[self.state.prev_reward].shape[1]
+            self.avg_net.reset_lstm_state()
             self.avg_net.fill_lstm_state_placeholder(feed_dict, B)
 
-            output, self.lstm.prev_state_out = sess.run([
-                tensors, self.lstm.state_out
-            ], feed_dict)
+            output = self.predict(tensors, feed_dict, sess)
 
         return output
 

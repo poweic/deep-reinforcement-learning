@@ -1,6 +1,6 @@
 # -*- coding: utf-8 -*-
 import gc
-from collections import OrderedDict
+from collections import OrderedDict, deque
 import tensorflow as tf
 import ac.acer.estimators
 from ac.worker import Worker
@@ -80,7 +80,7 @@ class AcerWorker(Worker):
         if self.gstep % FLAGS.decay_steps == 0:
             tf.logging.info("learning rate = {}".format(self.sess.run(self.local_net.lr)))
 
-        show_mem_usage()
+        # show_mem_usage()
 
         # Run on-policy ACER
         self._run_on_policy()
@@ -108,11 +108,8 @@ class AcerWorker(Worker):
         rp = AcerWorker.replay_buffer
 
         rp.append(transitions)
-        if len(rp) > FLAGS.max_replay_buffer_size:
-            rp.pop(0)
-            gc.collect()
 
-        if len(rp) % 20 == 0:
+        if len(rp) % 100 == 0:
             tf.logging.info("len(replay_buffer) = {}".format(len(rp)))
 
     def should_stop(self):
@@ -124,7 +121,7 @@ class AcerWorker(Worker):
         # last consecutive N episodes
         stats = self.global_episode_stats
         mean, std, msg = stats.last_n_stats()
-        tf.logging.info("\33[94m" + msg + "\33[0m")
+        tf.logging.info("\33[93m" + msg + "\33[0m")
 
         """
         solved = stats.num_episodes() > FLAGS.min_episodes and mean > FLAGS.score_to_win
@@ -156,6 +153,9 @@ class AcerWorker(Worker):
         # Store experience and collect statistics
         self.store_experience(transitions)
 
+        if len(transitions) > 1:
+            self._collect_statistics(transitions)
+
     def _collect_statistics(self, transitions):
         avg_total_return = np.mean(self.total_return)
         self.global_episode_stats.append(
@@ -185,7 +185,8 @@ class AcerWorker(Worker):
 
         # Random select on episode from past experiences
         # idx = np.random.randint(len(rp))
-        lengths = np.array([len(t) for t in rp], dtype=np.float32)
+        # lengths = np.array([len(t) for t in rp], dtype=np.float32)
+        lengths = np.array([1 for t in rp], dtype=np.float32)
         prob = lengths / np.sum(lengths)
         indices = np.random.choice(len(prob), N, p=prob, replace=False)
 
@@ -254,6 +255,7 @@ class AcerWorker(Worker):
         action = np.concatenate([t.action.T[None, ...] for t in trans], axis=0)
         reward = np.concatenate([t.reward.T[None, ...] for t in trans], axis=0)
 
+        # Start to put things in placeholders in graph
         net = self.local_net
         avg_net = self.Estimator.average_net
 
@@ -269,25 +271,27 @@ class AcerWorker(Worker):
             feed_dict.update({net.pi_behavior.stats[k]: np.concatenate([t.pi_stats[k] for t in trans], axis=0)})
 
         net.reset_lstm_state()
-        avg_net.reset_lstm_state()
 
-        loss, summaries, _, debug, self.gstep = net.predict(self.step_op, feed_dict, self.sess)
+        loss, summaries, _, debug, self.gstep = net.update(self.step_op, feed_dict, self.sess)
         loss = AttrDict(loss)
 
-        tf.logging.info((
-            "#{:6d}: pi_loss = {:+12.3f}, vf_loss = {:+12.3f}, "
-            "loss = {:+12.3f} {}\33[0m S = {:3d}, B = {} [{}] global_norm = {:.2f}"
-        ).format(
-            self.gstep, loss.pi, loss.vf, loss.total,
-            "\33[92m[on  policy]" if on_policy else "\33[93m[off policy]",
-            S, B, self.name, loss.global_norm
-        ))
+        if self.gstep % 100 == 0:
+            tf.logging.info((
+                "#{:6d}: pi_loss = {:+12.3f}, vf_loss = {:+12.3f}, "
+                "loss = {:+12.3f} {}\33[0m S = {:3d}, B = {} [{}] global_norm = {:.2f}"
+            ).format(
+                self.gstep, loss.pi, loss.vf, loss.total,
+                "\33[92m[on  policy]" if on_policy else "\33[93m[off policy]",
+                S, B, self.name, loss.global_norm
+            ))
 
+        """
         if "grad_norms" in loss:
             grad_norms = OrderedDict(sorted(loss.grad_norms.items()))
             max_len = max(map(len, grad_norms.keys()))
             for k, v in grad_norms.iteritems():
                 tf.logging.info("{} grad norm: {}{:12.6e}\33[0m".format(
                     k.ljust(max_len), "\33[94m" if v > 0 else "\33[2m", v))
+        """
 
-AcerWorker.replay_buffer = []
+AcerWorker.replay_buffer = deque(maxlen=FLAGS.max_replay_buffer_size)
