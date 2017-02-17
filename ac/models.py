@@ -150,11 +150,13 @@ def policy_network(input, num_outputs, clip_mu=True):
     mu = tf.contrib.layers.fully_connected(
         inputs=input,
         num_outputs=num_outputs,
+        activation_fn=None,
         scope="policy-mu")
 
     sigma = tf.contrib.layers.fully_connected(
         inputs=input,
         num_outputs=num_outputs,
+        activation_fn=None,
         scope="policy-sigma")
 
     if rank == 3:
@@ -179,6 +181,7 @@ def state_value_network(input, num_outputs=1):
     value = tf.contrib.layers.fully_connected(
         inputs=input,
         num_outputs=num_outputs,
+        activation_fn=None,
         scope="value-dense")
 
     # value = tf.reshape(value, [-1, 1], name="value")
