@@ -108,10 +108,14 @@ class AcerEstimator():
             # Surrogate loss is the loss tensor we passed to optimizer for
             # automatic gradient computation, it uses lots of stop_gradient.
             # Therefore it's different from the true loss (self.loss)
+
+            self.entropy = tf.reduce_sum(tf.reduce_mean(self.pi.entropy(), axis=1), axis=0)
+            assert len(self.entropy.get_shape()) == 0
+
             self.loss_sur = (
                 self.pi_loss_sur +
                 self.vf_loss_sur * FLAGS.lr_vp_ratio +
-                self.pi.entropy() * FLAGS.entropy_cost_mult
+                self.entropy * FLAGS.entropy_cost_mult
             )
 
             # self.g_phi = tf.pack(tf.gradients(self.loss_sur, self.pi.phi), axis=-1)
@@ -288,10 +292,10 @@ class AcerEstimator():
             # Compute the KL-divergence between the policy distribution of the
             # average policy network and those of this network, i.e. KL(avg || this)
             KL_divergence = tf.contrib.distributions.kl(
-                pi_avg.dists[0], pi.dists[0], allow_nan=False)
+                pi_avg.dist, pi.dist, allow_nan=False)
 
             # Take the partial derivatives w.r.t. phi (i.e. mu and sigma)
-            k = tf.pack(tf.gradients(KL_divergence, pi.phi), axis=-1)
+            k = tf_concat(-1, tf.gradients(KL_divergence, pi.phi))
 
             # Compute \frac{k^T g - \delta}{k^T k}, perform reduction only on axis 2
             num   = tf.reduce_sum(k * g, axis=2, keep_dims=True) - delta
@@ -400,14 +404,14 @@ class AcerEstimator():
 
         # ACER gradient is the gradient of policy objective function, which is
         # the negatation of policy loss
-        g_acer = tf.pack(tf.gradients(pi_obj, pi.phi), axis=-1)
+        g_acer = tf_concat(-1, tf.gradients(pi_obj, pi.phi))
         self.g_acer = g_acer
 
         with tf.name_scope("TRPO"):
             self.g_acer_trpo = g_acer_trpo = self.compute_trust_region_update(
                 g_acer, self.avg_net.pi, pi)
 
-        phi = tf.pack(pi.phi, axis=-1)
+        phi = tf_concat(-1, pi.phi)
 
         # Compute the objective function (obj) we try to maximize
         obj = pi_obj
@@ -427,6 +431,8 @@ class AcerEstimator():
         obj     = tf.reduce_mean(obj    , axis=0)
         obj_sur = tf.reduce_sum(obj_sur, axis=0)
 
+        assert len(obj.get_shape()) == 0
+        assert len(obj_sur.get_shape()) == 0
         # loss is the negative of objective function
         return -obj, -obj_sur
 
@@ -465,6 +471,9 @@ class AcerEstimator():
         # loss_sur is for computing gradients, use reduce_sum
         loss     = tf.reduce_mean(loss,     axis=0)
         loss_sur = tf.reduce_sum(loss_sur, axis=0)
+
+        assert len(loss.get_shape()) == 0
+        assert len(loss_sur.get_shape()) == 0
 
         return loss, loss_sur
 

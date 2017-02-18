@@ -113,18 +113,18 @@ class AcerWorker(Worker):
         # Copy Parameters from the global networks
         self.sess.run(self.copy_params_op)
 
-    def store_experience(self, transitions):
+    def store_experience(self, rollout):
         # Some bad simulation can have episode length 0 or 1, and that's outlier
-        if len(transitions) <= 1:
+        if rollout.seq_length <= 1:
             return
 
-        self._collect_statistics(transitions)
+        self._collect_statistics(rollout)
 
-        # Store transitions in the replay buffer, discard the oldest by popping
+        # Store rollout in the replay buffer, discard the oldest by popping
         # the 1st element if it exceeds maximum buffer size
         rp = AcerWorker.replay_buffer
 
-        rp.append(transitions)
+        rp.append(rollout)
 
         if len(rp) % 100 == 0:
             tf.logging.info("len(replay_buffer) = {}".format(len(rp)))
@@ -160,22 +160,22 @@ class AcerWorker(Worker):
     def _run_on_policy(self):
         self.copy_params_from_global()
 
-        # Collect transitions {(s_0, a_0, r_0, mu_0), (s_1, ...), ... }
-        transitions = self.run_n_steps(FLAGS.max_steps)
+        # Collect rollout {(s_0, a_0, r_0, mu_0), (s_1, ...), ... }
+        rollout = self.run_n_steps(FLAGS.max_steps)
 
         # Compute gradient and Perform update
-        self.update(transitions)
+        self.update(rollout)
 
         # Store experience and collect statistics
-        self.store_experience(transitions)
+        self.store_experience(rollout)
 
-        if len(transitions) > 1:
-            self._collect_statistics(transitions)
+        if rollout.seq_length > 1:
+            self._collect_statistics(rollout)
 
-    def _collect_statistics(self, transitions):
+    def _collect_statistics(self, rollout):
         avg_total_return = np.mean(self.total_return)
         self.global_episode_stats.append(
-            len(transitions), avg_total_return, self.total_return.flatten()
+            rollout.seq_length, avg_total_return, self.total_return.flatten()
         )
 
         self.gstep = self.sess.run(self.global_step)
@@ -212,11 +212,11 @@ class AcerWorker(Worker):
         else:
             indices = np.random.randint(len(rp), size=N)
 
-        for idx in indices:
-            self.copy_params_from_global()
+        self.copy_params_from_global()
 
+        for i, idx in enumerate(indices):
             # Compute gradient and Perform update
-            self.update(rp[idx], on_policy=False)
+            self.update(rp[idx], on_policy=False, display=(i == 0))
 
     def run_n_steps(self, n_steps):
 
@@ -258,12 +258,11 @@ class AcerWorker(Worker):
 
             self.state = next_state
 
-        return transitions
+        rollout = self.process_rollouts(transitions)
 
-    def update(self, trans, on_policy=True):
+        return rollout
 
-        if len(trans) == 0:
-            return
+    def process_rollouts(self, trans):
 
         states = AttrDict({
             key: np.concatenate([
@@ -276,35 +275,52 @@ class AcerWorker(Worker):
 
         action = np.concatenate([t.action.T[None, ...] for t in trans], axis=0)
         reward = np.concatenate([t.reward.T[None, ...] for t in trans], axis=0)
+        pi_stats = {
+            k: np.concatenate([t.pi_stats[k] for t in trans], axis=0)
+            for k in trans[0].pi_stats.keys()
+        }
+
+        return AttrDict(
+            states = states,
+            action = action,
+            reward = reward,
+            pi_stats = pi_stats,
+            seq_length = S,
+            batch_size = B,
+        )
+
+    def update(self, rollout, on_policy=True, display=True):
+
+        if rollout.seq_length == 0:
+            return
 
         # Start to put things in placeholders in graph
         net = self.local_net
         avg_net = self.Estimator.average_net
 
+        # To feeddict
         feed_dict = {
-            net.r: reward,
-            net.a: action,
+            net.r: rollout.reward,
+            net.a: rollout.action,
         }
 
-        feed_dict.update({net.state[k]:     v for k, v in states.iteritems()})
-        feed_dict.update({avg_net.state[k]: v for k, v in states.iteritems()})
-
-        for k in trans[0].pi_stats.keys():
-            feed_dict.update({net.pi_behavior.stats[k]: np.concatenate([t.pi_stats[k] for t in trans], axis=0)})
+        feed_dict.update({net.state[k]:     v for k, v in rollout.states.iteritems()})
+        feed_dict.update({avg_net.state[k]: v for k, v in rollout.states.iteritems()})
+        feed_dict.update({net.pi_behavior.stats[k]: v for k, v in rollout.pi_stats.iteritems()})
 
         net.reset_lstm_state()
 
         loss, summaries, _, debug, self.gstep = net.update(self.step_op, feed_dict, self.sess)
         loss = AttrDict(loss)
 
-        if self.gstep % 1 == 0:
+        if display:
             tf.logging.info((
                 "#{:6d}: pi_loss = {:+12.3f}, vf_loss = {:+12.3f}, "
                 "loss = {:+12.3f} {}\33[0m S = {:3d}, B = {} [{}] global_norm = {:.2f}"
             ).format(
                 self.gstep, loss.pi, loss.vf, loss.total,
                 "\33[92m[on  policy]" if on_policy else "\33[93m[off policy]",
-                S, B, self.name, loss.global_norm
+                rollout.seq_length, rollout.batch_size, self.name, loss.global_norm
             ))
 
         """

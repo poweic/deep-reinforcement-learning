@@ -13,21 +13,24 @@ def create_distribution(dist_type, bijectors=None, **stats):
 
     DIST = tf.contrib.distributions.Normal if dist_type == "normal" else tf.contrib.distributions.Beta
 
-    stats['param1'] = tf_check_numerics(stats['param1'])
-    stats['param2'] = tf_check_numerics(stats['param2'])
+    param1 = tf_check_numerics(stats['param1'])
+    param2 = tf_check_numerics(stats['param2'])
 
+    """
     dists = [
         DIST(
-            stats['param1'][..., i], stats['param2'][..., i], allow_nan_stats=False
+            param1[..., i], param2[..., i], allow_nan_stats=False
         ) for i in range(num_actions)
     ]
 
     dists = add_eps_exploration(dists, broadcaster)
-
     pi = to_joint_distribution(dists, bijectors, dist_type)
+    """
 
-    pi.phi = [stats['param1'], stats['param2']]
-    # pi.phi = reduce(lambda x,y:x+y, stats.itervalues())
+    dist = DIST(param1, param2, allow_nan_stats=False)
+    pi = to_transformed_distribution(dist, dist_type)
+
+    pi.phi = [param1, param2]
     pi.stats = stats
 
     return pi
@@ -64,6 +67,42 @@ def add_eps_exploration(dists, broadcaster):
         )
 
     return dists
+
+def to_transformed_distribution(dist, dist_type):
+
+    low  = tf.constant(FLAGS.action_space.low , tf.float32)[None, None, None, ...]
+    high = tf.constant(FLAGS.action_space.high, tf.float32)[None, None, None, ...]
+
+    def log_prob(x, msg=None):
+        x = x[None, ...]
+        if dist_type == "beta":
+            x = clip((x - low) / (high - low), 0., 1.)
+        return tf.reduce_sum(dist.log_prob(x)[0, ...], axis=-1)
+
+    def prob(x, msg=None):
+        return tf.exp(log_prob(x))
+
+    def entropy():
+        return tf.reduce_sum(dist.entropy(), axis=-1)
+
+    def sample_n(n, msg=None):
+
+        samples = dist.sample_n(n)
+
+        if dist_type == "normal":
+            samples = clip(samples, low, high)
+        else:
+            samples = samples * (high - low) + low
+
+        return samples
+
+    return AttrDict(
+        prob = prob,
+        log_prob = log_prob,
+        sample_n = sample_n,
+        entropy = entropy,
+        dist = dist
+    )
 
 def to_joint_distribution(dists, bijectors, dist_type):
 
