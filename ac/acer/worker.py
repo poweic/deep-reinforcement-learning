@@ -102,6 +102,7 @@ class AcerWorker(Worker):
         N = FLAGS.regenerate_size
         tf.logging.info("Re-generating {} experiences ...".format(N))
 
+        self.copy_params_from_global()
         while len(AcerWorker.replay_buffer) < N:
             self.store_experience(self.run_n_steps(FLAGS.max_steps))
 
@@ -151,6 +152,7 @@ class AcerWorker(Worker):
             tf.logging.info("Optimization done. @ step {}".format(self.gstep))
             tf.logging.info(stats.summary())
             save_model(self.sess)
+            self._write_statistics()
             return True
 
         return False
@@ -177,10 +179,13 @@ class AcerWorker(Worker):
         )
 
         self.gstep = self.sess.run(self.global_step)
-        if self.gstep % 10 == 0:
-            # also print experiment configuration in MATLAB parseable JSON
-            cfg = "'" + repr(FLAGS.exp_config)[1:-1].replace("'", '"') + "'\n"
-            print >> open(FLAGS.stats_file, 'w'), cfg, self.global_episode_stats
+        if self.gstep % 1000 == 0:
+            self._write_statistics()
+
+    def _write_statistics(self):
+        # also print experiment configuration in MATLAB parseable JSON
+        cfg = "'" + repr(FLAGS.exp_config)[1:-1].replace("'", '"') + "'\n"
+        print >> open(FLAGS.stats_file, 'w'), cfg, self.global_episode_stats
 
     def _run_off_policy_n_times(self):
         N = np.random.poisson(FLAGS.replay_ratio)
