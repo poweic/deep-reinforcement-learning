@@ -57,7 +57,7 @@ if FLAGS.random_seed is not None:
     env.seed(FLAGS.random_seed)
 
 # Add monitor (None will use default video recorder, False will disable video recording)
-env = wrappers.Monitor(env, 'exp/' + FLAGS.exp, force=True, video_callable=None if FLAGS.record_video else False)
+env = wrappers.Monitor(env, 'exp/Pendulum-v0/' + FLAGS.exp, force=True, video_callable=None if FLAGS.record_video else False)
 env.observation_space.sample()
 
 if FLAGS.record_video:
@@ -290,13 +290,13 @@ if FLAGS.random_seed is not None:
     tf.set_random_seed(FLAGS.random_seed)
 
 global_step = tf.Variable(0, name="global_step", trainable=False)
-policy_estimator = PolicyEstimator(learning_rate=0.001)
-value_estimator = ValueEstimator(learning_rate=0.1)
+policy_estimator = PolicyEstimator(learning_rate=FLAGS.learning_rate)
+value_estimator = ValueEstimator(learning_rate=FLAGS.learning_rate * 10)
 
 x = tf.random_normal((1, ))
 
 config = tf.ConfigProto()
-config.gpu_options.per_process_gpu_memory_fraction = 0.1
+config.gpu_options.per_process_gpu_memory_fraction = 0.05
 
 with tf.Session(config=config) as sess:
     sess.run(tf.global_variables_initializer())
