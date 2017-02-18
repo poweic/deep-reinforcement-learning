@@ -168,16 +168,17 @@ with tf.Session(config=cfg) as sess:
     # server.start()
 
     # Show how agent behaves in envs in main thread
-    if FLAGS.display:
-        while not Worker.stop:
+    while not Worker.stop:
+        if FLAGS.display:
             workers[0].env.render()
-            """
-            for worker in workers:
-                worker.env.render()
-            """
 
-            time.sleep(0.05)
-            schedule.run_pending()
+        """
+        for worker in workers:
+            worker.env.render()
+        """
+
+        time.sleep(1)
+        schedule.run_pending()
 
     # Wait for all workers to finish
     coord.join(worker_threads)
