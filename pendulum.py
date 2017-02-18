@@ -38,6 +38,9 @@ tf.flags.DEFINE_integer("random-seed", None, "Random seed for gym.env and Tensor
 
 FLAGS = tf.flags.FLAGS
 
+def softclip(x, min_v, max_v):
+    return (max_v + min_v) / 2 + tf.nn.tanh(x) * (max_v - min_v) / 2
+
 if FLAGS.random_learning_rate:
     low  = np.log10(FLAGS.min_learning_rate)
     high = np.log10(FLAGS.max_learning_rate)
@@ -114,8 +117,8 @@ class PolicyEstimator():
                 ) for i in range(3)
             ]
 
-            mu    = params[0]
-            sigma = tf.nn.softplus(params[1]) + 1e-5
+            mu    = softclip(params[0], LOW, HIGH)
+            sigma = tf.nn.softplus(params[1]) + 1e-3
 
             alpha = tf.nn.sigmoid(params[0]) * 50 + 2
             beta  = tf.nn.sigmoid(params[1]) * 50 + 2
@@ -127,8 +130,6 @@ class PolicyEstimator():
             # Create Distribution
             if FLAGS.dist == "Gaussian":
                 dist = ds.Normal(mu, sigma)
-            elif FLAGS.dist == "StudentT":
-                dist = ds.StudentT(mu=mu, sigma=sigma, df=FLAGS.df)
             elif FLAGS.dist == "Beta":
                 scale = tf.constant(HIGH - LOW, tf.float32)
                 shift = tf.constant(LOW, tf.float32)
