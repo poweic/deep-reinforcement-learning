@@ -572,7 +572,8 @@ class AcerEstimator():
         high = tf.constant(AS.high, tf.float32)[None, None, :] + broadcaster
         mu    = softclip(mu, low , high)
 
-        sigma = tf.nn.softplus(sigma) + 1e-4
+        # sigma = tf.nn.softplus(sigma) + 1e-4
+        sigma = softclip(sigma, 1e-4, (high - low) / 2.)
 
         pi = create_distribution(dist_type="normal", param1=mu, param2=sigma)
 
