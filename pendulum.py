@@ -290,8 +290,8 @@ if FLAGS.random_seed is not None:
     tf.set_random_seed(FLAGS.random_seed)
 
 global_step = tf.Variable(0, name="global_step", trainable=False)
-policy_estimator = PolicyEstimator(learning_rate=FLAGS.learning_rate)
-value_estimator = ValueEstimator(learning_rate=FLAGS.learning_rate * 10)
+policy_estimator = PolicyEstimator(learning_rate=0.001)
+value_estimator = ValueEstimator(learning_rate=0.1)
 
 x = tf.random_normal((1, ))
 
