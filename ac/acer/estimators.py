@@ -138,7 +138,7 @@ class AcerEstimator():
                 """
                 self.lr = tf.train.exponential_decay(
                     FLAGS.learning_rate, global_step,
-                    FLAGS.decay_steps, FLAGS.decay_rate, staircase=True
+                    FLAGS.decay_steps, FLAGS.decay_rate, staircase=FLAGS.staircase
                 )
 
                 self.optimizer = tf.train.RMSPropOptimizer(self.lr)

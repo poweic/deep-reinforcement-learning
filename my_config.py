@@ -17,6 +17,7 @@ tf.flags.DEFINE_integer("seq-length", None, "sequence length used for construct 
 tf.flags.DEFINE_integer("batch-size", None, "batch size used for construct TF graph")
 tf.flags.DEFINE_integer("decay-steps", 1000, "Decay learning using exponential_decay with staircase=True")
 tf.flags.DEFINE_float("decay-rate", 0.7071, "Decay learning using exponential_decay with staircase=True")
+tf.flags.DEFINE_boolean("staircase", False, "Set exponential_decay with staircase=True/False")
 
 tf.flags.DEFINE_float("eps-init", 0.10, "initial value for epsilon in eps-greedy algorithm")
 tf.flags.DEFINE_integer("effective-timescale", 10, "Effective timestep = (global_step / effective_timescale) + 1")
