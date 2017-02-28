@@ -191,18 +191,19 @@ def build_shared_network(input, add_summaries=False):
         # LSTM-1
         # Concatenate encoder's output (i.e. flattened result from conv net)
         # with previous reward (see https://arxiv.org/abs/1611.03673)
-        concat1 = tf.concat(2, [fc, prev_reward])
-        # concat1 = fc
+        # concat1 = tf.concat(2, [fc, prev_reward])
+        concat1 = fc
         lstms.append(LSTM(concat1, 128, scope="LSTM-1"))
 
         # LSTM-2
         # Concatenate previous output with vehicle_state and prev_action
-        concat2 = tf.concat(2, [fc, lstms[-1].output, vehicle_state, prev_action])
-        # concat2 = lstms[-1].output
+        # concat2 = tf.concat(2, [fc, lstms[-1].output, vehicle_state, prev_action])
+        concat2 = lstms[-1].output
         lstms.append(LSTM(concat2, 256, scope="LSTM-2"))
 
         output = lstms[-1].output
 
+    """
     if add_summaries:
         with tf.name_scope("summaries"):
             conv1_w = [v for v in tf.trainable_variables() if "conv1/weights"][0]
@@ -212,6 +213,7 @@ def build_shared_network(input, add_summaries=False):
             tf.summary.image("front_view", front_view, max_outputs=500)
 
             # for layer in layers: tf.contrib.layers.summarize_activation(layer)
+    """
 
     layers = [fc, concat1] + lstms
 
@@ -238,7 +240,7 @@ def policy_network(input, num_outputs, clip_mu=True):
         input = flatten(input)
 
     input = tf.contrib.layers.fully_connected(
-        input=input,
+        inputs=input,
         num_outputs=256,
         activation_fn=None,
         scope="policy-input-dense")
@@ -275,7 +277,7 @@ def state_value_network(input, num_outputs=1):
         input = flatten(input)
 
     input = tf.contrib.layers.fully_connected(
-        input=input,
+        inputs=input,
         num_outputs=256,
         activation_fn=None,
         scope="value-input-dense")

@@ -43,7 +43,7 @@
     --replay-ratio 8 \
     --lr-vp-ratio 10 \
     --avg-net-momentum 0.995 \
-    --exp exp/Beta-trial-1 \
+    --exp exp/Beta-debug \
     --policy-dist Beta \
     --learning-rate 1e-4 \
     --parallelism 4 \

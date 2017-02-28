@@ -30,11 +30,6 @@ def make_env():
         env.seed(FLAGS.random_seed)
 
     env.reset()
-    # Add monitor (None will use default video recorder, False will disable video recording)
-    # env = wrappers.Monitor(env, FLAGS.exp, force=True, video_callable=None if FLAGS.record_video else False)
-
-    if FLAGS.record_video:
-        FLAGS.render_every = None
 
     FLAGS.action_space = env.action_space
     FLAGS.num_actions = env.action_space.shape[0]
@@ -90,6 +85,7 @@ from gym_offroad_nav.vehicle_model import VehicleModel
 from gym_offroad_nav.vehicle_model_tf import VehicleModelGPU
 
 # 
+"""
 W = 400
 disp_img = np.zeros((2*W, 2*W*2, 3), dtype=np.uint8)
 disp_lock = threading.Lock()
@@ -119,6 +115,7 @@ def make_env():
     # env = OffRoadNavEnv(rewards, vehicle_model, vehicle_model_gpu)
     # env = wrappers.Monitor(env, FLAGS.monitor_dir, video_callable=False)
     return env
+"""
 
 # Optionally empty model directory
 if FLAGS.reset:
