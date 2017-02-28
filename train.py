@@ -1,4 +1,4 @@
-#!/usr/bin/python
+#!/usr/bin/env python
 import colored_traceback.always
 
 import os
@@ -13,14 +13,76 @@ import threading
 import time
 import schedule
 from my_config import parse_flags
+import multiprocessing
+
+tf.flags.DEFINE_integer("max-steps", "1000", "Maximum steps per episode")
+tf.flags.DEFINE_integer("random-seed", None, "Random seed for gym.env and TensorFlow")
+
 FLAGS = parse_flags()
+
+import gym
+from gym import wrappers
+
+def make_env():
+    env = gym.envs.make(FLAGS.game)
+
+    if FLAGS.random_seed is not None:
+        env.seed(FLAGS.random_seed)
+
+    env.reset()
+    # Add monitor (None will use default video recorder, False will disable video recording)
+    # env = wrappers.Monitor(env, FLAGS.exp, force=True, video_callable=None if FLAGS.record_video else False)
+
+    if FLAGS.record_video:
+        FLAGS.render_every = None
+
+    FLAGS.action_space = env.action_space
+    FLAGS.num_actions = env.action_space.shape[0]
+    FLAGS.num_states = env.observation_space.shape[0]
+
+    if FLAGS.game == "MountainCarContinuous-v0":
+	import sklearn.pipeline
+	import sklearn.preprocessing
+	from sklearn.kernel_approximation import RBFSampler
+
+	# Feature Preprocessing: Normalize to zero mean and unit variance
+	# We use a few samples from the observation space to do this
+	observation_examples = np.array([env.observation_space.sample() for x in range(10000)])
+	scaler = sklearn.preprocessing.StandardScaler()
+	scaler.fit(observation_examples)
+
+	# Used to converte a state to a featurizes represenation.
+	# We use RBF kernels with different variances to cover different parts of the space
+	featurizer = sklearn.pipeline.FeatureUnion([
+	    ("rbf1", RBFSampler(gamma=5.0, n_components=100)),
+	    ("rbf2", RBFSampler(gamma=2.0, n_components=100)),
+	    ("rbf3", RBFSampler(gamma=1.0, n_components=100)),
+	    ("rbf4", RBFSampler(gamma=0.5, n_components=100))
+	])
+	featurizer.fit(scaler.transform(observation_examples))
+
+	def featurize_state(state):
+	    """ Returns the featurized representation for a state.
+	    """
+	    scaled = scaler.transform([state])
+	    featurized = featurizer.transform(scaled)
+	    return featurized[0]
+
+	FLAGS.featurize_state = featurize_state
+	FLAGS.num_states = 400
+
+    return env
+
+env = make_env()
+if FLAGS.display:
+    env.render()
+env.close()
 
 from ac.estimators import get_estimator
 from ac.worker import Worker
 from ac.utils import (
     make_copy_params_op, save_model_every_nth_minutes, EpisodeStats
 )
-# from ac.a3c.monitor import server
 
 from gym import wrappers
 from gym_offroad_nav.envs import OffRoadNavEnv
@@ -59,15 +121,18 @@ def make_env():
     return env
 
 # Optionally empty model directory
-'''
 if FLAGS.reset:
     shutil.rmtree(FLAGS.base_dir, ignore_errors=True)
-'''
+
+tf.logging.info("Number of cpus = {}".format(multiprocessing.cpu_count()))
+
+# Optionally empty model directory
 cfg = tf.ConfigProto()
-# cfg.gpu_options.per_process_gpu_memory_fraction = 0.3
+cfg.gpu_options.per_process_gpu_memory_fraction = FLAGS.per_process_gpu_memory_fraction
 with tf.Session(config=cfg) as sess:
 
     global_episode_stats = EpisodeStats()
+
     # Keeps track of the number of updates we've performed
     global_step = tf.Variable(0, name="global_step", trainable=False)
     FLAGS.global_step = global_step
@@ -140,15 +205,16 @@ with tf.Session(config=cfg) as sess:
     for i in range(len(workers)):
         worker_fn = lambda j=i: workers[j].run(sess, coord)
         t = threading.Thread(target=worker_fn)
-        time.sleep(0.5)
         t.start()
+        if i == 0:
+            time.sleep(5)
         worker_threads.append(t)
 
     # server.start()
 
     # Show how agent behaves in envs in main thread
+    """
     if FLAGS.display:
-        counter = 0
         while not Worker.stop:
             for worker in workers:
                 if worker.max_return > max_return:
@@ -159,9 +225,20 @@ with tf.Session(config=cfg) as sess:
 
             cv2.imshow("result", disp_img)
             cv2.waitKey(10)
-            counter += 1
 
             schedule.run_pending()
+    """
+    while not Worker.stop:
+        if FLAGS.display:
+            workers[0].env.render()
+
+        """
+        for worker in workers:
+            worker.env.render()
+        """
+
+        time.sleep(1)
+        schedule.run_pending()
 
     # Wait for all workers to finish
     coord.join(worker_threads)

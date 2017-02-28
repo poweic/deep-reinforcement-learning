@@ -1,26 +1,10 @@
 import tensorflow as tf
-from tensorflow_helnet.layers import DenseLayer, Conv2DLayer, MaxPool2DLayer
-# from keras.layers import Dense, Flatten, Input, merge, Lambda, Convolution2D
-# from keras.models import Sequential, Model
 from ac.utils import *
 FLAGS = tf.flags.FLAGS
 batch_size = FLAGS.batch_size
 seq_length = FLAGS.seq_length
-
-def get_state_placeholder():
-    # Note that placeholder are tf.Tensor not tf.Variable
-    FOV = FLAGS.field_of_view
-    front_view    = tf.placeholder(tf.float32, [seq_length, batch_size, FOV, FOV, 1], "front_view")
-    vehicle_state = tf.placeholder(tf.float32, [seq_length, batch_size, 6], "vehicle_state")
-    prev_action   = tf.placeholder(tf.float32, [seq_length, batch_size, 2], "prev_action")
-    prev_reward   = tf.placeholder(tf.float32, [seq_length, batch_size, 1], "prev_reward")
-
-    return AttrDict(
-        front_view    = front_view,
-        vehicle_state = vehicle_state,
-        prev_action   = prev_action,
-        prev_reward   = prev_reward
-    )
+num_states = FLAGS.num_states
+num_actions = FLAGS.num_actions
 
 def naive_mean_steer_policy(front_view):
     H, W = front_view.get_shape().as_list()[2:4]
@@ -46,6 +30,35 @@ def naive_mean_steer_policy(front_view):
     denom = tf.reduce_sum(r        , reduction_indices=[2,3,4]) + 1e-10
 
     return num / denom
+
+""" FIXME get_state_placeholder from gym-offroad-nav:master
+def get_state_placeholder():
+    # Note that placeholder are tf.Tensor not tf.Variable
+    FOV = FLAGS.field_of_view
+    front_view    = tf.placeholder(tf.float32, [seq_length, batch_size, FOV, FOV, 1], "front_view")
+    vehicle_state = tf.placeholder(tf.float32, [seq_length, batch_size, 6], "vehicle_state")
+    prev_action   = tf.placeholder(tf.float32, [seq_length, batch_size, 2], "prev_action")
+    prev_reward   = tf.placeholder(tf.float32, [seq_length, batch_size, 1], "prev_reward")
+
+    return AttrDict(
+        front_view    = front_view,
+        vehicle_state = vehicle_state,
+        prev_action   = prev_action,
+        prev_reward   = prev_reward
+    )
+"""
+
+def get_state_placeholder():
+    # Note that placeholder are tf.Tensor not tf.Variable
+    state = tf.placeholder(tf.float32, [seq_length, batch_size, num_states], "state")
+    prev_action = tf.placeholder(tf.float32, [seq_length, batch_size, num_actions], "prev_action")
+    prev_reward = tf.placeholder(tf.float32, [seq_length, batch_size, 1], "prev_reward")
+
+    return AttrDict(
+        state = state,
+        prev_action = prev_action,
+        prev_reward = prev_reward
+    )
 
 def LSTM(input, num_outputs, scope=None):
 
@@ -106,7 +119,7 @@ def LSTM(input, num_outputs, scope=None):
         state_out = state_out
     )
 
-def build_shared_network(state, add_summaries=False):
+def build_shared_network(input, add_summaries=False):
     """
     Builds a 3-layer network conv -> conv -> fc as described
     in the A3C paper. This network is shared by both the policy and value net.
@@ -116,18 +129,17 @@ def build_shared_network(state, add_summaries=False):
     Final layer activations.
     """
 
-    front_view = state.front_view
-    vehicle_state = state.vehicle_state
-    prev_action = state.prev_action
-    prev_reward = state.prev_reward
+    """ FIXME Conv layers from gym-offroad-nav:master
+    front_view = input.front_view
+    vehicle_state = input.vehicle_state
+    prev_action = input.prev_action
+    prev_reward = input.prev_reward
 
-    rank = get_rank(state.front_view)
+    rank = get_rank(input.front_view)
 
     if rank == 5:
         S, B = get_seq_length_batch_size(front_view)
         front_view = flatten(front_view)
-
-    input = front_view
 
     with tf.name_scope("conv"):
 
@@ -137,7 +149,7 @@ def build_shared_network(state, add_summaries=False):
         # (see Issue: https://github.com/tensorflow/tensorflow/issues/6087)
         batch_norm = None # tf.contrib.layers.batch_norm
 
-        conv1 = conv2d(input, 64, 5, activation_fn=tf.nn.relu, normalizer_fn=batch_norm, scope="conv1")
+        conv1 = conv2d(front_view, 64, 5, activation_fn=tf.nn.relu, normalizer_fn=batch_norm, scope="conv1")
         conv2 = conv2d(conv1, 64, 5, activation_fn=tf.nn.relu, normalizer_fn=batch_norm, scope="conv2")
         pool1 = MaxPool2DLayer(conv2, pool_size=3, stride=2, name='pool1')
 
@@ -145,11 +157,9 @@ def build_shared_network(state, add_summaries=False):
         conv4 = conv2d(conv3, 64, 5, activation_fn=tf.nn.relu, normalizer_fn=batch_norm, scope="conv4")
         pool2 = MaxPool2DLayer(conv4, pool_size=3, stride=2, name='pool2')
 
-        """
-        conv5 = conv2d(pool2, 64, 5, activation_fn=tf.nn.relu, normalizer_fn=batch_norm, scope="conv5")
-        conv6 = conv2d(conv5, 64, 5, activation_fn=tf.nn.relu, normalizer_fn=batch_norm, scope="conv6")
-        pool3 = MaxPool2DLayer(conv6, pool_size=3, stride=2, name='pool3')
-        """
+        # conv5 = conv2d(pool2, 64, 5, activation_fn=tf.nn.relu, normalizer_fn=batch_norm, scope="conv5")
+        # conv6 = conv2d(conv5, 64, 5, activation_fn=tf.nn.relu, normalizer_fn=batch_norm, scope="conv6")
+        # pool3 = MaxPool2DLayer(conv6, pool_size=3, stride=2, name='pool3')
 
         flat = tf.contrib.layers.flatten(pool2)
 
@@ -158,30 +168,40 @@ def build_shared_network(state, add_summaries=False):
             num_outputs=256,
             nonlinearity="relu",
             name="fc")
+    """
+
+    S, B = get_seq_length_batch_size(input.state)
+    state = input.state
+    prev_action = input.prev_action
+    prev_reward = input.prev_reward
+
+    input = flatten(state)
+
+    fc = tf.contrib.layers.fully_connected(
+        inputs=input,
+        num_outputs=256,
+        activation_fn=tf.nn.elu,
+        scope="state-hidden-dense")
 
     with tf.name_scope("lstm"):
         # Flatten convolutions output to fit fully connected layer
         fc = deflatten(fc, S, B)
 
+        lstms = []
         # LSTM-1
         # Concatenate encoder's output (i.e. flattened result from conv net)
         # with previous reward (see https://arxiv.org/abs/1611.03673)
         concat1 = tf.concat(2, [fc, prev_reward])
         # concat1 = fc
-        lstm1 = LSTM(concat1, 128, scope="LSTM-1")
+        lstms.append(LSTM(concat1, 128, scope="LSTM-1"))
 
         # LSTM-2
         # Concatenate previous output with vehicle_state and prev_action
-        concat2 = tf.concat(2, [fc, lstm1.output, vehicle_state, prev_action])
-        # concat2 = lstm1.output
-        lstm2 = LSTM(concat2, 256, scope="LSTM-2")
+        concat2 = tf.concat(2, [fc, lstms[-1].output, vehicle_state, prev_action])
+        # concat2 = lstms[-1].output
+        lstms.append(LSTM(concat2, 256, scope="LSTM-2"))
 
-        output = lstm2.output
-
-    layers = [
-        conv1, conv2, pool1, conv3, conv4, pool2, # conv5, conv6, pool3,
-        flat, fc, concat1, lstm1.output, concat2, lstm2.output
-    ]
+        output = lstms[-1].output
 
     if add_summaries:
         with tf.name_scope("summaries"):
@@ -193,12 +213,19 @@ def build_shared_network(state, add_summaries=False):
 
             # for layer in layers: tf.contrib.layers.summarize_activation(layer)
 
+    layers = [fc, concat1] + lstms
+
     for layer in layers:
         tf.logging.info(layer)
 
+    state_in, state_out = [], []
+    for lstm in lstms:
+        state_in  += lstm.state_in
+        state_out += lstm.state_out
+
     return output, AttrDict(
-        state_in  = lstm1.state_in  + lstm2.state_in,
-        state_out = lstm1.state_out + lstm2.state_out,
+        state_in  = state_in,
+        state_out = state_out,
         prev_state_out = None
     )
 
@@ -210,28 +237,31 @@ def policy_network(input, num_outputs, clip_mu=True):
         S, B = get_seq_length_batch_size(input)
         input = flatten(input)
 
-    input = DenseLayer(
+    input = tf.contrib.layers.fully_connected(
         input=input,
         num_outputs=256,
-        nonlinearity="relu",
-        name="policy-input-dense")
+        activation_fn=None,
+        scope="policy-input-dense")
 
     # Linear classifiers for mu and sigma
-    mu = DenseLayer(
-        input=input,
+    mu = tf.contrib.layers.fully_connected(
+        inputs=input,
         num_outputs=num_outputs,
-        name="policy-mu")
+        activation_fn=None,
+        scope="policy-mu")
 
-    sigma = DenseLayer(
-        input=input,
+    sigma = tf.contrib.layers.fully_connected(
+        inputs=input,
         num_outputs=num_outputs,
-        name="policy-sigma")
+        activation_fn=None,
+        scope="policy-sigma")
 
     if rank == 3:
         mu = deflatten(mu, S, B)
         sigma = deflatten(sigma, S, B)
 
-    return tf.unstack(mu, axis=-1), tf.unstack(sigma, axis=-1)
+    return mu, sigma
+    # return tf.unstack(mu, axis=-1), tf.unstack(sigma, axis=-1)
 
 def state_value_network(input, num_outputs=1):
     """
@@ -244,27 +274,20 @@ def state_value_network(input, num_outputs=1):
         S, B = get_seq_length_batch_size(input)
         input = flatten(input)
 
-    '''
-    input = DenseLayer(
+    input = tf.contrib.layers.fully_connected(
         input=input,
         num_outputs=256,
-        nonlinearity="relu",
-        name="value-input-dense")
-
-    input = DenseLayer(
-        input=input,
-        num_outputs=256,
-        nonlinearity="relu",
-        name="value-input-dense-2")
-    '''
+        activation_fn=None,
+        scope="value-input-dense")
 
     # This is just linear classifier
-    value = DenseLayer(
-        input=input,
+    value = tf.contrib.layers.fully_connected(
+        inputs=input,
         num_outputs=num_outputs,
-        name="value-dense")
+        activation_fn=None,
+        scope="value-dense")
 
-    value = tf.reshape(value, [-1, 1], name="value")
+    # value = tf.reshape(value, [-1, 1], name="value")
 
     if rank == 3:
         value = deflatten(value, S, B)

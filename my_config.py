@@ -1,8 +1,9 @@
+import os
 import numpy as np
 import tensorflow as tf
 import pprint
 
-tf.flags.DEFINE_string("base-dir", "/Data3/a3c-offroad/", "Directory to write Tensorboard summaries and models to.")
+tf.flags.DEFINE_string("base-dir", "exp/", "Directory to write Tensorboard summaries and models to.")
 tf.flags.DEFINE_string("exp", None, "Optional experiment tag")
 tf.flags.DEFINE_string("log-file", None, "log file")
 tf.flags.DEFINE_string("stats-file", None, "stats file")
@@ -17,6 +18,8 @@ tf.flags.DEFINE_integer("seq-length", None, "sequence length used for construct 
 tf.flags.DEFINE_integer("batch-size", None, "batch size used for construct TF graph")
 tf.flags.DEFINE_integer("decay-steps", 1000, "Decay learning using exponential_decay with staircase=True")
 tf.flags.DEFINE_float("decay-rate", 0.7071, "Decay learning using exponential_decay with staircase=True")
+tf.flags.DEFINE_float("per-process-gpu-memory-fraction", 1.0, "per_process_gpu_memory_fraction for TF session config")
+tf.flags.DEFINE_boolean("staircase", False, "Set exponential_decay with staircase=True/False")
 
 tf.flags.DEFINE_float("eps-init", 0.10, "initial value for epsilon in eps-greedy algorithm")
 tf.flags.DEFINE_integer("effective-timescale", 10, "Effective timestep = (global_step / effective_timescale) + 1")
@@ -24,13 +27,16 @@ tf.flags.DEFINE_integer("effective-timescale", 10, "Effective timestep = (global
 tf.flags.DEFINE_integer("eval-every", 30, "Evaluate the policy every N seconds")
 tf.flags.DEFINE_integer("parallelism", 1, "Number of threads to run. If not set we run [num_cpu_cores] threads.")
 tf.flags.DEFINE_integer("downsample", 5, "Downsample transitions to reduce sample correlation")
-tf.flags.DEFINE_integer("n-agents-per-worker", 16, "Downsample transitions to reduce sample correlation")
+tf.flags.DEFINE_integer("n-agents-per-worker", 1, "Downsample transitions to reduce sample correlation")
 tf.flags.DEFINE_integer("save-every-n-minutes", 10, "Save model every N minutes")
 
 tf.flags.DEFINE_integer("field-of-view", 20, "size of front view (N x N) passed to network")
 
 tf.flags.DEFINE_float("replay-ratio", 10, "off-policy memory replay ratio, choose a number from {0, 1, 4, 8}")
 tf.flags.DEFINE_integer("max-replay-buffer-size", 100, "off-policy memory replay buffer")
+tf.flags.DEFINE_boolean("prioritize-replay", False, "Use choice(length) to sample replay")
+tf.flags.DEFINE_integer("regenerate-size", 1000, "number of episodes experience to regenerate after resuming")
+
 tf.flags.DEFINE_float("avg-net-momentum", 0.995, "soft update momentum for average policy network in TRPO")
 tf.flags.DEFINE_float("max-Q-diff", None, "Maximum Q difference (for robustness)")
 tf.flags.DEFINE_boolean("mixture-model", False, "Use single Gaussian if set to True, use GMM otherwise")
@@ -49,6 +55,7 @@ tf.flags.DEFINE_float("t-max", 30, "Maximum elasped time per simulation (in seco
 tf.flags.DEFINE_float("command-freq", 20, "How frequent we send command to vehicle (in Hz)")
 
 tf.flags.DEFINE_float("learning-rate", 2e-4, "Learning rate for policy net and value net")
+tf.flags.DEFINE_float("lr-vp-ratio", 1, "Learning rate of value:Learning rate of policy")
 tf.flags.DEFINE_boolean("random-learning-rate", False, "Random sample learning rate from LogUniform(min, max)")
 tf.flags.DEFINE_boolean("min-learning-rate", 1e-4, "min learning rate used in LogUniform")
 tf.flags.DEFINE_boolean("max-learning-rate", 5e-4, "max learning rate used in LogUniform")
@@ -75,7 +82,9 @@ tf.flags.DEFINE_float("max-sigma-steer", 20 * np.pi / 180, "Maximum variance of 
 def parse_flags():
     # Parse command line arguments, add some additional flags, and print them out
     FLAGS = tf.flags.FLAGS
-    FLAGS.exp_dir = "{}/{}{}".format(
+
+    base_dir = os.getcwd()
+    FLAGS.exp_dir = base_dir + "{}/{}{}".format(
         FLAGS.base_dir, FLAGS.game, "-" + FLAGS.exp if FLAGS.exp is not None else ""
     )
 
@@ -97,6 +106,8 @@ def parse_flags():
         low  = np.log10(FLAGS.min_learning_rate)
         high = np.log10(FLAGS.max_learning_rate)
         FLAGS.learning_rate = 10. ** np.random.uniform(low=low, high=high)
+
+    FLAGS.regenerate_exp_after_resume = FLAGS.resume
 
     import my_logger
 

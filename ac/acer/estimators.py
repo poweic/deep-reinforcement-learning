@@ -1,10 +1,11 @@
+import sys
 import tensorflow as tf
 from pprint import pprint
-from tensorflow_helnet.layers import DenseLayer, Conv2DLayer, MaxPool2DLayer
 from ac.utils import *
 from ac.distributions import *
 from ac.models import *
 import ac.acer.worker
+import threading
 
 FLAGS = tf.flags.FLAGS
 batch_size = FLAGS.batch_size
@@ -49,7 +50,7 @@ class AcerEstimator():
 
         with tf.name_scope("inputs"):
             self.state = get_state_placeholder()
-            self.a = tf.placeholder(tf.float32, [seq_length, batch_size, 2], "actions")
+            self.a = tf.placeholder(tf.float32, [seq_length, batch_size, FLAGS.num_actions], "actions")
             self.r = tf.placeholder(tf.float32, [seq_length, batch_size, 1], "rewards")
 
         with tf.variable_scope("shared"):
@@ -57,13 +58,10 @@ class AcerEstimator():
             shared = tf_check_numerics(shared)
 
         with tf.variable_scope("policy"):
-            if FLAGS.mixture_model:
-                self.pi, self.pi_behavior = self.mixture_density_policy(shared, use_naive_policy)
-            else:
-                if FLAGS.policy_dist == "Gaussian":
-                    self.pi, self.pi_behavior = self.gaussian_policy(shared, use_naive_policy)
-                elif FLAGS.policy_dist == "Beta":
-                    self.pi, self.pi_behavior = self.beta_policy(shared, use_naive_policy)
+            if FLAGS.policy_dist == "Gaussian":
+                self.pi, self.pi_behavior = self.gaussian_policy(shared, use_naive_policy)
+            elif FLAGS.policy_dist == "Beta":
+                self.pi, self.pi_behavior = self.beta_policy(shared, use_naive_policy)
 
         with tf.name_scope("output"):
             self.a_prime = tf.squeeze(self.pi.sample_n(1), 0)
@@ -89,7 +87,7 @@ class AcerEstimator():
                 )
 
             with tf.name_scope("c_i"):
-                self.c = tf.minimum(1., self.rho ** (1. / 2), "c_i")
+                self.c = tf.minimum(1., self.rho ** (1. / FLAGS.num_actions), "c_i")
                 tf.logging.info("c.shape = {}".format(tf_shape(self.c)))
 
             with tf.name_scope("Q_Retrace"):
@@ -110,7 +108,16 @@ class AcerEstimator():
             # Surrogate loss is the loss tensor we passed to optimizer for
             # automatic gradient computation, it uses lots of stop_gradient.
             # Therefore it's different from the true loss (self.loss)
-            self.loss_sur = self.pi_loss_sur + self.vf_loss_sur
+            self.entropy = tf.reduce_sum(tf.reduce_mean(self.pi.entropy(), axis=1), axis=0)
+
+            for loss in [self.pi_loss_sur, self.vf_loss_sur, self.entropy]:
+                assert len(loss.get_shape()) == 0
+
+            self.loss_sur = (
+                self.pi_loss_sur +
+                self.vf_loss_sur * FLAGS.lr_vp_ratio +
+                self.entropy * FLAGS.entropy_cost_mult
+            )
 
             # self.g_phi = tf.pack(tf.gradients(self.loss_sur, self.pi.phi), axis=-1)
 
@@ -123,24 +130,9 @@ class AcerEstimator():
 
                 global_step = FLAGS.global_step
 
-                """
-                boundaries = [8000, 12000, 14000, 15000, 16000, 17000, 18000, 19000]
-                values = (float(FLAGS.learning_rate) / (2 ** np.arange(9))).tolist()
-                tf.logging.info("boundaries = {}".format(boundaries))
-                tf.logging.info("values = {}".format(values))
-                self.lr = tf.train.piecewise_constant(global_step, boundaries, values)
-                """
-
-                """
-                self.lr = tf.train.exponential_decay(
-                    FLAGS.learning_rate, global_step,
-                    FLAGS.decay_steps, FLAGS.decay_rate, staircase=True
-                )
-                """
-
                 self.lr = tf.train.exponential_decay(
                     FLAGS.learning_rate, FLAGS.global_timestep,
-                    FLAGS.decay_steps, FLAGS.decay_rate, staircase=False
+                    FLAGS.decay_steps, FLAGS.decay_rate, staircase=FLAGS.staircase
                 )
 
                 self.optimizer = tf.train.RMSPropOptimizer(self.lr)
@@ -172,6 +164,8 @@ class AcerEstimator():
 
             # Collect all trainable variables initialized here
             self.var_list = [v for g, v in self.grads_and_vars]
+
+        self.lock = None
 
         tf.logging.info("Adding summaries ...")
         self.summaries = self.summarize(add_summaries)
@@ -294,7 +288,8 @@ class AcerEstimator():
                 pi_avg.dist, pi.dist, allow_nan=False)
 
             # Take the partial derivatives w.r.t. phi (i.e. mu and sigma)
-            k = tf.pack(tf.gradients(KL_divergence, pi.phi), axis=-1)
+            # k = tf.pack(tf.gradients(KL_divergence, pi.phi), axis=-1)
+            k = tf_concat(-1, tf.gradients(KL_divergence, pi.phi))
 
             # Compute \frac{k^T g - \delta}{k^T k}, perform reduction only on axis 2
             num   = tf.reduce_sum(k * g, axis=2, keep_dims=True) - delta
@@ -306,7 +301,10 @@ class AcerEstimator():
 
             # z* is the TRPO regularized gradient
             z_star = g - correction
-        except:
+
+        except Exception as e:
+            print e
+            tf.logging.warn("\33[33mFailed to create TRPO update. Fall back to normal update\33[0m")
             z_star = g
 
         # By using stop_gradient, we make z_star being treated as a constant
@@ -338,19 +336,39 @@ class AcerEstimator():
             ]
 
         # Set placeholders with previous LSTM state output
-        for sin, prev_sout in zip(self.lstm.state_in, self.lstm.prev_state_out):
-            feed_dict[sin] = prev_sout
+        try:
+            for sin, prev_sout in zip(self.lstm.state_in, self.lstm.prev_state_out):
+                feed_dict[sin] = prev_sout
+        except:
+            print "self.lstm.state_in = {}".format(self.lstm.state_in)
+            print "self.lstm.prev_state_out = {}".format(self.lstm.prev_state_out)
+            sys.exit()
 
     def predict(self, tensors, feed_dict, sess=None):
         sess = sess or tf.get_default_session()
 
         B = feed_dict[self.state.prev_reward].shape[1]
         self.fill_lstm_state_placeholder(feed_dict, B)
-        self.avg_net.fill_lstm_state_placeholder(feed_dict, B)
 
         output, self.lstm.prev_state_out = sess.run([
             tensors, self.lstm.state_out
         ], feed_dict)
+
+        return output
+
+    def update(self, tensors, feed_dict, sess=None):
+        sess = sess or tf.get_default_session()
+
+        # avg_net is shared by all workers, we need to use lock to make sure
+        # avg_net.LSTM states won't be changed by other threads before
+        # calling sess.run
+        with self.avg_net.lock:
+
+            B = feed_dict[self.state.prev_reward].shape[1]
+            self.avg_net.reset_lstm_state()
+            self.avg_net.fill_lstm_state_placeholder(feed_dict, B)
+
+            output = self.predict(tensors, feed_dict, sess)
 
         return output
 
@@ -381,14 +399,16 @@ class AcerEstimator():
 
         # ACER gradient is the gradient of policy objective function, which is
         # the negatation of policy loss
-        g_acer = tf.pack(tf.gradients(pi_obj, pi.phi), axis=-1)
+        # g_acer = tf.pack(tf.gradients(pi_obj, pi.phi), axis=-1)
+        g_acer = tf_concat(-1, tf.gradients(pi_obj, pi.phi))
         self.g_acer = g_acer
 
         with tf.name_scope("TRPO"):
             self.g_acer_trpo = g_acer_trpo = self.compute_trust_region_update(
                 g_acer, self.avg_net.pi, pi)
 
-        phi = tf.pack(pi.phi, axis=-1)
+        # phi = tf.pack(pi.phi, axis=-1)
+        phi = tf_concat(-1, pi.phi)
 
         # Compute the objective function (obj) we try to maximize
         obj = pi_obj
@@ -407,6 +427,9 @@ class AcerEstimator():
         # loss_sur is for computing gradients, use reduce_sum
         obj     = tf.reduce_mean(obj    , axis=0)
         obj_sur = tf.reduce_sum(obj_sur, axis=0)
+
+        assert len(obj.get_shape()) == 0
+        assert len(obj_sur.get_shape()) == 0
 
         # loss is the negative of objective function
         return -obj, -obj_sur
@@ -446,6 +469,9 @@ class AcerEstimator():
         # loss_sur is for computing gradients, use reduce_sum
         loss     = tf.reduce_mean(loss,     axis=0)
         loss_sur = tf.reduce_sum(loss_sur, axis=0)
+
+        assert len(loss.get_shape()) == 0
+        assert len(loss_sur.get_shape()) == 0
 
         return loss, loss_sur
 
@@ -571,6 +597,7 @@ class AcerEstimator():
         return pi, pi_behavior
     """
 
+    """
     def beta_policy(self, input, use_naive_policy):
 
         AS = FLAGS.action_space
@@ -627,7 +654,27 @@ class AcerEstimator():
         )
 
         return pi, pi_behavior
+    """
+    def beta_policy(self, input, use_naive_policy):
 
+        alpha, beta = policy_network(input, FLAGS.num_actions, clip_mu=False)
+
+        alpha = tf.nn.softplus(alpha) + 2
+        beta  = tf.nn.softplus(beta)  + 2
+
+        pi = create_distribution(
+            dist_type="beta", param1=alpha, param2=beta
+        )
+
+        pi_behavior = create_distribution(
+            dist_type="beta", 
+            param1 = tf.placeholder(tf.float32, [seq_length, batch_size, FLAGS.num_actions], "param1"),
+            param2 = tf.placeholder(tf.float32, [seq_length, batch_size, FLAGS.num_actions], "param2"),
+        )
+
+        return pi, pi_behavior
+
+    """
     def gaussian_policy(self, input, use_naive_policy):
 
         mu, sigma = policy_network(input, FLAGS.action_space.n_actions, clip_mu=False)
@@ -679,6 +726,30 @@ class AcerEstimator():
         v = tf.sign(v) * tf.maximum(tf.abs(v), 1e-3)
         # v = tf.Print(v, [flatten_all(v)], message="\33[33m after  v = \33[0m", summarize=100)
         return v
+    """
+
+    def gaussian_policy(self, input, use_naive_policy):
+
+        mu, sigma = policy_network(input, FLAGS.num_actions, clip_mu=False)
+
+        AS = FLAGS.action_space
+        broadcaster = mu[..., 0:1] * 0
+        low  = tf.constant(AS.low , tf.float32)[None, None, :] + broadcaster
+        high = tf.constant(AS.high, tf.float32)[None, None, :] + broadcaster
+        mu    = softclip(mu, low , high)
+
+        # sigma = tf.nn.softplus(sigma) + 1e-4
+        sigma = softclip(sigma, 1e-4, (high - low) / 2.)
+
+        pi = create_distribution(dist_type="normal", param1=mu, param2=sigma)
+
+        pi_behavior = create_distribution(
+            dist_type="normal", 
+            param1 = tf.placeholder(tf.float32, [seq_length, batch_size, FLAGS.num_actions], "param1"),
+            param2 = tf.placeholder(tf.float32, [seq_length, batch_size, FLAGS.num_actions], "param2"),
+        )
+
+        return pi, pi_behavior
 
     def advantage_network(self, input):
 
@@ -698,18 +769,18 @@ class AcerEstimator():
                 input_with_a = flatten_all_leading_axes(input_with_a)
 
                 # 1st fully connected layer
-                fc1 = DenseLayer(
-                    input=input_with_a,
+                fc1 = tf.contrib.layers.fully_connected(
+                    inputs=input_with_a,
                     num_outputs=256,
-                    nonlinearity="relu",
-                    name="fc1")
+                    activation_fn=tf.nn.relu,
+                    scope="fc1")
 
                 # 2nd fully connected layer that regresses the advantage
-                fc2 = DenseLayer(
-                    input=fc1,
+                fc2 = tf.contrib.layers.fully_connected(
+                    inputs=fc1,
                     num_outputs=1,
-                    nonlinearity=None,
-                    name="fc2")
+                    activation_fn=None,
+                    scope="fc2")
 
                 output = fc2
 
@@ -739,5 +810,6 @@ class AcerEstimator():
         if "average_net" not in AcerEstimator.__dict__:
             with tf.variable_scope("average_net"):
                 AcerEstimator.average_net = AcerEstimator(add_summaries=False, trainable=False)
+                AcerEstimator.average_net.lock = threading.Lock()
 
 AcerEstimator.Worker = ac.acer.worker.AcerWorker

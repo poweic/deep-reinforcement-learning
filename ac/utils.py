@@ -14,6 +14,16 @@ FLAGS = tf.flags.FLAGS
 batch_size = FLAGS.batch_size
 seq_length = FLAGS.seq_length
 
+def form_state(state=None, prev_action=None, prev_reward=None):
+    if FLAGS.game == "MountainCarContinuous-v0":
+	state = FLAGS.featurize_state(state.squeeze())
+
+    return AttrDict(
+        state = state.reshape(-1, 1).copy().T,
+        prev_action = prev_action.copy().T,
+        prev_reward = prev_reward.copy().T
+    )
+
 class EpisodeStats(object):
     def __init__(self):
         self.episode_lengths = []
@@ -35,11 +45,13 @@ class EpisodeStats(object):
         self.episode_rewards.append(reward)
         self.timestamps.append(time.time())
 
+        timesteps = np.sum(self.episode_lengths)
+
         # set print options
         np.set_printoptions(formatter={'float_kind': lambda x: "{:.2f}".format(x)})
         tf.logging.info(
-            "Episode {:05d}: total return: {} [mean = {:.2f}], length = {}".format(
-                self.num_episodes(), rewards_all_agent, reward, length
+            "Episode {:05d}: total return: {} [mean = {:.2f}], length = {}, timesteps = \33[93m{}\33[0m".format(
+                self.num_episodes(), rewards_all_agent, reward, length, timesteps
         ))
         # reset print options
         np.set_printoptions()
@@ -258,6 +270,7 @@ def deflatten(x, n, m=-1): # de-flatten the first axes
         shape = tf.concat(0, [[n], [m], x.get_shape().as_list()[1:]])
         return tf.reshape(x, shape)
 
+# FIXME not sure "get_mdp_states" and "form_mdp_state" are still used
 def get_mdp_states(transitions):
     return {
         key: flatten(np.concatenate([

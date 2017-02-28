@@ -4,79 +4,58 @@ FLAGS = tf.flags.FLAGS
 
 def create_distribution(dist_type, bijectors=None, **stats):
 
+    num_actions = FLAGS.num_actions
     AS = FLAGS.action_space
-    n_actions = AS.n_actions
     low, high = AS.low, AS.high
 
-    if dist_type == "normal":
-        # Need broadcaster to make every as the shape [seq_length, batch_size, ...]
-        broadcaster = stats['mu'][0] * 0
+    # Need broadcaster to make every as the shape [seq_length, batch_size, ...]
+    broadcaster = stats['param1'][..., 0] * 0
 
-        dists = [
-            tf.contrib.distributions.Normal(
-                stats['mu'][i], stats['sigma'][i], allow_nan_stats=False
-            ) for i in range(n_actions)
-        ]
-    elif dist_type == "beta":
-        # Need broadcaster to make every as the shape [seq_length, batch_size, ...]
-        broadcaster = stats['beta'][0] * 0
+    DIST = tf.contrib.distributions.Normal if dist_type == "normal" else tf.contrib.distributions.Beta
 
-        beta_dists = [
-            tf.contrib.distributions.Beta(
-                stats['alpha'][i], stats['beta'][i], allow_nan_stats=False
-            ) for i in range(n_actions)
-        ]
+    param1 = tf_check_numerics(stats['param1'])
+    param2 = tf_check_numerics(stats['param2'])
 
-        beta_bijectors = [
-            tf.contrib.distributions.bijector.ScaleAndShift(
-                shift = tf.constant(low[i], tf.float32),
-                scale = tf.constant(high[i] - low[i], tf.float32),
-            ) for i in range(n_actions)
-        ]
-
-        dists = [
-            tf.contrib.distributions.TransformedDistribution(
-                distribution = dist,
-                bijector = bijector
-            ) for dist, bijector in zip(beta_dists, beta_bijectors)
-        ]
+    """
+    dists = [
+        DIST(
+            param1[..., i], param2[..., i], allow_nan_stats=False
+        ) for i in range(num_actions)
+    ]
 
     dists = add_eps_exploration(dists, broadcaster)
+    pi = to_joint_distribution(dists, bijectors, dist_type)
+    """
 
-    pi = to_joint_distribution(dists, bijectors)
+    dist = DIST(param1, param2, allow_nan_stats=False)
+    pi = to_transformed_distribution(dist, dist_type)
 
-    pi.phi = reduce(lambda x,y:x+y, stats.itervalues())
+    pi.phi = [param1, param2]
     pi.stats = stats
 
     return pi
 
 def add_eps_exploration(dists, broadcaster):
 
-    a = [
-        tf.constant([[FLAGS.min_mu_vf]],    tf.float32) + broadcaster,
-        tf.constant([[FLAGS.min_mu_steer]], tf.float32) + broadcaster
-    ]
+    if FLAGS.eps_init == 0:
+        return dists
 
-    b = [
-        tf.constant([[FLAGS.max_mu_vf]],    tf.float32) + broadcaster,
-        tf.constant([[FLAGS.max_mu_steer]], tf.float32) + broadcaster
-    ]
+    a = tf.constant(FLAGS.action_space.low,  tf.float32)[:, None, None] + broadcaster[None, ...]
+    b = tf.constant(FLAGS.action_space.high, tf.float32)[:, None, None] + broadcaster[None, ...]
 
-    # 2 means R^2
-    action_space = 2
-    for i in range(action_space):
+    # eps-greedy-like policy with epsilon decays over time.
+    # NOTE I use (t / N + 1) rather than t so that it looks like:
+    # 1.00, 1.01, 1.02, ... instead of 1, 2, 3, 4, which decays too fast
+    global_step = tf.contrib.framework.get_global_step()
+    eff_timestep = (tf.to_float(global_step) / FLAGS.effective_timescale + 1.)
+    eps = FLAGS.eps_init / eff_timestep
 
-        # eps-greedy-like policy with epsilon decays over time.
-        # NOTE I use (t / N + 1) rather than t so that it looks like:
-        # 1.00, 1.01, 1.02, ... instead of 1, 2, 3, 4, which decays too fast
-        global_step = tf.contrib.framework.get_global_step()
-        eff_timestep = (tf.to_float(global_step) / FLAGS.effective_timescale + 1.)
-        eps = FLAGS.eps_init / eff_timestep
+    # With eps probability, we sample our action from random uniform
+    prob = tf.pack([1. - eps, eps], axis=-1)[None, None, ...] + broadcaster[..., None]
+    cat = tf.contrib.distributions.Categorical(p=prob, allow_nan_stats=False)
+    tf.logging.info(cat.sample_n(1))
 
-        # With eps probability, we sample our action from random uniform
-        prob = tf.pack([1. - eps, eps], axis=-1)[None, None, ...] + broadcaster[..., None]
-        cat = tf.contrib.distributions.Categorical(p=prob, allow_nan_stats=False)
-        tf.logging.info(cat.sample_n(1))
+    for i in range(FLAGS.num_actions):
 
         # Create uniform dist
         uniform = tf.contrib.distributions.Uniform(a=a[i], b=b[i], allow_nan_stats=False)
@@ -89,8 +68,44 @@ def add_eps_exploration(dists, broadcaster):
 
     return dists
 
-def to_joint_distribution(dists, bijectors):
+def to_transformed_distribution(dist, dist_type):
 
+    low  = tf.constant(FLAGS.action_space.low , tf.float32)[None, None, None, ...]
+    high = tf.constant(FLAGS.action_space.high, tf.float32)[None, None, None, ...]
+
+    def log_prob(x, msg=None):
+        x = x[None, ...]
+        if dist_type == "beta":
+            x = clip((x - low) / (high - low), 0., 1.)
+        return tf.reduce_sum(dist.log_prob(x)[0, ...], axis=-1)
+
+    def prob(x, msg=None):
+        return tf.exp(log_prob(x))
+
+    def entropy():
+        return tf.reduce_sum(dist.entropy(), axis=-1)
+
+    def sample_n(n, msg=None):
+
+        samples = dist.sample_n(n)
+
+        if dist_type == "normal":
+            samples = clip(samples, low, high)
+        else:
+            samples = samples * (high - low) + low
+
+        return samples
+
+    return AttrDict(
+        prob = prob,
+        log_prob = log_prob,
+        sample_n = sample_n,
+        entropy = entropy,
+        dist = dist
+    )
+
+""" FIXME Old codes from gym-offroad-nav:master
+def to_joint_distribution(dists, bijectors):
     if bijectors is None:
         bijectors = [None] * len(dists)
 
@@ -99,7 +114,6 @@ def to_joint_distribution(dists, bijectors):
 
     def log_prob(x, msg=None):
         x = x[None, ...]
-
         log_p = reduce(lambda a,b: a+b, [
             tf_print(dists[i].log_prob(
                 bijectors[i].inverse_fn(
@@ -107,7 +121,6 @@ def to_joint_distribution(dists, bijectors):
                 )
             )[0, ...], message="log_prob[..., {}] = ".format(i)) for i in range(len(dists))
         ])
-
         # log_p = tf_print(log_p, message="in to_joint_distribution: log_p = ")
 
         return log_p
@@ -134,7 +147,69 @@ def to_joint_distribution(dists, bijectors):
     )
 
     return dist
+"""
 
+
+def to_joint_distribution(dists, bijectors, dist_type):
+
+    if bijectors is None:
+        bijectors = [None] * len(dists)
+
+    low  = tf.constant(FLAGS.action_space.low , tf.float32)[None, None, None, ...]
+    high = tf.constant(FLAGS.action_space.high, tf.float32)[None, None, None, ...]
+
+    # identity = AttrDict(forward_fn=lambda x:x, inverse_fn=lambda x:x)
+    # bijectors = [b if b is not None else identity for b in bijectors]
+
+    def log_prob(x, msg=None):
+        x = x[None, ...]
+
+        """
+        log_p = reduce(lambda a,b: a+b, [
+            tf_print(dists[i].log_prob(
+                bijectors[i].inverse_fn(
+                    tf_print(x[..., i], message="x[..., {}] = ".format(i))
+                )
+            )[0, ...], message="log_prob[..., {}] = ".format(i)) for i in range(len(dists))
+        ])
+        # log_p = tf_print(log_p, message="in to_joint_distribution: log_p = ")
+        """
+        if dist_type == "beta":
+            x = clip((x - low) / (high - low), 0., 1.)
+
+        log_p = reduce(lambda a,b: a+b, [
+            dists[i].log_prob(x[..., i])[0, ...] for i in range(len(dists))
+        ])
+
+        return log_p
+
+    def prob(x, msg=None):
+        return tf.exp(log_prob(x))
+
+    def entropy():
+        return sum([dists[i].entropy() for i in range(len(dists))])
+
+    def sample_n(n, msg=None):
+        samples = tf.pack([dists[i].sample_n(n) for i in range(len(dists))], axis=-1)
+
+        if dist_type == "normal":
+            samples = clip(samples, low, high)
+        else:
+            samples = samples * (high - low) + low
+
+        return samples
+
+    dist = AttrDict(
+        prob = prob,
+        log_prob = log_prob,
+        sample_n = sample_n,
+        entropy = entropy,
+        dists = dists
+    )
+
+    return dist
+
+"""
 def mixture_density(mu_vf, sigma_vf, logits_steer, sigma_steer, vf, steer_buckets, msg):
 
     # mu: [B, 2], sigma: [B, 2], phi is just a syntatic sugar
@@ -212,4 +287,4 @@ def mixture_density(mu_vf, sigma_vf, logits_steer, sigma_steer, vf, steer_bucket
     pi.sample_n = sample_n
 
     return pi
-
+"""
