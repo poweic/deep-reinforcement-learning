@@ -7,7 +7,8 @@ tf.flags.DEFINE_string("base-dir", "exp/", "Directory to write Tensorboard summa
 tf.flags.DEFINE_string("exp", None, "Optional experiment tag")
 tf.flags.DEFINE_string("log-file", None, "log file")
 tf.flags.DEFINE_string("stats-file", None, "stats file")
-tf.flags.DEFINE_string("game", "line", "Game environment")
+tf.flags.DEFINE_string("game", None, "Game environment. Ex: Humanoid-v1, OffRoadNav-v0")
+tf.flags.DEFINE_string("track", "line", "Can be line, s_shape, circle, etc.")
 tf.flags.DEFINE_string("estimator-type", "ACER", "Choose A3C or ACER")
 
 tf.flags.DEFINE_integer("min-episodes", 100, "minimum episodes to play")

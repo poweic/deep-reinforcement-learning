@@ -64,7 +64,8 @@ class AcerEstimator():
                 self.pi, self.pi_behavior = self.beta_policy(shared, use_naive_policy)
 
         with tf.name_scope("output"):
-            self.a_prime = tf.squeeze(self.pi.sample_n(1), 0)
+            a_prime = tf.squeeze(self.pi.sample_n(1), 0)
+            self.a_prime = tf_print(a_prime)
             self.action_and_stats = [self.a_prime, self.pi.stats]
 
         with tf.variable_scope("V"):
@@ -486,6 +487,7 @@ class AcerEstimator():
                 self.rho_bar = rho_bar = tf.minimum(c, rho)
 
             with tf.name_scope("d_log_prob_a"):
+                a = tf_print(a)
                 self.log_a = log_a = pi.log_prob(a)[..., None]
                 log_a = tf_print(log_a)
 

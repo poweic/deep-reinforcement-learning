@@ -21,50 +21,28 @@ tf.flags.DEFINE_integer("random-seed", None, "Random seed for gym.env and Tensor
 FLAGS = parse_flags()
 
 import gym
-from gym import wrappers
+import gym_offroad_nav.envs
 
-def make_env():
-    env = gym.envs.make(FLAGS.game)
+from ac.estimators import get_estimator
+from ac.worker import Worker
+from ac.utils import save_model_every_nth_minutes, EpisodeStats, get_dof, state_featurizer
+
+def make_env(worker=None):
+    env = gym.make(FLAGS.game)
 
     if FLAGS.random_seed is not None:
         env.seed(FLAGS.random_seed)
 
-    env.reset()
-
     FLAGS.action_space = env.action_space
-    FLAGS.num_actions = env.action_space.shape[0]
-    FLAGS.num_states = env.observation_space.shape[0]
+    FLAGS.num_actions = get_dof(env.action_space)
+    FLAGS.num_states = get_dof(env.observation_space)
 
-    if FLAGS.game == "MountainCarContinuous-v0":
-	import sklearn.pipeline
-	import sklearn.preprocessing
-	from sklearn.kernel_approximation import RBFSampler
+    FLAGS.featurize_state, FLAGS.num_states = state_featurizer(env)
 
-	# Feature Preprocessing: Normalize to zero mean and unit variance
-	# We use a few samples from the observation space to do this
-	observation_examples = np.array([env.observation_space.sample() for x in range(10000)])
-	scaler = sklearn.preprocessing.StandardScaler()
-	scaler.fit(observation_examples)
-
-	# Used to converte a state to a featurizes represenation.
-	# We use RBF kernels with different variances to cover different parts of the space
-	featurizer = sklearn.pipeline.FeatureUnion([
-	    ("rbf1", RBFSampler(gamma=5.0, n_components=100)),
-	    ("rbf2", RBFSampler(gamma=2.0, n_components=100)),
-	    ("rbf3", RBFSampler(gamma=1.0, n_components=100)),
-	    ("rbf4", RBFSampler(gamma=0.5, n_components=100))
-	])
-	featurizer.fit(scaler.transform(observation_examples))
-
-	def featurize_state(state):
-	    """ Returns the featurized representation for a state.
-	    """
-	    scaled = scaler.transform([state])
-	    featurized = featurizer.transform(scaled)
-	    return featurized[0]
-
-	FLAGS.featurize_state = featurize_state
-	FLAGS.num_states = 400
+    try:
+        env.set_worker(worker)
+    except:
+        pass
 
     return env
 
@@ -73,19 +51,7 @@ if FLAGS.display:
     env.render()
 env.close()
 
-from ac.estimators import get_estimator
-from ac.worker import Worker
-from ac.utils import (
-    make_copy_params_op, save_model_every_nth_minutes, EpisodeStats
-)
-
-from gym import wrappers
-from gym_offroad_nav.envs import OffRoadNavEnv
-from gym_offroad_nav.vehicle_model import VehicleModel
-from gym_offroad_nav.vehicle_model_tf import VehicleModelGPU
-
 # 
-"""
 W = 400
 disp_img = np.zeros((2*W, 2*W*2, 3), dtype=np.uint8)
 disp_lock = threading.Lock()
@@ -97,25 +63,6 @@ def imshow4(idx, img):
         disp_img[x*W:x*W+img.shape[0], y*W:y*W+img.shape[1], :] = np.copy(img)
 
 cv2.imshow4 = imshow4
-
-def make_env():
-    vehicle_model = VehicleModel(FLAGS.timestep, FLAGS.vehicle_model_noise_level)
-    # vehicle_model_gpu = VehicleModelGPU(FLAGS.timestep, FLAGS.vehicle_model_noise_level)
-    reward_fn = "data/{}.mat".format(FLAGS.game)
-    rewards = scipy.io.loadmat(reward_fn)["reward"].astype(np.float32)
-    # rewards -= 100
-    # rewards -= 15
-    rewards = (rewards - np.min(rewards)) / (np.max(rewards) - np.min(rewards))
-    # rewards = (rewards - 0.5) * 2 # 128
-    rewards = (rewards - 0.7) * 2
-    rewards[rewards > 0] *= 10
-
-    # rewards[rewards < 0.1] = -1
-    env = OffRoadNavEnv(rewards, vehicle_model)
-    # env = OffRoadNavEnv(rewards, vehicle_model, vehicle_model_gpu)
-    # env = wrappers.Monitor(env, FLAGS.monitor_dir, video_callable=False)
-    return env
-"""
 
 # Optionally empty model directory
 if FLAGS.reset:
@@ -162,7 +109,7 @@ with tf.Session(config=cfg) as sess:
 
         worker = Estimator.Worker(
             name=name,
-            env=make_env(),
+            make_env=make_env,
             global_counter=global_counter,
             global_episode_stats=global_episode_stats,
             global_net=global_net,
@@ -228,13 +175,15 @@ with tf.Session(config=cfg) as sess:
     while not Worker.stop:
         if FLAGS.display:
             workers[0].env.render()
+            cv2.imshow("result", disp_img)
+            cv2.waitKey(10)
 
         """
         for worker in workers:
             worker.env.render()
         """
 
-        time.sleep(1)
+        # time.sleep(1)
         schedule.run_pending()
 
     # Wait for all workers to finish

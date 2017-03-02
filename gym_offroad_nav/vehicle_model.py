@@ -3,7 +3,7 @@ import numpy as np
 
 class VehicleModel():
 
-    def __init__(self, timestep, noise_level=0., drift=False):
+    def __init__(self, timestep, noise_level=0., wheelbase=2.0, drift=False):
         model = scipy.io.loadmat("data/vehicle_model_ABCD.mat")
         self.A = model["A"]
         self.B = model["B"]
@@ -11,6 +11,7 @@ class VehicleModel():
         self.D = model["D"]
         self.timestep = timestep
         self.noise_level = noise_level
+        self.wheelbase = wheelbase
 
         if not drift:
             self.A[0][0] = 0
@@ -38,6 +39,12 @@ class VehicleModel():
         x = np.dot(self.A, x) + np.dot(self.B, u)
         return y, x
 
+    def steer_to_yawrate(self, state, steer):
+        vf = state[4]
+        vf = np.sign(vf) * np.maximum(np.abs(vf), 1e-3)
+        yawrate = vf * np.tan(steer) / self.wheelbase
+        return yawrate
+
     def predict(self, state, action):
         if self.x is None:
             raise ValueError("self.x is still None. Call reset() first.")
@@ -45,6 +52,9 @@ class VehicleModel():
         assert state.shape[0] == 6, "state.shape = {}".format(state.shape)
         assert action.shape[0] == 2, "action.shape = {}".format(action.shape)
         assert self.x.shape[0] == 4, "self.x.shape = {}".format(self.x.shape)
+
+        action = action.copy()
+        action[1] = self.steer_to_yawrate(state, action[1])
 
         # y = state[3:6]
         y, self.x = self._predict(self.x, action)

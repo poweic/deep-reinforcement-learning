@@ -10,19 +10,35 @@ import scipy.interpolate as interpolate
 import tensorflow as tf
 import inspect
 import schedule
+from gym import spaces
 FLAGS = tf.flags.FLAGS
-batch_size = FLAGS.batch_size
-seq_length = FLAGS.seq_length
 
-def form_state(state=None, prev_action=None, prev_reward=None):
-    if FLAGS.game == "MountainCarContinuous-v0":
-	state = FLAGS.featurize_state(state.squeeze())
+def get_dof(space):
+    t = type(space)
+    if t == spaces.tuple_space.Tuple:
+        return sum([get_dof(s) for s in space.spaces])
+    else:
+        try: # if Discrete
+            return space.n
+        except: # else Box
+            return np.prod(space.shape)
 
-    return AttrDict(
-        state = state.reshape(-1, 1).copy().T,
-        prev_action = prev_action.copy().T,
-        prev_reward = prev_reward.copy().T
-    )
+def form_state(env, state, prev_action, prev_reward):
+    state = FLAGS.featurize_state(state)
+
+    if "OffRoadNav" in FLAGS.game:
+        return AttrDict(
+            front_view    = env.get_front_view(state).copy(),
+            vehicle_state = state.copy().T,
+            prev_action   = prev_action.copy().T,
+            prev_reward   = prev_reward.copy().T
+        )
+    else:
+        return AttrDict(
+            state = state.reshape(-1, 1).copy().T,
+            prev_action = prev_action.copy().T,
+            prev_reward = prev_reward.copy().T
+        )
 
 class EpisodeStats(object):
     def __init__(self):
@@ -98,6 +114,43 @@ class EpisodeStats(object):
         s += "\ntimestamps: {}".format(self.timestamps)
         return s
 
+def state_featurizer(env):
+
+    if FLAGS.game != "MountainCarContinuous-v0":
+        return lambda x: x, FLAGS.num_states
+
+    import sklearn.pipeline
+    import sklearn.preprocessing
+    from sklearn.kernel_approximation import RBFSampler
+
+    env.reset()
+
+    # Feature Preprocessing: Normalize to zero mean and unit variance
+    # We use a few samples from the observation space to do this
+    observation_examples = np.array([env.observation_space.sample() for x in range(10000)])
+    scaler = sklearn.preprocessing.StandardScaler()
+    scaler.fit(observation_examples)
+
+    # Used to converte a state to a featurizes represenation.
+    # We use RBF kernels with different variances to cover different parts of the space
+    featurizer = sklearn.pipeline.FeatureUnion([
+        ("rbf1", RBFSampler(gamma=5.0, n_components=100)),
+        ("rbf2", RBFSampler(gamma=2.0, n_components=100)),
+        ("rbf3", RBFSampler(gamma=1.0, n_components=100)),
+        ("rbf4", RBFSampler(gamma=0.5, n_components=100))
+    ])
+    featurizer.fit(scaler.transform(observation_examples))
+
+    def featurize_state(state):
+        """ Returns the featurized representation for a state.
+        """
+        scaled = scaler.transform([state.squeeze()])
+        featurized = featurizer.transform(scaled)
+        return featurized[0]
+
+    return featurize_state, 400
+
+
 def mkdir_p(dirname):
     if not os.path.exists(dirname):
         os.makedirs(dirname)
@@ -159,8 +212,8 @@ def get_rank(x):
 
 def get_seq_length_batch_size(x):
     shape = tf.shape(x)
-    S = shape[0] if seq_length is None else seq_length
-    B = shape[1] if batch_size is None else batch_size
+    S = shape[0] if FLAGS.seq_length is None else FLAGS.seq_length
+    B = shape[1] if FLAGS.batch_size is None else FLAGS.batch_size
     return S, B
 
 def get_var_list_wrt(loss):
@@ -269,25 +322,6 @@ def deflatten(x, n, m=-1): # de-flatten the first axes
     except:
         shape = tf.concat(0, [[n], [m], x.get_shape().as_list()[1:]])
         return tf.reshape(x, shape)
-
-# FIXME not sure "get_mdp_states" and "form_mdp_state" are still used
-def get_mdp_states(transitions):
-    return {
-        key: flatten(np.concatenate([
-            trans.mdp_state[key][:, None, :] for trans in transitions
-        ], axis=1))
-        for key in transitions[0].mdp_state.keys()
-    }
-
-# Transition = collections.namedtuple("Transition", ["mdp_state", "state", "action", "reward", "next_state", "done"])
-
-def form_mdp_state(env=None, state=None, prev_action=None, prev_reward=None):
-    return AttrDict(
-        front_view    = None if env is None else env.get_front_view(state).copy(),
-        vehicle_state = None if env is None else state.copy().T,
-        prev_action   = None if env is None else prev_action.copy().T,
-        prev_reward   = None if env is None else prev_reward.copy().T
-    )
 
 def inverse_transform_sampling_2d(data, n_samples, version=2):
 

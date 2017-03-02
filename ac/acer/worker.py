@@ -72,27 +72,6 @@ class AcerWorker(Worker):
         # Set initial timestamp
         self.global_episode_stats.set_initial_timestamp()
 
-    """
-    def reset_env(self):
-
-        self.state = np.array([+1, 1, -10 * np.pi / 180, 0, 0, 0])
-        self.action = np.array([0, 0])
-
-        # Reshape to compatiable format
-        self.state = self.state.astype(np.float32).reshape(6, -1)
-        self.action = np.zeros((2, self.n_agents), dtype=np.float32)
-        self.total_return = np.zeros((1, self.n_agents), dtype=np.float32)
-        self.current_reward = np.zeros((1, self.n_agents), dtype=np.float32)
-
-        # Add some noise to have diverse start points
-        noise = np.random.randn(6, self.n_agents).astype(np.float32) * 0.5
-        noise[2, :] /= 2
-
-        self.state = self.state + noise
-
-        self.env._reset(self.state)
-    """
-
     def _run(self):
 
         # if resume from some unfinished training, we first re-generate
@@ -251,30 +230,12 @@ class AcerWorker(Worker):
         reward = np.zeros((1, self.n_agents), dtype=np.float32)
         for i in range(n_steps):
 
-            # state = form_mdp_state(self.env, self.state, self.action, reward)
-            state = form_state(self.state, self.action, reward)
+            state = form_state(self.env, self.state, self.action, reward)
 
             # Predict an action
             self.action, pi_stats = self.local_net.predict_actions(state, self.sess)
 
-            """ FIXME move this section to environment
-            # Take several sub-steps in environment (the smaller the timestep,
-            # the smaller each sub-step, the more accurate the simulation
-            n_sub_steps = int(1. / FLAGS.command_freq / FLAGS.timestep)
-            # state___ = self.env.state.copy()
-            for j in range(n_sub_steps):
-                next_state, reward, done, _ = self.env.step(self.action)
-            """
-
-            """
-            # self.env.state = state___.copy()
-            next_state, reward, done, _ = self.env._step_2(self.action, n_sub_steps)
-
-            print np.linalg.norm(next_state - next_state_2)
-            print np.linalg.norm(reward     - reward_2    )
-            print np.linalg.norm(done       - done_2      )
-            """
-
+            # Take a step in environment
             next_state, reward, done, _ = self.env.step(self.action.squeeze())
             reward = np.array([reward], np.float32).reshape(1, self.n_agents)
 
@@ -291,10 +252,10 @@ class AcerWorker(Worker):
                 action=self.action.copy(),
                 next_state=next_state.copy(),
                 reward=reward.copy(),
-                done=done # done.copy()
+                done=done
             ))
 
-            if done: # if np.any(done):
+            if done:
                 break
 
             self.state = next_state
@@ -381,10 +342,9 @@ class AcerWorker(Worker):
             for key in trans[0].state.keys()
         })
 
-        S, B = len(trans), self.n_agents
-
         action = np.concatenate([t.action.T[None, ...] for t in trans], axis=0)
         reward = np.concatenate([t.reward.T[None, ...] for t in trans], axis=0)
+
         pi_stats = {
             k: np.concatenate([t.pi_stats[k] for t in trans], axis=0)
             for k in trans[0].pi_stats.keys()
@@ -395,8 +355,8 @@ class AcerWorker(Worker):
             action = action,
             reward = reward,
             pi_stats = pi_stats,
-            seq_length = S,
-            batch_size = B,
+            seq_length = len(trans),
+            batch_size = self.n_agents,
         )
 
     def update(self, rollout, on_policy=True, display=True):

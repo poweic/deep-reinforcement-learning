@@ -1,10 +1,9 @@
 import tensorflow as tf
+from tensorflow_helnet.layers import DenseLayer, Conv2DLayer, MaxPool2DLayer
 from ac.utils import *
 FLAGS = tf.flags.FLAGS
 batch_size = FLAGS.batch_size
 seq_length = FLAGS.seq_length
-num_states = FLAGS.num_states
-num_actions = FLAGS.num_actions
 
 def naive_mean_steer_policy(front_view):
     H, W = front_view.get_shape().as_list()[2:4]
@@ -31,34 +30,31 @@ def naive_mean_steer_policy(front_view):
 
     return num / denom
 
-""" FIXME get_state_placeholder from gym-offroad-nav:master
 def get_state_placeholder():
-    # Note that placeholder are tf.Tensor not tf.Variable
-    FOV = FLAGS.field_of_view
-    front_view    = tf.placeholder(tf.float32, [seq_length, batch_size, FOV, FOV, 1], "front_view")
-    vehicle_state = tf.placeholder(tf.float32, [seq_length, batch_size, 6], "vehicle_state")
-    prev_action   = tf.placeholder(tf.float32, [seq_length, batch_size, 2], "prev_action")
-    prev_reward   = tf.placeholder(tf.float32, [seq_length, batch_size, 1], "prev_reward")
 
-    return AttrDict(
-        front_view    = front_view,
-        vehicle_state = vehicle_state,
-        prev_action   = prev_action,
-        prev_reward   = prev_reward
-    )
-"""
-
-def get_state_placeholder():
     # Note that placeholder are tf.Tensor not tf.Variable
-    state = tf.placeholder(tf.float32, [seq_length, batch_size, num_states], "state")
-    prev_action = tf.placeholder(tf.float32, [seq_length, batch_size, num_actions], "prev_action")
+    prev_action = tf.placeholder(tf.float32, [seq_length, batch_size, FLAGS.num_actions], "prev_action")
     prev_reward = tf.placeholder(tf.float32, [seq_length, batch_size, 1], "prev_reward")
 
-    return AttrDict(
-        state = state,
+    placeholder = AttrDict(
         prev_action = prev_action,
         prev_reward = prev_reward
     )
+
+    if "OffRoadNav" in FLAGS.game:
+        FOV = FLAGS.field_of_view
+        front_view    = tf.placeholder(tf.float32, [seq_length, batch_size, FOV, FOV, 1], "front_view")
+        vehicle_state = tf.placeholder(tf.float32, [seq_length, batch_size, 6], "vehicle_state")
+
+        placeholder.update({
+            'front_view': front_view,
+            'vehicle_state': vehicle_state
+        })
+    else:
+        state = tf.placeholder(tf.float32, [seq_length, batch_size, FLAGS.num_states], "state")
+        placeholder.update({'state': state})
+
+    return placeholder
 
 def LSTM(input, num_outputs, scope=None):
 
@@ -119,33 +115,22 @@ def LSTM(input, num_outputs, scope=None):
         state_out = state_out
     )
 
-def build_shared_network(input, add_summaries=False):
+def build_convnet(input):
     """
-    Builds a 3-layer network conv -> conv -> fc as described
-    in the A3C paper. This network is shared by both the policy and value net.
-    Args:
-    add_summaries: If true, add layer summaries to Tensorboard.
-    Returns:
-    Final layer activations.
-    """
-
-    """ FIXME Conv layers from gym-offroad-nav:master
-    front_view = input.front_view
     vehicle_state = input.vehicle_state
     prev_action = input.prev_action
     prev_reward = input.prev_reward
+    """
 
-    rank = get_rank(input.front_view)
-
-    if rank == 5:
-        S, B = get_seq_length_batch_size(front_view)
-        front_view = flatten(front_view)
+    # rank = get_rank(input.front_view)
+    S, B = get_seq_length_batch_size(input.front_view)
+    front_view = flatten(input.front_view)
 
     with tf.name_scope("conv"):
 
         conv2d = tf.contrib.layers.convolution2d
 
-        # Batch norm is not compatible with LSTM
+        # Batch norm is NOT compatible with LSTM
         # (see Issue: https://github.com/tensorflow/tensorflow/issues/6087)
         batch_norm = None # tf.contrib.layers.batch_norm
 
@@ -161,21 +146,27 @@ def build_shared_network(input, add_summaries=False):
         # conv6 = conv2d(conv5, 64, 5, activation_fn=tf.nn.relu, normalizer_fn=batch_norm, scope="conv6")
         # pool3 = MaxPool2DLayer(conv6, pool_size=3, stride=2, name='pool3')
 
+        # Reshape [seq_len * batch_size, H, W, C] to [seq_len * batch_size, H * W * C]
         flat = tf.contrib.layers.flatten(pool2)
 
-        fc = DenseLayer(
-            input=flat,
-            num_outputs=256,
-            nonlinearity="relu",
-            name="fc")
+    return flat
+
+def build_shared_network(input, add_summaries=False):
+    """
+    Builds a 3-layer network conv -> conv -> fc as described
+    in the A3C paper. This network is shared by both the policy and value net.
+    Args:
+    add_summaries: If true, add layer summaries to Tensorboard.
+    Returns:
+    Final layer activations.
     """
 
-    S, B = get_seq_length_batch_size(input.state)
-    state = input.state
-    prev_action = input.prev_action
-    prev_reward = input.prev_reward
+    S, B = get_seq_length_batch_size(input.prev_action)
 
-    input = flatten(state)
+    if "OffRoadNav" in FLAGS.game:
+        input = build_convnet(input)
+    else:
+        input = flatten(input.state)
 
     fc = tf.contrib.layers.fully_connected(
         inputs=input,
@@ -191,13 +182,13 @@ def build_shared_network(input, add_summaries=False):
         # LSTM-1
         # Concatenate encoder's output (i.e. flattened result from conv net)
         # with previous reward (see https://arxiv.org/abs/1611.03673)
-        # concat1 = tf.concat(2, [fc, prev_reward])
+        # concat1 = tf.concat(2, [fc, input.prev_reward])
         concat1 = fc
         lstms.append(LSTM(concat1, 128, scope="LSTM-1"))
 
         # LSTM-2
         # Concatenate previous output with vehicle_state and prev_action
-        # concat2 = tf.concat(2, [fc, lstms[-1].output, vehicle_state, prev_action])
+        # concat2 = tf.concat(2, [fc, lstms[-1].output, vehicle_state, input.prev_action])
         concat2 = lstms[-1].output
         lstms.append(LSTM(concat2, 256, scope="LSTM-2"))
 

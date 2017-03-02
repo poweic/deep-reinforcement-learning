@@ -8,19 +8,41 @@ from gym.utils import seeding
 from ac.utils import to_image
 from time import time
 
+from gym_offroad_nav.vehicle_model import VehicleModel
+from gym_offroad_nav.vehicle_model_tf import VehicleModelGPU
+
 FLAGS = tf.flags.FLAGS
 RAD2DEG = 180. / np.pi
 
 class OffRoadNavEnv(gym.Env):
+    metadata = {
+        'render.modes': ['human', 'rgb_array'],
+        # 'video.frames_per_second': 30
+    }
 
-    def __init__(self, rewards, vehicle_model): #, vehicle_model_gpu):
+    def __init__(self):
         self.viewer = None
 
-        # A tf.tensor (or np) containing rewards, we need a constant version and 
-        self.rewards = rewards
+        self.fov = FLAGS.field_of_view
 
-        self.vehicle_model = vehicle_model
-        # self.vehicle_model_gpu = vehicle_model_gpu
+        # action space = forward velocity + steering angle
+        self.action_space = spaces.Box(low=np.array([FLAGS.min_mu_vf, FLAGS.min_mu_steer]), high=np.array([FLAGS.max_mu_vf, FLAGS.max_mu_steer]))
+
+        # Observation space = front view (image) + vehicle state (6-dim vector)
+        float_min = np.finfo(np.float32).min
+        float_max = np.finfo(np.float32).max
+        self.observation_space = spaces.Tuple((
+            spaces.Box(low=0, high=255, shape=(self.fov, self.fov, 1)),
+            spaces.Box(low=float_min, high=float_max, shape=(6, 1))
+        ))
+
+        # A tf.tensor (or np) containing rewards, we need a constant version and 
+        self.rewards = self.load_rewards()
+
+        self.vehicle_model = VehicleModel(
+            FLAGS.timestep, FLAGS.vehicle_model_noise_level, FLAGS.wheelbase
+        )
+        # self.vehicle_model_gpu = VehicleModelGPU(FLAGS.timestep, FLAGS.vehicle_model_noise_level)
 
         self.K = 10
 
@@ -29,6 +51,23 @@ class OffRoadNavEnv(gym.Env):
         self.prev_action = np.zeros((2, 1))
 
         self.highlight = False
+
+    def load_rewards(self):
+        reward_fn = "data/{}.mat".format(FLAGS.track)
+        rewards = scipy.io.loadmat(reward_fn)["reward"].astype(np.float32)
+        # rewards -= 100
+        # rewards -= 15
+        rewards = (rewards - np.min(rewards)) / (np.max(rewards) - np.min(rewards))
+        # rewards = (rewards - 0.5) * 2 # 128
+        rewards = (rewards - 0.7) * 2
+        rewards[rewards > 0] *= 10
+
+        # rewards[rewards < 0.1] = -1
+
+        return rewards
+
+    def set_worker(self, worker):
+        self.worker = worker
 
     def _step_2(self, action, N):
         ''' Take one step in the environment
@@ -77,7 +116,9 @@ class OffRoadNavEnv(gym.Env):
         Tuple
             A 4-element tuple (state, reward, done, info)
         '''
-        self.state = self.vehicle_model.predict(self.state, action)
+        n_sub_steps = int(1. / FLAGS.command_freq / FLAGS.timestep)
+        for j in range(n_sub_steps):
+            self.state = self.vehicle_model.predict(self.state, action)
 
         # Y forward, X lateral
         # ix = -19, -18, ...0, 1, 20, iy = 0, 1, ... 39
@@ -91,6 +132,9 @@ class OffRoadNavEnv(gym.Env):
         info = {}
 
         self.prev_action = action.copy()
+
+        # FIXME is this the correct way?
+        done = np.any(done)
 
         return self.state.copy(), reward, done, info
 
@@ -133,7 +177,21 @@ class OffRoadNavEnv(gym.Env):
         r = f00*w00 + f01*w01 + f10*w10 + f11*w11
         return r.reshape(1, -1)
 
-    def _reset(self, s0):
+    def get_initial_state(self):
+        state = np.array([+1, 1, -10 * np.pi / 180, 0, 0, 0])
+
+        # Reshape to compatiable format
+        state = state.astype(np.float32).reshape(6, -1)
+
+        # Add some noise to have diverse start points
+        noise = np.random.randn(6, FLAGS.n_agents_per_worker).astype(np.float32) * 0.5
+        noise[2, :] /= 2
+
+        state = state + noise
+
+        return state
+
+    def _reset(self):
         if not hasattr(self, "padded_rewards"):
             FOV = FLAGS.field_of_view
             shape = (np.array(self.rewards.shape) + [FOV * 2, FOV * 2]).tolist()
@@ -148,9 +206,13 @@ class OffRoadNavEnv(gym.Env):
             self.bR = to_image(self.debug_bilinear_R(), self.K)
 
         self.disp_img = np.copy(self.bR)
+
+        s0 = self.get_initial_state()
         self.vehicle_model.reset(s0)
         # self.vehicle_model_gpu.reset(s0)
+
         self.state = s0.copy()
+
         return self.state
 
     def debug_bilinear_R(self):
@@ -191,9 +253,9 @@ class OffRoadNavEnv(gym.Env):
 
         return img[..., None]
 
-    def _render(self, info, mode='human', close=False):
+    def _render(self, mode='human', close=False):
 
-        worker = info["worker"]
+        worker = self.worker
 
         if self.state is None:
             return

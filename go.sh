@@ -1,28 +1,30 @@
 #!/bin/bash
 
 # FIXME go code from gym-offroad-nav:master
-# ./train.py \
-#   --base-dir /Data3/acer-offroad-icml2017/ \
-#   --max-global-steps 8000 \
-#   --estimator-type ACER \
-#   --log-file train.$(date +%s).log \
-#   --stats-file train.$(date +%s).stats.csv \
-#   --parallelism 1 \
-#   --game s_shape \
-#   --save-every-n-minutes 10 \
-#   --t-max 20 \
-#   --max-gradient 100.0 \
-#   --field-of-view 20 \
-#   --timestep 0.01 \
-#   --replay-ratio 0.250 \
-#   --avg-net-momentum 0.95 \
-#   --max-replay-buffer-size 5000 \
-#   --command-freq 5 \
-#   --discount-factor 0.99 \
-#   --n-agents-per-worker 8 \
-#   --vehicle-model-noise-level 2e-2 \
-#   --l2-reg 1e-4 \
-#   $@
+./train.py \
+  --game OffRoadNav-v0 \
+  --base-dir /Data3/acer-offroad-icml2017/ \
+  --max-global-steps 8000 \
+  --estimator-type ACER \
+  --log-file train.$(date +%s).log \
+  --stats-file train.$(date +%s).stats.csv \
+  --parallelism 1 \
+  --track s_shape \
+  --save-every-n-minutes 10 \
+  --policy-dist Beta \
+  --t-max 20 \
+  --max-gradient 100.0 \
+  --field-of-view 20 \
+  --timestep 0.0025 \
+  --replay-ratio 0.250 \
+  --avg-net-momentum 0.95 \
+  --max-replay-buffer-size 5000 \
+  --command-freq 5 \
+  --discount-factor 0.99 \
+  --n-agents-per-worker 8 \
+  --vehicle-model-noise-level 2e-2 \
+  --l2-reg 1e-4 \
+  $@
 
 # --learning-rate 1e-3 \
 # secret sauce is beta distribution with large learning rate
@@ -30,26 +32,26 @@
 # ./train.py --game Humanoid-v1 --record-video True --exp exp/humanoid/trial-2 --policy-dist Gaussian
 # ./train.py --game MountainCarContinuous-v0 --record-video True --exp exp/humanoid/trial-2 --policy-dist Gaussian --max-global-steps 1000 --render-every 1
 
-./train.py \
-    --game Humanoid-v1 \
-    --eps-init 0 \
-    --max-gradient 1000 \
-    --save-every-n-minutes 30 \
-    --effective-timescale 1000 \
-    --max-global-steps 200000 \
-    --bi-directional False \
-    --max-steps 1000 \
-    --decay-steps 50000 \
-    --replay-ratio 8 \
-    --lr-vp-ratio 10 \
-    --avg-net-momentum 0.995 \
-    --exp exp/Beta-debug \
-    --policy-dist Beta \
-    --learning-rate 1e-4 \
-    --parallelism 4 \
-    --stats-file $(date +%s).stats.csv \
-    --log-file $(date +%s).log \
-   $@
+# ./train.py \
+#     --game Humanoid-v1 \
+#     --eps-init 0 \
+#     --max-gradient 1000 \
+#     --save-every-n-minutes 30 \
+#     --effective-timescale 1000 \
+#     --max-global-steps 200000 \
+#     --bi-directional False \
+#     --max-steps 1000 \
+#     --decay-steps 50000 \
+#     --replay-ratio 8 \
+#     --lr-vp-ratio 10 \
+#     --avg-net-momentum 0.995 \
+#     --exp exp/Beta-debug \
+#     --policy-dist Beta \
+#     --learning-rate 1e-4 \
+#     --parallelism 4 \
+#     --stats-file $(date +%s).stats.csv \
+#     --log-file $(date +%s).log \
+#    $@
 
 # ./train.py \
 #     --game Humanoid-v1 \

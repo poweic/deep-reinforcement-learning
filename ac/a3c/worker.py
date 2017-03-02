@@ -208,7 +208,6 @@ class A3CWorker(Worker):
         # T is the number of transitions
         T = len(transitions)
 
-        # mdp_states = self.get_mdp_states(transitions)
         mdp_states = AttrDict({
             key: np.concatenate([
                 t.mdp_state[key][None, ...] for t in transitions
