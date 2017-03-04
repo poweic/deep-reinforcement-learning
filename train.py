@@ -57,10 +57,14 @@ disp_img = np.zeros((2*W, 2*W*2, 3), dtype=np.uint8)
 disp_lock = threading.Lock()
 def imshow4(idx, img):
     global disp_img
+    with disp_lock:
+        disp_img = np.copy(img)
+    """
     x = idx / 4
     y = idx % 4
     with disp_lock:
         disp_img[x*W:x*W+img.shape[0], y*W:y*W+img.shape[1], :] = np.copy(img)
+    """
 
 cv2.imshow4 = imshow4
 

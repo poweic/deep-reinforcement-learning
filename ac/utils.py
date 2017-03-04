@@ -191,7 +191,7 @@ def normalize(x):
 
 def to_image(R, K, interpolation=cv2.INTER_NEAREST):
     R = normalize(R)
-    R = cv2.resize(R, (40 * K, 40 * K), interpolation=interpolation)[..., None]
+    R = cv2.resize(R, (R.shape[1] * K, R.shape[0] * K), interpolation=interpolation)[..., None]
     R = np.concatenate([R, R, R], axis=2)
     return R
 

@@ -38,6 +38,17 @@ class OffRoadNavEnv(gym.Env):
 
         # A tf.tensor (or np) containing rewards, we need a constant version and 
         self.rewards = self.load_rewards()
+        self.height, self.width = self.rewards.shape
+        self.cx, self.cy = 0, self.height / 2
+        self.x_min, self.x_max = self.cx - self.width  / 2, self.cx + self.width  / 2
+        self.y_min, self.y_max = self.cy - self.height / 2, self.cy + self.height / 2
+        print "\33[33m"
+        print "(cx, cy) = ({}, {})".format(self.cx, self.cy)
+        print "(x_min, x_max) = ({}, {}), (y_min, y_max) = ({}, {})".format(self.x_min, self.x_max, self.y_min, self.y_max)
+        print "(height, width) = ({}, {})".format(self.height, self.width)
+        print "\33[0m"
+        
+        self.cell_size = 0.5
 
         self.vehicle_model = VehicleModel(
             FLAGS.timestep, FLAGS.vehicle_model_noise_level, FLAGS.wheelbase
@@ -58,7 +69,7 @@ class OffRoadNavEnv(gym.Env):
         # rewards -= 100
         # rewards -= 15
         rewards = (rewards - np.min(rewards)) / (np.max(rewards) - np.min(rewards))
-        # rewards = (rewards - 0.5) * 2 # 128
+        # rewards = (rewards - self.cell_size) * 2 # 128
         rewards = (rewards - 0.7) * 2
         rewards[rewards > 0] *= 10
 
@@ -88,10 +99,10 @@ class OffRoadNavEnv(gym.Env):
         self.state = self.vehicle_model_gpu.predict(state, action, N)
 
         # Y forward, X lateral
-        # ix = -19, -18, ...0, 1, 20, iy = 0, 1, ... 39
+        # ix = -20, -18, ...0, 1, 19, iy = 0, 1, ... 39
         x, y = self.state[:2]
         ix, iy = self.get_ixiy(x, y)
-        done = (ix < -19) | (ix > 20) | (iy < 0) | (iy > 39)
+        done = (ix < self.x_min) | (ix > self.x_max - 1) | (iy < self.y_min) | (iy > self.y_max - 1)
 
         reward = self._bilinear_reward_lookup(x, y)
 
@@ -121,10 +132,10 @@ class OffRoadNavEnv(gym.Env):
             self.state = self.vehicle_model.predict(self.state, action)
 
         # Y forward, X lateral
-        # ix = -19, -18, ...0, 1, 20, iy = 0, 1, ... 39
+        # ix = -20, -18, ...0, 1, 19, iy = 0, 1, ... 39
         x, y = self.state[:2]
         ix, iy = self.get_ixiy(x, y)
-        done = (ix < -19) | (ix > 20) | (iy < 0) | (iy > 39)
+        done = (ix < self.x_min) | (ix > self.x_max - 1) | (iy < self.y_min) | (iy > self.y_max - 1)
 
         reward = self._bilinear_reward_lookup(x, y)
 
@@ -139,7 +150,7 @@ class OffRoadNavEnv(gym.Env):
         return self.state.copy(), reward, done, info
 
     def get_linear_idx(self, ix, iy):
-        linear_idx = (40 - 1 - iy) * 40 + (ix + 19)
+        linear_idx = (self.y_max - 1 - iy) * self.width + (ix - self.x_min)
         return linear_idx
 
     def _get_reward(self, ix, iy):
@@ -148,26 +159,26 @@ class OffRoadNavEnv(gym.Env):
         return r
 
     def get_ixiy(self, x, y, scale=1.):
-        ix = np.floor(x * scale / 0.5).astype(np.int32)
-        iy = np.floor(y * scale / 0.5).astype(np.int32)
+        ix = np.floor(x * scale / self.cell_size).astype(np.int32)
+        iy = np.floor(y * scale / self.cell_size).astype(np.int32)
         return ix, iy
 
     def _bilinear_reward_lookup(self, x, y):
         ix, iy = self.get_ixiy(x, y)
         # print "(x, y) = ({}, {}), (ix, iy) = ({}, {})".format(x, y, ix, iy)
 
-        x0 = np.clip(ix    , -19, 20).astype(np.int32)
-        y0 = np.clip(iy    ,   0, 39).astype(np.int32)
-        x1 = np.clip(ix + 1, -19, 20).astype(np.int32)
-        y1 = np.clip(iy + 1,   0, 39).astype(np.int32)
+        x0 = np.clip(ix    , self.x_min, self.x_max - 1).astype(np.int32)
+        y0 = np.clip(iy    , self.y_min, self.y_max - 1).astype(np.int32)
+        x1 = np.clip(ix + 1, self.x_min, self.x_max - 1).astype(np.int32)
+        y1 = np.clip(iy + 1, self.y_min, self.y_max - 1).astype(np.int32)
 
         f00 = self._get_reward(x0, y0)
         f01 = self._get_reward(x0, y1)
         f10 = self._get_reward(x1, y0)
         f11 = self._get_reward(x1, y1)
 
-        xx = (x / 0.5 - ix).astype(np.float32)
-        yy = (y / 0.5 - iy).astype(np.float32)
+        xx = (x / self.cell_size - ix).astype(np.float32)
+        yy = (y / self.cell_size - iy).astype(np.float32)
 
         w00 = (1.-xx) * (1.-yy)
         w01 = (   yy) * (1.-xx)
@@ -178,7 +189,8 @@ class OffRoadNavEnv(gym.Env):
         return r.reshape(1, -1)
 
     def get_initial_state(self):
-        state = np.array([+1, 1, -10 * np.pi / 180, 0, 0, 0])
+        # state = np.array([+1, 1, -10 * np.pi / 180, 0, 0, 0])
+        state = np.array([-32.5, 10.2, -10 * np.pi / 180, 0, 0, 0])
 
         # Reshape to compatiable format
         state = state.astype(np.float32).reshape(6, -1)
@@ -199,11 +211,13 @@ class OffRoadNavEnv(gym.Env):
             self.padded_rewards = np.full(shape, fill, dtype=np.float32)
             self.padded_rewards[FOV:-FOV, FOV:-FOV] = self.rewards
 
+        """
         if not hasattr(self, "R"):
             self.R = to_image(self.rewards, self.K)
+        """
 
         if not hasattr(self, "bR"):
-            self.bR = to_image(self.debug_bilinear_R(), self.K)
+            self.bR = to_image(self.debug_bilinear_R(), 1) # self.K)
 
         self.disp_img = np.copy(self.bR)
 
@@ -216,10 +230,8 @@ class OffRoadNavEnv(gym.Env):
         return self.state
 
     def debug_bilinear_R(self):
-        num = 40 * self.K
-
-        X = np.linspace(-10, 10, num=num)
-        Y = np.linspace(  0, 20, num=num)
+        X = np.linspace(self.x_min, self.x_max, num=self.width  * self.K) * self.cell_size
+        Y = np.linspace(self.y_min, self.y_max, num=self.height * self.K) * self.cell_size
 
         xx, yy = np.meshgrid(X, Y)
 
@@ -235,19 +247,19 @@ class OffRoadNavEnv(gym.Env):
 
         ix, iy = self.get_ixiy(x, y)
 
-        iix = np.clip(ix + 19, 0, 39)
-        iiy = np.clip(40 - 1 - iy, 0, 39)
+        iix = np.clip(ix - self.x_min, 0, self.width - 1)
+        iiy = np.clip(self.y_max - 1 - iy, 0, self.height - 1)
 
         fov = FLAGS.field_of_view
 
         cxs, cys = iix + fov, iiy + fov
 
-        angles = - theta * 180. / np.pi
+        angles = -theta * RAD2DEG
 
         img = np.zeros((len(angles), fov, fov), dtype=np.float32)
         for i, (cx, cy, angle) in enumerate(zip(cxs, cys, angles)):
             M = cv2.getRotationMatrix2D((cx, cy), angle, 1)
-            rotated = cv2.warpAffine(self.padded_rewards, M, self.padded_rewards.shape)
+            rotated = cv2.warpAffine(self.padded_rewards, M, self.padded_rewards.T.shape)
             # print "[{}:{}, {}:{}]".format(cy-fov, cy, cx-fov/2, cx+fov/2)
             img[i, :, :] = rotated[cy-fov:cy, cx-fov/2:cx+fov/2]
 
@@ -265,7 +277,7 @@ class OffRoadNavEnv(gym.Env):
         thetas = self.state[2]
 
         # Turn ix, iy to image coordinate on disp_img (reward)
-        xs, ys = 40*self.K/2-1 + ix, 40*self.K-1-iy
+        xs, ys = self.width*self.K/2-1 + ix, self.height*self.K-1-iy
 
         # Font family, size, and color
         font = cv2.FONT_HERSHEY_PLAIN
@@ -303,15 +315,15 @@ class OffRoadNavEnv(gym.Env):
 
             text = "action = ({:+.2f} km/h, {:+.2f} deg/s)".format(
                 prev_action[0] * 3.6, prev_action[1] * RAD2DEG)
-            cv2.putText(disp_img, text, (10, 40 * self.K - 50), font, font_size, color, 1, cv2.CV_AA)
+            cv2.putText(disp_img, text, (10, self.height * self.K - 50), font, font_size, color, 1, cv2.CV_AA)
 
             text = "(x, y, theta)  = ({:+.2f}, {:+.2f}, {:+.2f})".format(
-                state[0], state[1], np.mod(state[2] * 180 / np.pi, 360))
-            cv2.putText(disp_img, text, (10, 40 * self.K - 30), font, font_size, color, 1, cv2.CV_AA)
+                state[0], state[1], np.mod(state[2] * RAD2DEG, 360))
+            cv2.putText(disp_img, text, (10, self.height * self.K - 30), font, font_size, color, 1, cv2.CV_AA)
 
             text = "(x', y', theta') = ({:+.2f}, {:+.2f}, {:+.2f})".format(
-                state[3], state[4], state[5] * 180 / np.pi)
-            cv2.putText(disp_img, text, (10, 40 * self.K - 10), font, font_size, color, 1, cv2.CV_AA)
+                state[3], state[4], state[5] * RAD2DEG)
+            cv2.putText(disp_img, text, (10, self.height * self.K - 10), font, font_size, color, 1, cv2.CV_AA)
 
         idx = int(worker.name[-1])
         cv2.imshow4(idx, disp_img)
