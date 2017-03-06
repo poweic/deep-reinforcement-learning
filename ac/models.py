@@ -1,5 +1,4 @@
 import tensorflow as tf
-from tensorflow_helnet.layers import DenseLayer, Conv2DLayer, MaxPool2DLayer
 from ac.utils import *
 FLAGS = tf.flags.FLAGS
 batch_size = FLAGS.batch_size
@@ -129,6 +128,7 @@ def build_convnet(input):
     with tf.name_scope("conv"):
 
         conv2d = tf.contrib.layers.convolution2d
+        max_pool2d = tf.contrib.layers.max_pool2d
 
         # Batch norm is NOT compatible with LSTM
         # (see Issue: https://github.com/tensorflow/tensorflow/issues/6087)
@@ -136,15 +136,15 @@ def build_convnet(input):
 
         conv1 = conv2d(front_view, 64, 5, activation_fn=tf.nn.relu, normalizer_fn=batch_norm, scope="conv1")
         conv2 = conv2d(conv1, 64, 5, activation_fn=tf.nn.relu, normalizer_fn=batch_norm, scope="conv2")
-        pool1 = MaxPool2DLayer(conv2, pool_size=3, stride=2, name='pool1')
+        pool1 = max_pool2d(conv2, 3, stride=2, scope='pool1', padding="SAME")
 
         conv3 = conv2d(pool1, 64, 5, activation_fn=tf.nn.relu, normalizer_fn=batch_norm, scope="conv3")
         conv4 = conv2d(conv3, 64, 5, activation_fn=tf.nn.relu, normalizer_fn=batch_norm, scope="conv4")
-        pool2 = MaxPool2DLayer(conv4, pool_size=3, stride=2, name='pool2')
+        pool2 = max_pool2d(conv4, 3, stride=2, scope='pool2', padding="SAME")
 
         # conv5 = conv2d(pool2, 64, 5, activation_fn=tf.nn.relu, normalizer_fn=batch_norm, scope="conv5")
         # conv6 = conv2d(conv5, 64, 5, activation_fn=tf.nn.relu, normalizer_fn=batch_norm, scope="conv6")
-        # pool3 = MaxPool2DLayer(conv6, pool_size=3, stride=2, name='pool3')
+        # pool3 = max_pool2d(conv6, 3, stride=2, scope='pool3', padding="SAME")
 
         # Reshape [seq_len * batch_size, H, W, C] to [seq_len * batch_size, H * W * C]
         flat = tf.contrib.layers.flatten(pool2)

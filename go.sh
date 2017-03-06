@@ -12,6 +12,7 @@
   --track big_track \
   --save-every-n-minutes 10 \
   --policy-dist Beta \
+  --exp exp/Beta-debug-2 \
   --t-max 40 \
   --max-gradient 100.0 \
   --field-of-view 20 \
