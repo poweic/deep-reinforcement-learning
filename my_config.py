@@ -84,8 +84,11 @@ def parse_flags():
     # Parse command line arguments, add some additional flags, and print them out
     FLAGS = tf.flags.FLAGS
 
-    base_dir = os.getcwd()
-    FLAGS.exp_dir = base_dir + "{}/{}{}".format(
+    # If not starts with "/", treat it as relative path
+    if not FLAGS.base_dir.startswith("/"):
+        FLAGS.base_dir = os.getcwd() + "/" + FLAGS.base_dir
+
+    FLAGS.exp_dir = "{}/{}{}".format(
         FLAGS.base_dir, FLAGS.game, "-" + FLAGS.exp if FLAGS.exp is not None else ""
     )
 
