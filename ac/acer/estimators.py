@@ -4,6 +4,7 @@ from pprint import pprint
 from ac.utils import *
 from ac.distributions import *
 from ac.models import *
+from ac.policies import build_policy
 import ac.acer.worker
 import threading
 
@@ -58,10 +59,7 @@ class AcerEstimator():
             shared = tf_check_numerics(shared)
 
         with tf.variable_scope("policy"):
-            if FLAGS.policy_dist == "Gaussian":
-                self.pi, self.pi_behavior = self.gaussian_policy(shared, use_naive_policy)
-            elif FLAGS.policy_dist == "Beta":
-                self.pi, self.pi_behavior = self.beta_policy(shared, use_naive_policy)
+            self.pi, self.pi_behavior = build_policy(shared, FLAGS.policy_dist)
 
         with tf.name_scope("output"):
             a_prime = tf.squeeze(self.pi.sample_n(1), 0)
@@ -221,6 +219,7 @@ class AcerEstimator():
         with tf.name_scope("initial_value"):
             # Use "done" to determine whether x_k is terminal state. If yes,
             # set initial Q_ret to 0. Otherwise, bootstrap initial Q_ret from V.
+            # FIXME Use V(next_state) instead of V(this_state)
             Q_ret_0 = tf.zeros_like(values[0:1, ...]) # tf.zeros((1, batch_size, 1), dtype=tf.float32)
             Q_opc_0 = Q_ret_0
 
@@ -544,181 +543,6 @@ class AcerEstimator():
         return Q_tilt
 
     """
-    def mixture_density_policy(self, input, use_naive_policy):
-
-        def get_steer_buckets(w):
-            n = int(30 / w)
-            return np.linspace(-n*w, n*w, 2*n+1).astype(np.float32)
-
-        # mu: [B, 2], sigma: [B, 2], phi is just a syntatic sugar
-        with tf.variable_scope("speed_control_policy"):
-            mu_vf, sigma_vf = policy_network(input, 1)
-
-        with tf.variable_scope("steer_control_policy"):
-            steer_buckets = get_steer_buckets(FLAGS.bucket_width)
-            n_buckets = len(steer_buckets)
-
-            tf.logging.info("steer_buckets      = {} degree".format(steer_buckets))
-            steer_buckets = to_radian(steer_buckets)
-
-            min_sigma = to_radian(0.1)
-            max_sigma = to_radian(FLAGS.bucket_width / 2)
-
-            logits_steer, sigma_steer = policy_network(input, n_buckets)
-
-            if use_naive_policy:
-                naive_mu = naive_mean_steer_policy(self.state.front_view)
-                diff = naive_mu[..., None] - tf.constant(steer_buckets[None, None, :], tf.float32)
-                logits_steer = -tf.square(diff * 7) + logits_steer * 0
-
-            sigma_steer = softclip(sigma_steer, min_sigma, max_sigma)
-
-        tf.logging.info("mu_vf.shape        = {}".format(tf_shape(mu_vf)))
-        tf.logging.info("sigma_vf.shape     = {}".format(tf_shape(sigma_vf)))
-        tf.logging.info("logits_steer.shape = {}".format(tf_shape(logits_steer)))
-        tf.logging.info("sigma_steer.shape  = {}".format(tf_shape(sigma_steer)))
-
-        pi = mixture_density(mu_vf, sigma_vf, logits_steer, sigma_steer,
-                             self.get_forward_velocity(), steer_buckets,
-                             msg="pi")
-
-        # Placeholder for behavior policy
-        pi_behavior = mixture_density(
-            tf.placeholder(tf.float32, [seq_length, batch_size, 1], "mu_vf"),
-            tf.placeholder(tf.float32, [seq_length, batch_size, 1], "sigma_vf"),
-            tf.placeholder(tf.float32, [seq_length, batch_size, n_buckets], "logits_steer"),
-            tf.placeholder(tf.float32, [seq_length, batch_size, n_buckets], "sigma_steer"),
-            tf.placeholder(tf.float32, [seq_length, batch_size, 1], "vf"),
-            steer_buckets,
-            msg="pi_behavior"
-        )
-
-        self.pi_prob_steer = pi.prob_steer
-        self.mu_prob_steer = pi_behavior.prob_steer
-
-        return pi, pi_behavior
-    """
-
-    """
-    def beta_policy(self, input, use_naive_policy):
-
-        AS = FLAGS.action_space
-        alpha, beta = policy_network(input, AS.n_actions, clip_mu=False)
-
-        for i in range(len(alpha)):
-            alpha[i] = tf.nn.softplus(alpha[i]) + 2
-            beta[i]  = tf.nn.softplus(beta[i])  + 2
-
-            alpha[i] = tf_check_numerics(alpha[i])
-            beta[i]  = tf_check_numerics(beta[i])
-
-            alpha[i] = tf_print(alpha[i])
-            beta[i]  = tf_print(beta[i])
-
-        # Add naive policy as baseline bias
-        if use_naive_policy:
-            # TODO haven't figured out yet
-            pass
-
-        # Turn steering angle to yawrate basedon forward velocity
-        vf = self.get_forward_velocity()[..., 0][None, ...]
-        def forward_fn(x):
-            yawrate = steer_to_yawrate(x, vf)
-            yawrate = tf_print(yawrate)
-            return yawrate
-
-        def inverse_fn(x):
-            x = tf_print(x)
-            steer = yawrate_to_steer(x, tf_print(vf))
-            steer = tf_print(steer)
-            return steer
-
-        bijectors = [
-            None,
-            AttrDict(forward_fn = forward_fn, inverse_fn = inverse_fn)
-        ]
-
-        pi = create_distribution(
-            dist_type="beta", bijectors=bijectors, alpha=alpha, beta=beta
-        )
-
-        pi_behavior = create_distribution(
-            dist_type="beta", 
-            bijectors=bijectors,
-            alpha = [
-                tf.placeholder(tf.float32, [seq_length, batch_size], "alpha_vf"),
-                tf.placeholder(tf.float32, [seq_length, batch_size], "alpha_steer"),
-            ],
-            beta  = [
-                tf.placeholder(tf.float32, [seq_length, batch_size], "beta_vf"),
-                tf.placeholder(tf.float32, [seq_length, batch_size], "beta_steer"),
-            ]
-        )
-
-        return pi, pi_behavior
-    """
-    def beta_policy(self, input, use_naive_policy):
-
-        alpha, beta = policy_network(input, FLAGS.num_actions, clip_mu=False)
-
-        alpha = tf.nn.softplus(alpha) + 2
-        beta  = tf.nn.softplus(beta)  + 2
-
-        pi = create_distribution(
-            dist_type="beta", param1=alpha, param2=beta
-        )
-
-        pi_behavior = create_distribution(
-            dist_type="beta", 
-            param1 = tf.placeholder(tf.float32, [seq_length, batch_size, FLAGS.num_actions], "param1"),
-            param2 = tf.placeholder(tf.float32, [seq_length, batch_size, FLAGS.num_actions], "param2"),
-        )
-
-        return pi, pi_behavior
-
-    """
-    def gaussian_policy(self, input, use_naive_policy):
-
-        mu, sigma = policy_network(input, FLAGS.action_space.n_actions, clip_mu=False)
-
-        # Add naive policy as baseline bias
-        if use_naive_policy:
-            mu[1] = mu[1] + naive_mean_steer_policy(self.state.front_view)
-
-        # Turn steering angle to yawrate basedon forward velocity
-        mu[1] = steer_to_yawrate(mu[1], self.get_forward_velocity()[..., 0])
-
-        # Confine action space
-        AS = FLAGS.action_space
-        for i in range(len(mu)):
-            mu[i]    = softclip(mu[i]   , AS.low[i]      , AS.high[i]      )
-            sigma[i] = softclip(sigma[i], AS.sigma_low[i], AS.sigma_high[i])
-
-            # For debugging
-            mu[i]    = tf_check_numerics(mu[i])
-            sigma[i] = tf_check_numerics(sigma[i])
-
-        pi = create_distribution(dist_type="normal", mu=mu, sigma=sigma)
-
-        pi_behavior = create_distribution(
-            dist_type="normal", 
-            mu    = [
-                tf.placeholder(tf.float32, [seq_length, batch_size], "mu_vf"),
-                tf.placeholder(tf.float32, [seq_length, batch_size], "mu_steer"),
-            ],
-            sigma = [
-                tf.placeholder(tf.float32, [seq_length, batch_size], "sigma_vf"),
-                tf.placeholder(tf.float32, [seq_length, batch_size], "sigma_steer"),
-            ]
-        )
-
-        # self.pi_mu    = pi.mu
-        # self.pi_sigma = pi.sigma
-        # self.mu_mu    = pi_behavior.mu
-        # self.mu_sigma = pi_behavior.sigma
-
-        return pi, pi_behavior
-
     def get_forward_velocity(self):
         v = self.state.vehicle_state[..., 4:5]
         
@@ -729,29 +553,6 @@ class AcerEstimator():
         # v = tf.Print(v, [flatten_all(v)], message="\33[33m after  v = \33[0m", summarize=100)
         return v
     """
-
-    def gaussian_policy(self, input, use_naive_policy):
-
-        mu, sigma = policy_network(input, FLAGS.num_actions, clip_mu=False)
-
-        AS = FLAGS.action_space
-        broadcaster = mu[..., 0:1] * 0
-        low  = tf.constant(AS.low , tf.float32)[None, None, :] + broadcaster
-        high = tf.constant(AS.high, tf.float32)[None, None, :] + broadcaster
-        mu    = softclip(mu, low , high)
-
-        # sigma = tf.nn.softplus(sigma) + 1e-4
-        sigma = softclip(sigma, 1e-4, (high - low) / 2.)
-
-        pi = create_distribution(dist_type="normal", param1=mu, param2=sigma)
-
-        pi_behavior = create_distribution(
-            dist_type="normal", 
-            param1 = tf.placeholder(tf.float32, [seq_length, batch_size, FLAGS.num_actions], "param1"),
-            param2 = tf.placeholder(tf.float32, [seq_length, batch_size, FLAGS.num_actions], "param2"),
-        )
-
-        return pi, pi_behavior
 
     def advantage_network(self, input):
 

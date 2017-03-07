@@ -181,13 +181,14 @@ with tf.Session(config=cfg) as sess:
             workers[0].env.render()
             cv2.imshow("result", disp_img)
             cv2.waitKey(10)
+        else:
+            time.sleep(1)
 
         """
         for worker in workers:
             worker.env.render()
         """
 
-        # time.sleep(1)
         schedule.run_pending()
 
     # Wait for all workers to finish
