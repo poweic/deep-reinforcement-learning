@@ -362,6 +362,9 @@ def varName(var):
     return None
 
 def tf_check_numerics(x, message=None):
+    if not FLAGS.debug:
+	return x
+
     if message is None:
         message = varName(x)
         if message is None:
