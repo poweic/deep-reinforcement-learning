@@ -1,6 +1,7 @@
 import traceback
 import itertools
 import tensorflow as tf
+from collections import deque
 FLAGS = tf.flags.FLAGS
 
 class Worker(object):
@@ -60,3 +61,4 @@ class Worker(object):
                 traceback.print_exc()
 
 Worker.stop = False
+Worker.replay_buffer = deque(maxlen=FLAGS.max_replay_buffer_size)

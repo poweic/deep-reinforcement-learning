@@ -1,6 +1,6 @@
 # -*- coding: utf-8 -*-
 import gc
-from collections import OrderedDict, deque
+from collections import OrderedDict
 import tensorflow as tf
 import ac.acer.estimators
 from ac.worker import Worker
@@ -107,11 +107,11 @@ class AcerWorker(Worker):
         tf.logging.info("Re-generating {} experiences ...".format(N))
 
         self.copy_params_from_global()
-        while len(AcerWorker.replay_buffer) < N:
+        while len(Worker.replay_buffer) < N:
             self.store_experience(self.run_n_steps(FLAGS.max_steps))
 
         tf.logging.info("Regeneration done. len(replay_buffer) = {}.".format(
-            len(AcerWorker.replay_buffer)))
+            len(Worker.replay_buffer)))
 
     def copy_params_from_global(self):
         # Copy Parameters from the global networks
@@ -126,7 +126,7 @@ class AcerWorker(Worker):
 
         # Store rollout in the replay buffer, discard the oldest by popping
         # the 1st element if it exceeds maximum buffer size
-        rp = AcerWorker.replay_buffer
+        rp = Worker.replay_buffer
 
         rp.append(rollout)
 
@@ -182,7 +182,7 @@ class AcerWorker(Worker):
         self._run_off_policy(N)
 
     def _run_off_policy(self, N):
-        rp = AcerWorker.replay_buffer
+        rp = Worker.replay_buffer
 
         if len(rp) <= N:
             return
@@ -291,7 +291,7 @@ class AcerWorker(Worker):
             return
 
         # FIXME just temporary for comparison 
-        if rollout.seq_length > 600:
+        if rollout.seq_length > 60:
             Worker.stop = True
             self.coord.request_stop()
             return
@@ -371,5 +371,3 @@ class AcerWorker(Worker):
             self.summary_writer.add_summary(summaries, self.gstep)
             self.summary_writer.flush()
         """
-
-AcerWorker.replay_buffer = deque(maxlen=FLAGS.max_replay_buffer_size)
