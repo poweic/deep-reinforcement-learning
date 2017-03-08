@@ -142,7 +142,7 @@ with tf.Session(config=cfg) as sess:
 
     # Show how agent behaves in envs in main thread
     while not Worker.stop:
-        if FLAGS.display:
+        if FLAGS.display and len(Worker.replay_buffer) > 0:
             last = Worker.replay_buffer[-1]
 
             env.seed(last.seed)
