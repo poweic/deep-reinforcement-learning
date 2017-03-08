@@ -39,34 +39,11 @@ def make_env(worker=None):
 
     FLAGS.featurize_state, FLAGS.num_states = state_featurizer(env)
 
-    try:
-        env.set_worker(worker)
-    except:
-        pass
-
     return env
 
 env = make_env()
 if FLAGS.display:
     env.render()
-env.close()
-
-# 
-W = 400
-disp_img = np.zeros((2*W, 2*W*2, 3), dtype=np.uint8)
-disp_lock = threading.Lock()
-def imshow4(idx, img):
-    global disp_img
-    with disp_lock:
-        disp_img = np.copy(img)
-    """
-    x = idx / 4
-    y = idx % 4
-    with disp_lock:
-        disp_img[x*W:x*W+img.shape[0], y*W:y*W+img.shape[1], :] = np.copy(img)
-    """
-
-cv2.imshow4 = imshow4
 
 # Optionally empty model directory
 if FLAGS.reset:
@@ -166,16 +143,17 @@ with tf.Session(config=cfg) as sess:
     # Show how agent behaves in envs in main thread
     while not Worker.stop:
         if FLAGS.display:
-            workers[0].env.render()
-            cv2.imshow("result", disp_img)
-            cv2.waitKey(10)
+            last = Worker.replay_buffer[-1]
+
+            env.seed(last.seed)
+            env.reset()
+
+            for action in last.action:
+                env.step(action.T)
+                env.render()
+                cv2.waitKey(10)
         else:
             time.sleep(1)
-
-        """
-        for worker in workers:
-            worker.env.render()
-        """
 
         schedule.run_pending()
 
@@ -184,3 +162,5 @@ with tf.Session(config=cfg) as sess:
 
     save_model()
     write_statistics()
+
+env.close()

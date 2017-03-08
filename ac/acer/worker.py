@@ -208,6 +208,7 @@ class AcerWorker(Worker):
         transitions = []
 
         # Initial state
+        seed = self.env.seed()
         self.reset_env()
         self.local_net.reset_lstm_state()
         prev_done = False
@@ -248,11 +249,11 @@ class AcerWorker(Worker):
 
             self.state = next_state
 
-        rollout = self.process_rollouts(transitions)
+        rollout = self.process_rollouts(transitions, seed)
 
         return rollout
 
-    def process_rollouts(self, trans):
+    def process_rollouts(self, trans, seed):
 
         states = AttrDict({
             key: np.stack([t.state[key] for t in trans])
@@ -280,6 +281,7 @@ class AcerWorker(Worker):
             pi_stats = pi_stats,
             seq_length = len(trans),
             batch_size = self.n_agents,
+            seed = seed,
         )
 
     def get_partial_rollout(rollout, max_length):
@@ -291,7 +293,7 @@ class AcerWorker(Worker):
             return
 
         # FIXME just temporary for comparison 
-        if rollout.seq_length > 60:
+        if rollout.seq_length > 600:
             Worker.stop = True
             self.coord.request_stop()
             return
