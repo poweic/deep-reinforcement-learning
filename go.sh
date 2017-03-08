@@ -3,16 +3,15 @@
 # FIXME go code from gym-offroad-nav:master
 ./train.py \
   --game OffRoadNav-v0 \
-  --base-dir /Data3/acer-offroad-icml2017/ \
+  --base-dir /Data3/acer-post-icml2017/ \
   --max-global-steps 8000 \
   --estimator-type ACER \
   --log-file train.$(date +%s).log \
   --stats-file train.$(date +%s).stats.csv \
-  --parallelism 1 \
+  --parallelism 2 \
   --track big_track \
-  --save-every-n-minutes 10 \
+  --save-every-n-minutes 30 \
   --policy-dist Beta \
-  --exp exp/Beta-debug-2 \
   --t-max 40 \
   --max-gradient 100.0 \
   --field-of-view 20 \

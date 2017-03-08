@@ -50,25 +50,34 @@ class AcerEstimator():
         self.avg_net = getattr(AcerEstimator, "average_net", self)
 
         with tf.name_scope("inputs"):
-            self.state = get_state_placeholder()
+            # TODO When seq_length is None, use seq_length + 1 is somewhat counter-intuitive.
+            # Come up a solution to pass seq_length+1 and seq_length at the same time.
+            # maybe a assertion ? But that could be hard to understand
+            self.seq_length = tf.placeholder(tf.int32, [], "seq_length")
+            self.state = get_state_placeholder(seq_length if seq_length is None else seq_length + 1)
             self.a = tf.placeholder(tf.float32, [seq_length, batch_size, FLAGS.num_actions], "actions")
             self.r = tf.placeholder(tf.float32, [seq_length, batch_size, 1], "rewards")
+            self.done = tf.placeholder(tf.bool, [batch_size], "done")
 
         with tf.variable_scope("shared"):
             shared, self.lstm = build_shared_network(self.state, add_summaries)
             shared = tf_check_numerics(shared)
 
+        # For k-step rollout s_i, i = 0, 1, ..., k-1, we need one additional
+        # state s_k s.t. we can bootstrap value from it, i.e. we need V(s_k)
+        with tf.variable_scope("V"):
+            value = state_value_network(shared)
+            value *= tf.Variable(1, dtype=tf.float32, name="value_scale", trainable=False)
+            shared = shared[:self.seq_length, ...]
+            self.value_last = value[-1:, ...] * tf.to_float(~self.done)[None, ..., None]
+            self.value = value[:self.seq_length, ...]
+
         with tf.variable_scope("policy"):
             self.pi, self.pi_behavior = build_policy(shared, FLAGS.policy_dist)
 
         with tf.name_scope("output"):
-            a_prime = tf.squeeze(self.pi.sample_n(1), 0)
-            self.a_prime = tf_print(a_prime)
+            self.a_prime = tf.squeeze(self.pi.sample_n(1), 0)
             self.action_and_stats = [self.a_prime, self.pi.stats]
-
-        with tf.variable_scope("V"):
-            # self.value = state_value_network(tf.stop_gradient(shared))
-            self.value = state_value_network(shared)
 
         with tf.variable_scope("A"):
             # adv = self.advantage_network(tf.stop_gradient(shared))
@@ -91,7 +100,7 @@ class AcerEstimator():
 
             with tf.name_scope("Q_Retrace"):
                 self.Q_ret, self.Q_opc = self.compute_Q_ret_Q_opc_recursively(
-                    self.value, self.c, self.r, self.Q_tilt_a
+                    self.value, self.value_last, self.c, self.r, self.Q_tilt_a
                 )
 
         with tf.name_scope("losses"):
@@ -204,7 +213,7 @@ class AcerEstimator():
 
         return rho, rho_prime
 
-    def compute_Q_ret_Q_opc_recursively(self, values, c, r, Q_tilt_a):
+    def compute_Q_ret_Q_opc_recursively(self, values, value_last, c, r, Q_tilt_a):
         """
         Use tf.while_loop to compute Q_ret, Q_opc
         """
@@ -220,7 +229,8 @@ class AcerEstimator():
             # Use "done" to determine whether x_k is terminal state. If yes,
             # set initial Q_ret to 0. Otherwise, bootstrap initial Q_ret from V.
             # FIXME Use V(next_state) instead of V(this_state)
-            Q_ret_0 = tf.zeros_like(values[0:1, ...]) # tf.zeros((1, batch_size, 1), dtype=tf.float32)
+            # Q_ret_0 = tf.zeros_like(values[0:1, ...]) # tf.zeros((1, batch_size, 1), dtype=tf.float32)
+            Q_ret_0 = value_last * int(FLAGS.bootstrap)
             Q_opc_0 = Q_ret_0
 
             Q_ret = Q_ret_0
@@ -375,6 +385,7 @@ class AcerEstimator():
     def predict_actions(self, state, sess=None):
 
         feed_dict = self.to_feed_dict(state)
+        feed_dict[self.seq_length] = 1
 
         a_prime, stats = self.predict(self.action_and_stats, feed_dict, sess)
 

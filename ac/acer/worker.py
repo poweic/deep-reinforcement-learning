@@ -93,6 +93,12 @@ class AcerWorker(Worker):
         self._run_off_policy_n_times()
 
         if self.should_stop():
+            """ tf.logging.info("Optimization done. @ step {} because {}".format(
+            self.gstep, "problem solved." if solved else "maximum steps reached"
+            )) """
+            tf.logging.info("Optimization done. @ step {}".format(self.gstep))
+            tf.logging.info(stats.summary())
+
             Worker.stop = True
             self.coord.request_stop()
 
@@ -149,18 +155,8 @@ class AcerWorker(Worker):
         solved = stats.num_episodes() > FLAGS.min_episodes and mean > FLAGS.score_to_win
         """
 
-        # if max_step_reached or solved:
-        if max_step_reached:
-            """ tf.logging.info("Optimization done. @ step {} because {}".format(
-            self.gstep, "problem solved." if solved else "maximum steps reached"
-            )) """
-            tf.logging.info("Optimization done. @ step {}".format(self.gstep))
-            tf.logging.info(stats.summary())
-            save_model(self.sess)
-            self._write_statistics()
-            return True
-
-        return False
+        # return (max_step_reached or solved)
+        return max_step_reached
 
     def _run_on_policy(self):
         self.copy_params_from_global()
@@ -175,23 +171,11 @@ class AcerWorker(Worker):
         # Store experience and collect statistics
         self.store_experience(rollout)
 
-        if rollout.seq_length > 1:
-            self._collect_statistics(rollout)
-
     def _collect_statistics(self, rollout):
         avg_total_return = np.mean(self.total_return)
         self.global_episode_stats.append(
             rollout.seq_length, avg_total_return, self.total_return.flatten()
         )
-
-        self.gstep = self.sess.run(self.global_step)
-        if self.gstep % 1000 == 0:
-            self._write_statistics()
-
-    def _write_statistics(self):
-        # also print experiment configuration in MATLAB parseable JSON
-        cfg = "'" + repr(FLAGS.exp_config)[1:-1].replace("'", '"') + "'\n"
-        print >> open(FLAGS.stats_file, 'w'), cfg, self.global_episode_stats
 
     def _run_off_policy_n_times(self):
         N = np.random.poisson(FLAGS.replay_ratio)
@@ -226,6 +210,7 @@ class AcerWorker(Worker):
         # Initial state
         self.reset_env()
         self.local_net.reset_lstm_state()
+        prev_done = False
 
         reward = np.zeros((1, self.n_agents), dtype=np.float32)
         for i in range(n_steps):
@@ -238,6 +223,7 @@ class AcerWorker(Worker):
             # Take a step in environment
             next_state, reward, done, _ = self.env.step(self.action.squeeze())
             reward = np.array([reward], np.float32).reshape(1, self.n_agents)
+            done = np.array(done).reshape(1, self.n_agents)
 
             self.current_reward = reward
             self.total_return += reward
@@ -250,13 +236,15 @@ class AcerWorker(Worker):
                 state=state,
                 pi_stats=pi_stats,
                 action=self.action.copy(),
-                next_state=next_state.copy(),
                 reward=reward.copy(),
-                done=done
+                done=done.copy()
             ))
 
-            if done:
+            if prev_done:
                 break
+
+            if np.any(done):
+                prev_done = True
 
             self.state = next_state
 
@@ -264,89 +252,23 @@ class AcerWorker(Worker):
 
         return rollout
 
-    """
-    # FIXME turn this function to another process_rollouts, and figure out
-    # how to make this configuration (this shouldn't be task-dependent!!)
-    def update(self, trans, on_policy=True):
-
-        if len(trans) == 0:
-            return
-
-        mdp_states = AttrDict({
-            key: np.concatenate([
-                t.mdp_state[key][None, ...] for t in trans
-            ], axis=0)
-            for key in trans[0].mdp_state.keys()
-        })
-
-        S, B = mdp_states.front_view.shape[:2]
-
-        action = np.concatenate([t.action.T[None, ...] for t in trans], axis=0)
-        reward = np.concatenate([t.reward.T[None, ...] for t in trans], axis=0)
-
-        net = self.local_net
-        avg_net = self.Estimator.average_net
-
-        feed_dict = {
-            net.r: reward,
-            net.a: action,
-        }
-
-        feed_dict.update({net.state[k]:     v for k, v in mdp_states.iteritems()})
-        feed_dict.update({avg_net.state[k]: v for k, v in mdp_states.iteritems()})
-
-        for k, v in trans[0].pi_stats.iteritems():
-            for i in range(len(v)):
-                tensor = net.pi_behavior.stats[k][i]
-                feed_dict[tensor] = np.concatenate([
-                    t.pi_stats[k][i] for t in trans
-                ], axis=0)
-
-        # ======================= DEBUG =================================
-        if FLAGS.dump_crash_report:
-            debug_keys = [
-                'a', 'pi_a', 'mu_a', 'a_prime', 'pi_a_prime', 'mu_a_prime',
-                'rho', 'g_phi', 'g_acer',
-                'Q_ret', 'Q_opc', 'Q_tilt_a', 'Q_tilt_a_prime',
-                'rho_bar', 'log_a' , 'target_1', 'value',
-                'plus'   , 'log_ap', 'target_2',
-                # 'pi_mu', 'mu_mu', 'pi_sigma', 'mu_sigma'
-            ]
-
-            ops[-1] = { k: getattr(net, k) for k in debug_keys }
-        # ======================= DEBUG =================================
-
-        net.reset_lstm_state()
-        avg_net.reset_lstm_state()
-
-        loss, summaries, _, debug = net.predict(self.step_op, feed_dict, self.sess)
-        loss = AttrDict(loss)
-
-        self.gstep = self.sess.run(self.inc_global_step)
-        tf.logging.info((
-            "#{:6d}: pi_loss = {:+12.3f}, vf_loss = {:+12.3f}, "
-            "loss = {:+12.3f} {}\33[0m S = {:3d}, B = {} [{}] global_norm = {:.2f}"
-        ).format(
-            self.gstep, loss.pi, loss.vf, loss.total,
-            "\33[92m[on  policy]" if on_policy else "\33[93m[off policy]",
-            S, B, self.name, loss.global_norm
-        ))
-    """
-
     def process_rollouts(self, trans):
 
         states = AttrDict({
-            key: np.concatenate([
-                t.state[key][None, ...] for t in trans
-            ], axis=0)
+            key: np.stack([t.state[key] for t in trans])
             for key in trans[0].state.keys()
         })
 
-        action = np.concatenate([t.action.T[None, ...] for t in trans], axis=0)
-        reward = np.concatenate([t.reward.T[None, ...] for t in trans], axis=0)
+        # len(states) = len(action) + 1
+        trans = trans[:-1]
+
+        action = np.stack([t.action.T for t in trans])
+        reward = np.stack([t.reward.T for t in trans])
+        done = trans[-1].done.squeeze()
+        # print "done.shape = \33[33m{}\33[0m, done = {}".format(done.shape, done.astype(np.int32))
 
         pi_stats = {
-            k: np.concatenate([t.pi_stats[k] for t in trans], axis=0)
+            k: np.concatenate([t.pi_stats[k] for t in trans])
             for k in trans[0].pi_stats.keys()
         }
 
@@ -354,14 +276,24 @@ class AcerWorker(Worker):
             states = states,
             action = action,
             reward = reward,
+            done = done,
             pi_stats = pi_stats,
             seq_length = len(trans),
             batch_size = self.n_agents,
         )
 
+    def get_partial_rollout(rollout, max_length):
+        return rollout
+
     def update(self, rollout, on_policy=True, display=True):
 
         if rollout.seq_length == 0:
+            return
+
+        # FIXME just temporary for comparison 
+        if rollout.seq_length > 600:
+            Worker.stop = True
+            self.coord.request_stop()
             return
 
         # Start to put things in placeholders in graph
@@ -372,6 +304,9 @@ class AcerWorker(Worker):
         feed_dict = {
             net.r: rollout.reward,
             net.a: rollout.action,
+            net.done: rollout.done,
+            net.seq_length: rollout.seq_length,
+            avg_net.seq_length: rollout.seq_length,
         }
 
         feed_dict.update({net.state[k]:     v for k, v in rollout.states.iteritems()})

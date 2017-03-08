@@ -51,6 +51,7 @@ tf.flags.DEFINE_boolean("display", True, "If set, no imshow will be called")
 tf.flags.DEFINE_boolean("resume", False, "If set, resume training from the corresponding last checkpoint file")
 tf.flags.DEFINE_boolean("debug", False, "If set, turn on the debug flag")
 tf.flags.DEFINE_boolean("dump-crash-report", False, "If set, dump mdp_states and internal TF variables when crashed.")
+tf.flags.DEFINE_boolean("bootstrap", False, "If set, bootstrap V from the next state")
 
 tf.flags.DEFINE_float("t-max", 30, "Maximum elasped time per simulation (in seconds)")
 tf.flags.DEFINE_float("command-freq", 20, "How frequent we send command to vehicle (in Hz)")
@@ -97,7 +98,10 @@ def parse_flags():
     FLAGS.checkpoint_dir = FLAGS.exp_dir + "/checkpoint"
     FLAGS.save_path      = FLAGS.checkpoint_dir + "/model"
 
-    from ac.utils import AttrDict
+    from ac.utils import AttrDict, mkdir_p
+
+    mkdir_p(FLAGS.checkpoint_dir)
+
     FLAGS.action_space = AttrDict(
         n_actions   = 2,
         low        = [FLAGS.min_mu_vf   , FLAGS.min_mu_steer   ],

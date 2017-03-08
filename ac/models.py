@@ -2,7 +2,6 @@ import tensorflow as tf
 from ac.utils import *
 FLAGS = tf.flags.FLAGS
 batch_size = FLAGS.batch_size
-seq_length = FLAGS.seq_length
 
 def naive_mean_steer_policy(front_view):
     H, W = front_view.get_shape().as_list()[2:4]
@@ -29,7 +28,7 @@ def naive_mean_steer_policy(front_view):
 
     return num / denom
 
-def get_state_placeholder():
+def get_state_placeholder(seq_length=FLAGS.seq_length):
 
     # Note that placeholder are tf.Tensor not tf.Variable
     prev_action = tf.placeholder(tf.float32, [seq_length, batch_size, FLAGS.num_actions], "prev_action")

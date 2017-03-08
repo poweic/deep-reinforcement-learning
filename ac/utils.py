@@ -150,7 +150,6 @@ def state_featurizer(env):
 
     return featurize_state, 400
 
-
 def mkdir_p(dirname):
     if not os.path.exists(dirname):
         os.makedirs(dirname)
@@ -165,16 +164,15 @@ def show_mem_usage():
 
     tf.logging.info("Memory usage: {} ({} Bytes)".format(usage_v, usage))
 
-def save_model_every_nth_minutes(sess):
-    mkdir_p(FLAGS.checkpoint_dir)
-    schedule.every(FLAGS.save_every_n_minutes).minutes.do(
-        lambda: save_model(sess)
-    )
-
-def save_model(sess):
-    step = sess.run(tf.contrib.framework.get_global_step())
-    fn = FLAGS.saver.save(sess, FLAGS.save_path, global_step=step)
+def save_model():
+    step = FLAGS.sess.run(tf.contrib.framework.get_global_step())
+    fn = FLAGS.saver.save(FLAGS.sess, FLAGS.save_path, global_step=step)
     print time.strftime('[%H:%M:%S %Y/%m/%d] model saved to '), fn
+
+def write_statistics():
+    # also print experiment configuration in MATLAB parseable JSON
+    cfg = "'" + repr(FLAGS.exp_config)[1:-1].replace("'", '"') + "'\n"
+    print >> open(FLAGS.stats_file, 'w'), cfg, FLAGS.stats
 
 def to_radian(deg):
     return deg / 180. * np.pi

@@ -25,7 +25,7 @@ import gym_offroad_nav.envs
 
 from ac.estimators import get_estimator
 from ac.worker import Worker
-from ac.utils import save_model_every_nth_minutes, EpisodeStats, get_dof, state_featurizer
+from ac.utils import save_model, write_statistics, EpisodeStats, get_dof, state_featurizer
 
 def make_env(worker=None):
     env = gym.make(FLAGS.game)
@@ -79,7 +79,8 @@ cfg = tf.ConfigProto()
 cfg.gpu_options.per_process_gpu_memory_fraction = FLAGS.per_process_gpu_memory_fraction
 with tf.Session(config=cfg) as sess:
 
-    global_episode_stats = EpisodeStats()
+    FLAGS.sess = sess
+    FLAGS.stats = EpisodeStats()
 
     # Keeps track of the number of updates we've performed
     global_step = tf.Variable(0, name="global_step", trainable=False)
@@ -115,7 +116,7 @@ with tf.Session(config=cfg) as sess:
             name=name,
             make_env=make_env,
             global_counter=global_counter,
-            global_episode_stats=global_episode_stats,
+            global_episode_stats=FLAGS.stats,
             global_net=global_net,
             add_summaries=(i == 0),
             n_agents=FLAGS.n_agents_per_worker)
@@ -136,7 +137,9 @@ with tf.Session(config=cfg) as sess:
     sess.run(tf.global_variables_initializer())
     tf.get_default_graph().finalize()
 
-    save_model_every_nth_minutes(sess)
+    # Save model and dump statistics every n minutes
+    schedule.every(FLAGS.save_every_n_minutes).minutes.do(save_model)
+    schedule.every(FLAGS.save_every_n_minutes).minutes.do(write_statistics)
 
     coord = tf.train.Coordinator()
 
@@ -161,21 +164,6 @@ with tf.Session(config=cfg) as sess:
     # server.start()
 
     # Show how agent behaves in envs in main thread
-    """
-    if FLAGS.display:
-        while not Worker.stop:
-            for worker in workers:
-                if worker.max_return > max_return:
-                    max_return = worker.max_return
-                    # print "max_return = \33[93m{}\33[00m".format(max_return)
-
-                worker.env._render({"worker": worker})
-
-            cv2.imshow("result", disp_img)
-            cv2.waitKey(10)
-
-            schedule.run_pending()
-    """
     while not Worker.stop:
         if FLAGS.display:
             workers[0].env.render()
@@ -193,3 +181,6 @@ with tf.Session(config=cfg) as sess:
 
     # Wait for all workers to finish
     coord.join(worker_threads)
+
+    save_model()
+    write_statistics()
