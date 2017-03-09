@@ -1,6 +1,5 @@
 # -*- coding: utf-8 -*-
 import os
-import cv2
 import time
 import psutil
 import collections
@@ -455,6 +454,7 @@ def put_kernels_on_grid(kernel, pad = 1):
 
 def compute_mean_steering_angle(reward):
     from ac.utils import to_image
+    import cv2
     rimg = to_image(reward, 20)
     cv2.imshow("reward", rimg)
 

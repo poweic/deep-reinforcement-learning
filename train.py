@@ -27,6 +27,9 @@ from ac.estimators import get_estimator
 from ac.worker import Worker
 from ac.utils import save_model, write_statistics, EpisodeStats, get_dof, state_featurizer
 
+import Queue
+import multiprocessing
+
 def make_env(worker=None):
     env = gym.make(FLAGS.game)
 
@@ -41,9 +44,28 @@ def make_env(worker=None):
 
     return env
 
+def render(q):
+
+    while True:
+        try:
+            rollout = q.get_nowait()
+
+            env.seed(rollout.seed)
+            env.reset()
+
+            for action in rollout.action:
+                env.step(action.T)
+                env.render()
+                cv2.waitKey(10)
+
+        except Queue.Empty:
+            print "wait another 5 seconds"
+            time.sleep(5)
+
 env = make_env()
 if FLAGS.display:
     env.render()
+    cv2.waitKey(10)
 
 # Optionally empty model directory
 if FLAGS.reset:
@@ -140,26 +162,27 @@ with tf.Session(config=cfg) as sess:
 
     # server.start()
 
+    q = multiprocessing.Manager().Queue(maxsize=5)
+    render_process = multiprocessing.Process(target=render, args=(q,))
+    render_process.start()
+
     # Show how agent behaves in envs in main thread
     while not Worker.stop:
         if FLAGS.display and len(Worker.replay_buffer) > 0:
-            last = Worker.replay_buffer[-1]
+            try:
+                q.put_nowait(Worker.replay_buffer[-1])
+            except:
+                pass
 
-            env.seed(last.seed)
-            env.reset()
-
-            for action in last.action:
-                env.step(action.T)
-                env.render()
-                cv2.waitKey(10)
-
-        time.sleep(60)
+        time.sleep(1)
 
         schedule.run_pending()
 
-    # Wait for all workers to finish
+    # Wait for threads and process to finish
     coord.join(worker_threads)
+    render_process.join()
 
+    # Save model and statistics
     save_model()
     write_statistics()
 
