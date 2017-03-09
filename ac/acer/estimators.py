@@ -67,7 +67,7 @@ class AcerEstimator():
         # state s_k s.t. we can bootstrap value from it, i.e. we need V(s_k)
         with tf.variable_scope("V"):
             value = state_value_network(shared)
-            value *= tf.Variable(1, dtype=tf.float32, name="value_scale", trainable=False)
+            value *= tf.Variable(1, dtype=tf.float32, name="value_scale", trainable=FLAGS.train_value_scale)
             shared = shared[:self.seq_length, ...]
             self.value_last = value[-1:, ...] * tf.to_float(~self.done)[None, ...]
             self.value = value[:self.seq_length, ...]
