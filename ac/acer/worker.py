@@ -49,6 +49,7 @@ class AcerWorker(Worker):
             {
                 'pi': net.pi_loss,
                 'vf': net.vf_loss,
+                'entropy': net.entropy_loss,
                 'total': net.loss,
                 'global_norm': net.global_norm,
             },
@@ -350,10 +351,10 @@ class AcerWorker(Worker):
 
         if display:
             tf.logging.info((
-                "#{:6d}: pi_loss = {:+12.3f}, vf_loss = {:+12.3f}, "
-                "loss = {:+12.3f} {}\33[0m S = {:3d}, B = {} [{}] global_norm = {:.2f}"
+                "#{:6d}: pi_loss = {:+8.3f}, vf_loss = {:+8.3f}, entropy_loss = {:8.3f},"
+                "loss = {:+8.3f} {}\33[0m S = {:3d}, B = {} [{}] global_norm = {:7.2f}"
             ).format(
-                self.gstep, loss.pi, loss.vf, loss.total,
+                self.gstep, loss.pi, loss.vf, loss.entropy, loss.total,
                 "\33[92m[on  policy]" if on_policy else "\33[93m[off policy]",
                 rollout.seq_length, rollout.batch_size, self.name, loss.global_norm
             ))

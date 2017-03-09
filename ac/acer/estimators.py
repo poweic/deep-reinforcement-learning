@@ -116,20 +116,21 @@ class AcerEstimator():
             # Surrogate loss is the loss tensor we passed to optimizer for
             # automatic gradient computation, it uses lots of stop_gradient.
             # Therefore it's different from the true loss (self.loss)
-            self.entropy = tf.reduce_sum(tf.reduce_mean(self.pi.entropy(), axis=1), axis=0)
+            entropy = tf.reduce_sum(tf.reduce_mean(self.pi.entropy(), axis=1), axis=0)
+            self.entropy_loss = -entropy * FLAGS.entropy_cost_mult
 
-            for loss in [self.pi_loss_sur, self.vf_loss_sur, self.entropy]:
+            for loss in [self.pi_loss_sur, self.vf_loss_sur, self.entropy_loss]:
                 assert len(loss.get_shape()) == 0
 
             self.loss_sur = (
-                self.pi_loss_sur +
-                self.vf_loss_sur * FLAGS.lr_vp_ratio +
-                self.entropy * FLAGS.entropy_cost_mult
+                self.pi_loss_sur
+                + self.vf_loss_sur * FLAGS.lr_vp_ratio
+                + self.entropy_loss
             )
 
             # self.g_phi = tf.pack(tf.gradients(self.loss_sur, self.pi.phi), axis=-1)
 
-            self.loss = self.pi_loss + self.vf_loss
+            self.loss = self.pi_loss + self.vf_loss + self.entropy_loss
 
         with tf.name_scope("grads_and_optimizer"):
 
