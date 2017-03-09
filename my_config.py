@@ -73,7 +73,7 @@ tf.flags.DEFINE_float("entropy-cost-mult", 1e-3, "multiplier used by entropy reg
 tf.flags.DEFINE_float("discount-factor", 0.995, "discount factor in Markov decision process (MDP)")
 tf.flags.DEFINE_float("lambda_", 0.50, "lambda in TD-Lambda (temporal difference learning)")
 
-tf.flags.DEFINE_float("min-mu-vf", 6. / 3.6, "Minimum forward velocity of vehicle (m/s)")
+tf.flags.DEFINE_float("min-mu-vf", 2. / 3.6, "Minimum forward velocity of vehicle (m/s)")
 tf.flags.DEFINE_float("max-mu-vf", 14. / 3.6, "Maximum forward velocity of vehicle (m/s)")
 tf.flags.DEFINE_float("min-mu-steer", -30 * np.pi / 180, "Minimum steering angle (rad)")
 tf.flags.DEFINE_float("max-mu-steer", +30 * np.pi / 180, "Maximum steering angle (rad)")
