@@ -17,6 +17,7 @@ tf.flags.DEFINE_float("score-to-win", 100.0, "score to win if the average of las
 tf.flags.DEFINE_integer("max-global-steps", None, "Stop training after this many updates of neural network. Defaults to run forever.")
 tf.flags.DEFINE_integer("seq-length", None, "sequence length used for construct TF graph")
 tf.flags.DEFINE_integer("batch-size", None, "batch size used for construct TF graph")
+tf.flags.DEFINE_integer("max-seq-length", 512, "maximum sequence length without out of memory")
 tf.flags.DEFINE_integer("decay-steps", 1000, "Decay learning using exponential_decay with staircase=True")
 tf.flags.DEFINE_float("decay-rate", 0.7071, "Decay learning using exponential_decay with staircase=True")
 tf.flags.DEFINE_float("per-process-gpu-memory-fraction", 1.0, "per_process_gpu_memory_fraction for TF session config")

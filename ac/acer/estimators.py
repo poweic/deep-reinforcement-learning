@@ -57,7 +57,7 @@ class AcerEstimator():
             self.state = get_state_placeholder(seq_length if seq_length is None else seq_length + 1)
             self.a = tf.placeholder(tf.float32, [seq_length, batch_size, FLAGS.num_actions], "actions")
             self.r = tf.placeholder(tf.float32, [seq_length, batch_size, 1], "rewards")
-            self.done = tf.placeholder(tf.bool, [batch_size], "done")
+            self.done = tf.placeholder(tf.bool, [batch_size, 1], "done")
 
         with tf.variable_scope("shared"):
             shared, self.lstm = build_shared_network(self.state, add_summaries)
@@ -69,7 +69,7 @@ class AcerEstimator():
             value = state_value_network(shared)
             value *= tf.Variable(1, dtype=tf.float32, name="value_scale", trainable=False)
             shared = shared[:self.seq_length, ...]
-            self.value_last = value[-1:, ...] * tf.to_float(~self.done)[None, ..., None]
+            self.value_last = value[-1:, ...] * tf.to_float(~self.done)[None, ...]
             self.value = value[:self.seq_length, ...]
 
         with tf.variable_scope("policy"):

@@ -265,8 +265,7 @@ class AcerWorker(Worker):
 
         action = np.stack([t.action.T for t in trans])
         reward = np.stack([t.reward.T for t in trans])
-        done = trans[-1].done.squeeze()
-        # print "done.shape = \33[33m{}\33[0m, done = {}".format(done.shape, done.astype(np.int32))
+        done = np.stack([t.done.T for t in trans])
 
         pi_stats = {
             k: np.concatenate([t.pi_stats[k] for t in trans])
@@ -284,19 +283,48 @@ class AcerWorker(Worker):
             seed = seed,
         )
 
-    def get_partial_rollout(rollout, max_length):
-        return rollout
+    def get_partial_rollout(self, rollout, max_length):
+
+        if rollout.seq_length <= max_length:
+            return rollout
+
+        start = np.random.randint(max(0, rollout.seq_length - max_length))
+        end = start + max_length
+        s  = slice(start, end)
+        s1 = slice(start, end + 1)
+
+        return AttrDict(
+            states = {k: v[s1] for k, v in rollout.states.iteritems()},
+            action = rollout.action[s],
+            reward = rollout.reward[s],
+            done = rollout.done[s],
+            pi_stats = {k: v[s] for k, v in rollout.pi_stats.iteritems()},
+            seq_length = min(rollout.seq_length, max_length),
+            batch_size = rollout.batch_size,
+            seed = rollout.seed,
+        )
+
+    def summarize_rollout(self, rollout):
+
+        for k, v in rollout.states.iteritems():
+            tf.logging.info("states[{}].shape = {}".format(k, v.shape))
+
+        for key in ["action", "reward", "done"]:
+            tf.logging.info("{}.shape = {}".format(key, rollout[key].shape))
+
+        for k, v in rollout.pi_stats.iteritems():
+            tf.logging.info("pi_stats[{}].shape = {}".format(k, v.shape))
+
+        for key in ["seq_length", "batch_size", "seed"]:
+            tf.logging.info("{} = {}".format(key, rollout[key]))
 
     def update(self, rollout, on_policy=True, display=True):
 
         if rollout.seq_length == 0:
             return
 
-        # FIXME just temporary for comparison 
-        if rollout.seq_length > 600:
-            Worker.stop = True
-            self.coord.request_stop()
-            return
+        rollout = self.get_partial_rollout(rollout, FLAGS.max_seq_length)
+        # self.summarize_rollout(rollout)
 
         # Start to put things in placeholders in graph
         net = self.local_net
@@ -306,7 +334,7 @@ class AcerWorker(Worker):
         feed_dict = {
             net.r: rollout.reward,
             net.a: rollout.action,
-            net.done: rollout.done,
+            net.done: rollout.done[-1],
             net.seq_length: rollout.seq_length,
             avg_net.seq_length: rollout.seq_length,
         }
