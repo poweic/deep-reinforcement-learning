@@ -152,8 +152,8 @@ with tf.Session(config=cfg) as sess:
                 env.step(action.T)
                 env.render()
                 cv2.waitKey(10)
-        else:
-            time.sleep(1)
+
+        time.sleep(60)
 
         schedule.run_pending()
 
