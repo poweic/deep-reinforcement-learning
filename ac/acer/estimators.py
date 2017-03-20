@@ -337,6 +337,7 @@ class AcerEstimator():
     def reset_lstm_state(self):
         self.lstm.prev_state_out = None
 
+    """
     def fill_lstm_state_placeholder(self, feed_dict, B):
         # If previous LSTM state out is empty, then set it to zeros
         if self.lstm.prev_state_out is None:
@@ -354,12 +355,13 @@ class AcerEstimator():
             print "self.lstm.state_in = {}".format(self.lstm.state_in)
             print "self.lstm.prev_state_out = {}".format(self.lstm.prev_state_out)
             sys.exit()
+    """
 
     def predict(self, tensors, feed_dict, sess=None):
         sess = sess or tf.get_default_session()
 
         B = feed_dict[self.state.prev_reward].shape[1]
-        self.fill_lstm_state_placeholder(feed_dict, B)
+        fill_lstm_state_placeholder(self.lstm, feed_dict, B)
 
         output, self.lstm.prev_state_out = sess.run([
             tensors, self.lstm.state_out
@@ -377,7 +379,7 @@ class AcerEstimator():
 
             B = feed_dict[self.state.prev_reward].shape[1]
             self.avg_net.reset_lstm_state()
-            self.avg_net.fill_lstm_state_placeholder(feed_dict, B)
+            fill_lstm_state_placeholder(self.avg_net.lstm, feed_dict, B)
 
             output = self.predict(tensors, feed_dict, sess)
 
@@ -553,18 +555,6 @@ class AcerEstimator():
                 return value + adv - mean_adv
 
         return Q_tilt
-
-    """
-    def get_forward_velocity(self):
-        v = self.state.vehicle_state[..., 4:5]
-        
-        # FIXME TensorFlow has bug when dealing with NaN gradient even masked out
-        # so I have to make sure abs(v) is not too small
-        # v = tf.Print(v, [flatten_all(v)], message="\33[33m before v = \33[0m", summarize=100)
-        v = tf.sign(v) * tf.maximum(tf.abs(v), 1e-3)
-        # v = tf.Print(v, [flatten_all(v)], message="\33[33m after  v = \33[0m", summarize=100)
-        return v
-    """
 
     def advantage_network(self, input):
 

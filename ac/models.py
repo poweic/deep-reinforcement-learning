@@ -1,3 +1,4 @@
+import sys
 import tensorflow as tf
 from ac.utils import *
 FLAGS = tf.flags.FLAGS
@@ -285,3 +286,31 @@ def state_value_network(input, num_outputs=1):
         value = deflatten(value, S, B)
 
     return value
+
+def fill_lstm_state_placeholder(lstm, feed_dict, batch_size):
+    # If previous LSTM state out is empty, then set it to zeros
+    if lstm.prev_state_out is None:
+
+        lstm.prev_state_out = [
+            np.zeros((batch_size, s.get_shape().as_list()[1]), np.float32)
+            for s in lstm.state_in
+        ]
+
+    # Set placeholders with previous LSTM state output
+    try:
+        for sin, prev_sout in zip(lstm.state_in, lstm.prev_state_out):
+            feed_dict[sin] = prev_sout
+    except:
+        print "lstm.state_in = {}".format(lstm.state_in)
+        print "lstm.prev_state_out = {}".format(lstm.prev_state_out)
+        sys.exit()
+
+def get_forward_velocity(state):
+    v = state.vehicle_state[..., 4:5]
+
+    # FIXME TensorFlow has bug when dealing with NaN gradient even masked out
+    # so I have to make sure abs(v) is not too small
+    # v = tf.Print(v, [flatten_all(v)], message="\33[33m before v = \33[0m", summarize=100)
+    v = tf.sign(v) * tf.maximum(tf.abs(v), 1e-3)
+    # v = tf.Print(v, [flatten_all(v)], message="\33[33m after  v = \33[0m", summarize=100)
+    return v

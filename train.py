@@ -1,4 +1,4 @@
-#!/usr/bin/env python
+#!/usr/bin/python
 import colored_traceback.always
 
 import os
@@ -56,7 +56,7 @@ def render(q):
             for action in rollout.action:
                 env.step(action.T)
                 env.render()
-                cv2.waitKey(10)
+                cv2.waitKey(20)
 
         except Queue.Empty:
             print "wait another 5 seconds"
