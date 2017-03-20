@@ -159,7 +159,7 @@ class Worker(object):
         s1 = slice(start, end + 1)
 
         return AttrDict(
-            states = {k: v[s1] for k, v in rollout.states.iteritems()},
+            states = AttrDict({k: v[s1] for k, v in rollout.states.iteritems()}),
             action = rollout.action[s],
             reward = rollout.reward[s],
             done = rollout.done[s],
