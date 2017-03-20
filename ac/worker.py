@@ -163,7 +163,7 @@ class Worker(object):
             action = rollout.action[s],
             reward = rollout.reward[s],
             done = rollout.done[s],
-            pi_stats = {k: v[s] for k, v in rollout.pi_stats.iteritems()},
+            pi_stats = None if rollout.pi_stats is None else {k: v[s] for k, v in rollout.pi_stats.iteritems()},
             seq_length = min(rollout.seq_length, max_length),
             batch_size = rollout.batch_size,
             seed = rollout.seed,

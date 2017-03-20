@@ -3,10 +3,7 @@ import tensorflow as tf
 import scipy.io
 import traceback
 import time
-# from .estimators import *
 import ac.a3c.estimators
-# from estimators import A3CEstimator
-# from monitor import server
 from ac.worker import Worker
 from ac.utils import *
 
@@ -63,6 +60,9 @@ class A3CWorker(Worker):
         # Update the global networks
         self.update(rollout)
 
+        mean, std, msg = self.global_episode_stats.last_n_stats()
+        tf.logging.info("\33[93m" + msg + "\33[0m")
+
     def get_rewards_and_returns(self, transitions):
         # If an episode ends, the return is 0. If not, we estimate return
         # by bootstrapping the value from the last state (using value net)
@@ -105,8 +105,10 @@ class A3CWorker(Worker):
 
         return len(transitions), mdp_states, v, rewards, returns, values, delta_t, actions, advantages
 
-    # @timer_decorate
     def update(self, rollout):
+
+        if rollout.seq_length == 0:
+            return
 
         rollout = self.get_partial_rollout(rollout, FLAGS.max_seq_length)
 
@@ -120,18 +122,17 @@ class A3CWorker(Worker):
         net = self.local_net
         values = net.predict_values(rollout.states, self.sess)
 
-        # Compute discounted total returns
+        # Compute discounted total returns from rewards and value boostrapped
+        # from the last state values[-1]
         rewards = np.concatenate([rollout.reward, values[-1:]])
         rewards[-1, rollout.done[-1]] = 0
-        # print "rewards.shape = {}".format(rewards.shape)
-
         returns = discount(rewards, self.discount_factor)[:-1, :]
+        # print "rewards.shape = {}".format(rewards.shape)
         # print "returns.shape = {}".format(returns.shape)
 
         # Compute TD target
         delta_t = rewards[:-1] + self.discount_factor * values[1:] - values[:-1]
-        values = values[:-1]
-
+        # values = values[:-1]
         # print "delta_t.shape = {}".format(delta_t.shape)
         # print "values.shape = {}".format(values.shape)
 
@@ -149,4 +150,4 @@ class A3CWorker(Worker):
         loss, summaries, _, self.g_step = net.predict(self.step_op, feed_dict, self.sess)
         loss = AttrDict(loss)
 
-        print "#{:04d}: loss = {}".format(self.g_step, loss)
+        tf.logging.info("#{:6d}: loss = {}".format(self.g_step, loss))
