@@ -87,14 +87,15 @@ class A3CWorker(Worker):
 
         # Compute discounted total returns from rewards and value boostrapped
         # from the last state values[-1]
-        rewards = np.concatenate([rollout.reward, values[-1:]])
-        rewards[-1, rollout.done[-1]] = 0
-        returns = discount(rewards, self.discount_factor)[:-1]
-        # print "rewards.shape = {}".format(rewards.shape)
+        value_last_state = values[-1:] * (~rollout.done[-1])
+        returns = discount(
+            np.vstack([rollout.reward, value_last_state]),
+            self.discount_factor
+        )[:-1]
         # print "returns.shape = {}".format(returns.shape)
 
         # Compute TD target
-        delta_t = rewards[:-1] + self.discount_factor * values[1:] - values[:-1]
+        delta_t = rollout.reward + self.discount_factor * values[1:] - values[:-1]
         # values = values[:-1]
         # print "delta_t.shape = {}".format(delta_t.shape)
         # print "values.shape = {}".format(values.shape)
