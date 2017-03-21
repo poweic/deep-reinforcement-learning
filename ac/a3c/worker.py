@@ -79,32 +79,25 @@ class A3CWorker(Worker):
             print "rollout.states[{}].shape = {}".format(key, rollout.states[key].shape)
         """
 
-        # Compute values and also bootstrap from last state
         net = self.local_net
-        # tf.logging.info("rollout.seq_length = {}, rollout.states.keys() = {}".format(rollout.seq_length, rollout.states.keys()))
         net.reset_lstm_state()
+        gamma = self.discount_factor
+
+        # Compute values and bootstrap from last state if not terminal (~done)
+        # tf.logging.info("rollout.seq_length = {}, rollout.states.keys() = {}".format(rollout.seq_length, rollout.states.keys()))
         values = net.predict_values(rollout.states, self.sess)
+        values[-1, rollout.done[-1]] = 0
 
-        # Compute discounted total returns from rewards and value boostrapped
-        # from the last state values[-1]
-        value_last_state = values[-1:] * (~rollout.done[-1])
-        returns = discount(
-            np.vstack([rollout.reward, value_last_state]),
-            self.discount_factor
-        )[:-1]
-        # print "returns.shape = {}".format(returns.shape)
+        # Compute discounted total returns from rewards and values[-1]
+        returns = discount(np.vstack([rollout.reward, values[-1:]]), gamma)[:-1]
 
-        # Compute TD target
-        delta_t = rollout.reward + self.discount_factor * values[1:] - values[:-1]
-        # values = values[:-1]
-        # print "delta_t.shape = {}".format(delta_t.shape)
-        # print "values.shape = {}".format(values.shape)
+        # Compute 1-step TD target
+        delta_t = rollout.reward + gamma * values[1:] - values[:-1]
 
-        # Use discounted TD target as advantages (GAE)
-        # advantages = discount(delta_t, self.discount_factor * FLAGS.lambda_)
-        advantages = delta_t
-        # print "advantages.shape = {}".format(advantages.shape)
+        # Compute Generalized Advantage Estimation (GAE) from 1-step TD target
+        advantages = discount(delta_t, gamma * FLAGS.lambda_)
 
+        # Fill feed_dict with values we just computed
         feed_dict = {
             net.advantages: advantages,
             net.returns: returns,
@@ -112,6 +105,7 @@ class A3CWorker(Worker):
         }
         feed_dict.update({net.state[k]: v[:-1] for k, v in rollout.states.iteritems()})
 
+        # Reset LSTM state and update
         net.reset_lstm_state()
         loss, summaries, _, self.gstep = net.predict(self.step_op, feed_dict, self.sess)
         loss = AttrDict(loss)
@@ -121,46 +115,3 @@ class A3CWorker(Worker):
         ).format(
             self.gstep, loss.pi, loss.vf, loss.entropy, loss.total, rollout.seq_length
         ))
-
-    # Legacy codes
-    def get_rewards_and_returns(self, transitions):
-        # If an episode ends, the return is 0. If not, we estimate return
-        # by bootstrapping the value from the last state (using value net)
-        last = transitions[-1]
-        mdp_state = form_mdp_state(self.env, last.next_state, last.action, last.reward)
-        v = self.local_net.predict_values(mdp_state, self.sess)
-        v[last.done] = 0
-
-        # Collect rewards from transitions, append v to rewards, and compute the total discounted returns
-        rewards = [t.reward.T[None, ...] for t in transitions]
-        rewards_plus_v = np.concatenate(rewards + [v], axis=0)
-        rewards = rewards_plus_v[:-1, ...]
-        returns = discount(rewards_plus_v, self.discount_factor)[:-1, :]
-        return v, rewards, returns
-
-    def get_values_and_td_targets(self, mdp_states, v, rewards):
-        values = self.local_net.predict_values(mdp_states, self.sess)
-        values = np.concatenate([values, v], axis=0)
-
-        delta_t = rewards + self.discount_factor * values[1:, ...] - values[:-1, ...]
-        values = values[:-1, ...]
-        return values, delta_t
-
-    def parse_transitions(self, transitions):
-        mdp_states = AttrDict({
-            key: np.concatenate([
-                t.mdp_state[key][None, ...] for t in transitions
-            ], axis=0)
-            for key in transitions[0].mdp_state.keys()
-        })
-
-        v, rewards, returns = self.get_rewards_and_returns(transitions)
-        values, delta_t = self.get_values_and_td_targets(mdp_states, v, rewards)
-
-        actions = np.concatenate([
-            trans.action.T[None, ...] for trans in transitions
-        ], axis=0)
-
-        advantages = discount(delta_t, self.discount_factor * FLAGS.lambda_)
-
-        return len(transitions), mdp_states, v, rewards, returns, values, delta_t, actions, advantages

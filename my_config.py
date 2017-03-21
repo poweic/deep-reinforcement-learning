@@ -71,7 +71,7 @@ tf.flags.DEFINE_float("wheelbase", 2.00, "Wheelbase of the vehicle in meters")
 tf.flags.DEFINE_float("vehicle-model-noise-level", 0.1, "level of white noise (variance) in vehicle model")
 tf.flags.DEFINE_float("entropy-cost-mult", 1e-3, "multiplier used by entropy regularization")
 tf.flags.DEFINE_float("discount-factor", 0.995, "discount factor in Markov decision process (MDP)")
-tf.flags.DEFINE_float("lambda_", 0.99, "lambda in TD-Lambda (temporal difference learning)")
+tf.flags.DEFINE_float("lambda_", 0.95, "lambda in TD-Lambda (temporal difference learning)")
 
 tf.flags.DEFINE_float("min-mu-vf", 4. / 3.6, "Minimum forward velocity of vehicle (m/s)")
 tf.flags.DEFINE_float("max-mu-vf", 14. / 3.6, "Maximum forward velocity of vehicle (m/s)")
