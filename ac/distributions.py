@@ -16,22 +16,14 @@ def create_distribution(dist_type, bijectors=None, **stats):
     param1 = tf_check_numerics(stats['param1'])
     param2 = tf_check_numerics(stats['param2'])
 
-    """
-    dists = [
-        DIST(
-            param1[..., i], param2[..., i], allow_nan_stats=False
-        ) for i in range(num_actions)
-    ]
-
-    dists = add_eps_exploration(dists, broadcaster)
-    pi = to_joint_distribution(dists, bijectors, dist_type)
-    """
+    param1 = tf_print(param1)
+    param2 = tf_print(param2)
 
     dist = DIST(param1, param2, allow_nan_stats=False)
     pi = to_transformed_distribution(dist, dist_type)
 
     pi.phi = [param1, param2]
-    pi.stats = stats
+    pi.stats = AttrDict(stats)
 
     return pi
 

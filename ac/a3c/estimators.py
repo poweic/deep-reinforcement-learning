@@ -29,26 +29,37 @@ class A3CEstimator():
 
         with tf.name_scope("policy"):
             self.pi, _ = build_policy(shared, FLAGS.policy_dist)
-            self.actions = tf.squeeze(self.pi.sample_n(1), 0)
+            actions = tf.squeeze(self.pi.sample_n(1), 0)
+            self.actions = tf_print(actions)
+
+            self.action_and_stats = [self.actions, self.pi.stats]
 
         with tf.name_scope("state_value_network"):
             self.value = state_value_network(shared)
 
         with tf.name_scope("losses"):
             self.pi_loss = self.get_policy_loss(self.pi)
-            self.entropy = self.get_exploration_loss(self.pi)
+            entropy = self.get_exploration_loss(self.pi)
+            self.entropy_loss = -entropy * FLAGS.entropy_cost_mult
             self.vf_loss = self.get_value_loss(self.value, self.returns)
 
-            self.loss = self.pi_loss + self.vf_loss + FLAGS.entropy_cost_mult * self.entropy
+            for loss in [self.pi_loss, self.vf_loss, self.entropy_loss]:
+                assert len(loss.get_shape()) == 0
+
+            self.loss = (
+                self.pi_loss +
+                self.vf_loss * FLAGS.lr_vp_ratio +
+                self.entropy_loss
+            )
 
         with tf.name_scope("regularization"):
             self.reg_loss = self.get_reg_loss()
             self.loss += FLAGS.l2_reg * self.reg_loss
 
         with tf.name_scope("grads_and_optimizer"):
-            # self.optimizer = tf.train.AdamOptimizer(FLAGS.learning_rate)
             self.optimizer = tf.train.RMSPropOptimizer(FLAGS.learning_rate)
             grads_and_vars = self.optimizer.compute_gradients(self.loss)
+            check_none_grads(grads_and_vars)
             self.grads_and_vars = [(g, v) for g, v in grads_and_vars if g is not None]
 
             # Collect all trainable variables initialized here
@@ -59,24 +70,23 @@ class A3CEstimator():
     def get_policy_loss(self, pi):
         # policy loss is the negative of log_prob times advantages
         with tf.name_scope("policy_loss"):
-            self.log_prob = self.compute_log_prob(pi, self.actions_ext)
-            pi_loss = -tf.reduce_mean(self.log_prob * self.advantages)
+            actions = tf_print(self.actions_ext)
+            self.log_prob = pi.log_prob(actions)[..., None]
+            pi_loss = self.log_prob * self.advantages
+            pi_loss = -tf.reduce_sum(tf.reduce_mean(pi_loss, axis=[1, 2]), axis=0)
 
         return pi_loss
 
     def get_value_loss(self, value, returns):
         # loss of value function (L2-norm)
         with tf.name_scope("value_loss"):
-            vf_loss = 0.5 * tf.reduce_mean(tf.square(value - returns))
+            vf_loss = tf.square(value - returns)
+            vf_loss = 0.5 * tf.reduce_sum(tf.reduce_mean(vf_loss, axis=[1, 2]), axis=0)
 
         return vf_loss
 
     def get_exploration_loss(self, pi):
-        with tf.name_scope("exploration_entropy"):
-            # Add entropy cost to encourage exploration
-            entropy = tf.reduce_mean(pi.dist.entropy())
-
-        return -entropy
+        return tf.reduce_sum(tf.reduce_mean(self.pi.entropy(), axis=1), axis=0)
 
     def get_reg_loss(self):
         vscope = tf.get_variable_scope().name
@@ -86,13 +96,6 @@ class A3CEstimator():
         ]
         reg_losses = tf.add_n([tf.reduce_sum(w * w) for w in weights])
         return reg_losses
-
-    def compute_log_prob(self, pi, actions):
-
-        with tf.name_scope("compute_log_prob"):
-            log_prob = pi.log_prob(actions)[..., None]
-
-        return log_prob
 
     def to_feed_dict(self, state):
         rank_a = len(self.state.prev_reward.get_shape())
@@ -120,25 +123,19 @@ class A3CEstimator():
 
         return output
 
-    """
-    def update(self, tensors, feed_dict, sess=None):
-        sess = sess or tf.get_default_session()
-        B = feed_dict[self.state.prev_reward].shape[1]
-        output = self.predict(tensors, feed_dict, sess)
-        return output
-    """
-
     def predict_values(self, state, sess=None):
         feed_dict = self.to_feed_dict(state)
         return self.predict(self.value, feed_dict, sess)
 
     def predict_actions(self, state, sess=None):
         feed_dict = self.to_feed_dict(state)
-        actions = self.predict(self.actions, feed_dict, sess)
+        actions, stats = self.predict(self.action_and_stats, feed_dict, sess)
         actions = actions[0, ...].T
-        return actions, None
+        return actions, stats
 
     def summarize(self, add_summaries):
+        return tf.no_op()
+
         if not add_summaries:
             return tf.no_op()
 

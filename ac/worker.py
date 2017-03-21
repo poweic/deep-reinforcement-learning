@@ -100,6 +100,7 @@ class Worker(object):
                 pi_stats=pi_stats,
                 action=self.action.copy(),
                 reward=reward.copy(),
+                hidden_states=self.local_net.lstm.prev_state_out,
                 done=done.copy()
             ))
 
@@ -153,7 +154,8 @@ class Worker(object):
         if rollout.seq_length <= max_length:
             return rollout
 
-        start = np.random.randint(max(0, rollout.seq_length - max_length))
+        # start = np.random.randint(max(0, rollout.seq_length - max_length))
+        start = 0
         end = start + max_length
         s  = slice(start, end)
         s1 = slice(start, end + 1)

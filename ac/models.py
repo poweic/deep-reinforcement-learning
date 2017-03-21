@@ -164,6 +164,7 @@ def build_shared_network(input, add_summaries=False):
     S, B = get_seq_length_batch_size(input.prev_action)
 
     if "OffRoadNav" in FLAGS.game:
+        tf.logging.info("building convnet ...")
         input = build_convnet(input)
     else:
         input = flatten(input.state)

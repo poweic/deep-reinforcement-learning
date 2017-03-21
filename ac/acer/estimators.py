@@ -150,18 +150,7 @@ class AcerEstimator():
                 tf.logging.info("Computing gradients ...")
                 grads_and_vars = self.optimizer.compute_gradients(self.loss_sur)
 
-                none_grads = [
-                    (g, v) for g, v in grads_and_vars
-                    if tf.get_variable_scope().name in v.name and g is None
-                ]
-
-                if len(none_grads) > 0:
-                    tf.logging.warn("\33[33m Detected None in grads_and_vars: \33[0m")
-                    pprint([(g, v.name) for g, v in none_grads])
-
-                    tf.logging.warn("\33[33m All trainable variables:\33[0m")
-                    pprint([v.name for v in tf.trainable_variables()])
-                    import ipdb; ipdb.set_trace()
+                check_none_grads(grads_and_vars)
 
                 self.grad_norms = {
                     str(v.name): tf.sqrt(tf.reduce_sum(g**2))

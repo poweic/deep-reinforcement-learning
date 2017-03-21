@@ -25,13 +25,13 @@ class A3CWorker(Worker):
         super(A3CWorker, self).__init__(**kwargs)
 
     def set_global_net(self, global_net):
-        # Operation to copy params from global net to local net
-        # FIXME change it to grads_and_vars[1]
-        global_vars = tf.contrib.slim.get_variables(scope="global", collection=tf.GraphKeys.TRAINABLE_VARIABLES)
-        local_vars = tf.contrib.slim.get_variables(scope=self.name, collection=tf.GraphKeys.TRAINABLE_VARIABLES)
+        global_vars = global_net.var_list
+        local_vars = self.local_net.var_list
         self.copy_params_op = make_copy_params_op(global_vars, local_vars)
 
         self.global_net = global_net
+        self.gstep = 0
+
         self.train_op = make_train_op(self.local_net, self.global_net)
         self.inc_global_step = tf.assign_add(self.global_step, 1)
 
@@ -39,8 +39,9 @@ class A3CWorker(Worker):
         self.step_op = [
             {
                 'total': net.loss,
-                'pi_loss': net.pi_loss,
-                'vf_loss': net.vf_loss,
+                'pi': net.pi_loss,
+                'vf': net.vf_loss,
+                'entropy': net.entropy_loss,
             },
             net.summaries,
             self.train_op,
@@ -60,9 +61,67 @@ class A3CWorker(Worker):
         # Update the global networks
         self.update(rollout)
 
+        """
         mean, std, msg = self.global_episode_stats.last_n_stats()
         tf.logging.info("\33[93m" + msg + "\33[0m")
+        """
 
+    def update(self, rollout):
+
+        if rollout.seq_length == 0:
+            return
+
+        rollout = self.get_partial_rollout(rollout, FLAGS.max_seq_length)
+
+        """
+        print "rollout.keys = {}".format(rollout.keys())
+        for key in rollout.states:
+            print "rollout.states[{}].shape = {}".format(key, rollout.states[key].shape)
+        """
+
+        # Compute values and also bootstrap from last state
+        net = self.local_net
+        # tf.logging.info("rollout.seq_length = {}, rollout.states.keys() = {}".format(rollout.seq_length, rollout.states.keys()))
+        net.reset_lstm_state()
+        values = net.predict_values(rollout.states, self.sess)
+
+        # Compute discounted total returns from rewards and value boostrapped
+        # from the last state values[-1]
+        rewards = np.concatenate([rollout.reward, values[-1:]])
+        rewards[-1, rollout.done[-1]] = 0
+        returns = discount(rewards, self.discount_factor)[:-1]
+        # print "rewards.shape = {}".format(rewards.shape)
+        # print "returns.shape = {}".format(returns.shape)
+
+        # Compute TD target
+        delta_t = rewards[:-1] + self.discount_factor * values[1:] - values[:-1]
+        # values = values[:-1]
+        # print "delta_t.shape = {}".format(delta_t.shape)
+        # print "values.shape = {}".format(values.shape)
+
+        # Use discounted TD target as advantages (GAE)
+        # advantages = discount(delta_t, self.discount_factor * FLAGS.lambda_)
+        advantages = delta_t
+        # print "advantages.shape = {}".format(advantages.shape)
+
+        feed_dict = {
+            net.advantages: advantages,
+            net.returns: returns,
+            net.actions_ext: rollout.action,
+        }
+        feed_dict.update({net.state[k]: v[:-1] for k, v in rollout.states.iteritems()})
+
+        net.reset_lstm_state()
+        loss, summaries, _, self.gstep = net.predict(self.step_op, feed_dict, self.sess)
+        loss = AttrDict(loss)
+
+        tf.logging.info(pretty_float(
+            "#{:6d}: pi_loss = %f, vf_loss = %f, entropy_loss = %f, total = %f [S = {}]"
+        ).format(
+            self.gstep, loss.pi, loss.vf, loss.entropy, loss.total, rollout.seq_length
+        ))
+
+    # Legacy codes
     def get_rewards_and_returns(self, transitions):
         # If an episode ends, the return is 0. If not, we estimate return
         # by bootstrapping the value from the last state (using value net)
@@ -104,50 +163,3 @@ class A3CWorker(Worker):
         advantages = discount(delta_t, self.discount_factor * FLAGS.lambda_)
 
         return len(transitions), mdp_states, v, rewards, returns, values, delta_t, actions, advantages
-
-    def update(self, rollout):
-
-        if rollout.seq_length == 0:
-            return
-
-        rollout = self.get_partial_rollout(rollout, FLAGS.max_seq_length)
-
-        """
-        print "rollout.keys = {}".format(rollout.keys())
-        for key in rollout.states:
-            print "rollout.states[{}].shape = {}".format(key, rollout.states[key].shape)
-        """
-
-        # Compute values and also bootstrap from last state
-        net = self.local_net
-        values = net.predict_values(rollout.states, self.sess)
-
-        # Compute discounted total returns from rewards and value boostrapped
-        # from the last state values[-1]
-        rewards = np.concatenate([rollout.reward, values[-1:]])
-        rewards[-1, rollout.done[-1]] = 0
-        returns = discount(rewards, self.discount_factor)[:-1, :]
-        # print "rewards.shape = {}".format(rewards.shape)
-        # print "returns.shape = {}".format(returns.shape)
-
-        # Compute TD target
-        delta_t = rewards[:-1] + self.discount_factor * values[1:] - values[:-1]
-        # values = values[:-1]
-        # print "delta_t.shape = {}".format(delta_t.shape)
-        # print "values.shape = {}".format(values.shape)
-
-        # Use discounted TD target as advantages (GAE)
-        advantages = discount(delta_t, self.discount_factor * FLAGS.lambda_)
-        # print "advantages.shape = {}".format(advantages.shape)
-
-        feed_dict = {
-            net.advantages: advantages,
-            net.returns: returns,
-            net.actions_ext: rollout.action,
-        }
-        feed_dict.update({net.state[k]: v[:-1] for k, v in rollout.states.iteritems()})
-
-        loss, summaries, _, self.g_step = net.predict(self.step_op, feed_dict, self.sess)
-        loss = AttrDict(loss)
-
-        tf.logging.info("#{:6d}: loss = {}".format(self.g_step, loss))

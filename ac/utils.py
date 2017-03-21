@@ -22,6 +22,25 @@ def get_dof(space):
         except: # else Box
             return np.prod(space.shape)
 
+def check_none_grads(grads_and_vars):
+
+    none_grads = [
+        (g, v) for g, v in grads_and_vars
+        if tf.get_variable_scope().name in v.name and g is None
+    ]
+
+    if len(none_grads) > 0:
+        tf.logging.warn("\33[33m Detected None in grads_and_vars: \33[0m")
+        pprint([(g, v.name) for g, v in none_grads])
+
+        tf.logging.warn("\33[33m All trainable variables:\33[0m")
+        pprint([v.name for v in tf.trainable_variables()])
+        import ipdb; ipdb.set_trace()
+
+def pretty_float(fmt):
+    fmt = fmt.replace("%f", "{:+8.3f}")
+    return fmt
+
 def form_state(env, state, prev_action, prev_reward):
     state = FLAGS.featurize_state(state)
 
@@ -64,10 +83,12 @@ class EpisodeStats(object):
 
         # set print options
         np.set_printoptions(formatter={'float_kind': lambda x: "{:.2f}".format(x)})
+        """
         tf.logging.info(
             "Episode {:05d}: total return: {} [mean = {:.2f}], length = {}, timesteps = \33[93m{}\33[0m".format(
                 self.num_episodes(), rewards_all_agent, reward, length, timesteps
         ))
+        """
         # reset print options
         np.set_printoptions()
 
