@@ -23,6 +23,7 @@ tf.flags.DEFINE_float("decay-rate", 0.7071, "Decay learning using exponential_de
 tf.flags.DEFINE_float("per-process-gpu-memory-fraction", 1.0, "per_process_gpu_memory_fraction for TF session config")
 tf.flags.DEFINE_boolean("staircase", False, "Set exponential_decay with staircase=True/False")
 tf.flags.DEFINE_boolean("use-lstm", True, "Use LSTM when set True")
+tf.flags.DEFINE_boolean("summarize", False, "Create summary writer")
 
 tf.flags.DEFINE_integer("eval-every", 30, "Evaluate the policy every N seconds")
 tf.flags.DEFINE_integer("parallelism", 1, "Number of threads to run. If not set we run [num_cpu_cores] threads.")

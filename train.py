@@ -122,10 +122,11 @@ with tf.Session(config=cfg) as sess:
 
         workers.append(worker)
 
-    summary_dir = os.path.join(FLAGS.base_dir, "train")
-    summary_writer = tf.summary.FileWriter(summary_dir, sess.graph)
-
-    workers[0].summary_writer = summary_writer
+    if FLAGS.summarize:
+        tf.logging.info("Create summary writer ... (this takes a long time)")
+        summary_dir = os.path.join(FLAGS.base_dir, "train")
+        summary_writer = tf.summary.FileWriter(summary_dir, sess.graph)
+        workers[0].summary_writer = summary_writer
 
     tf.logging.info("Creating TensorFlow graph Saver ...")
     FLAGS.saver = tf.train.Saver(max_to_keep=10, var_list=[
