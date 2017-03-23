@@ -152,7 +152,7 @@ class AcerWorker(Worker):
         # idx = np.random.randint(len(rp))
         # lengths = np.array([len(t) for t in rp], dtype=np.float32)
         if FLAGS.prioritize_replay:
-            lengths = np.array([len(t) for t in rp], dtype=np.float32)
+            lengths = np.array([len(t) for t in list(rp)], dtype=np.float32)
             prob = lengths / np.sum(lengths)
             indices = np.random.choice(len(prob), N, p=prob, replace=False)
         else:
