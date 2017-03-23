@@ -144,7 +144,8 @@ class AcerEstimator():
                     FLAGS.decay_steps, FLAGS.decay_rate, staircase=FLAGS.staircase
                 )
 
-                self.optimizer = tf.train.RMSPropOptimizer(self.lr)
+                self.optimizer = tf.train.AdamOptimizer(self.lr)
+                # self.optimizer = tf.train.RMSPropOptimizer(self.lr)
                 # self.optimizer = tf.train.GradientDescentOptimizer(FLAGS.learning_rate)
 
                 tf.logging.info("Computing gradients ...")
@@ -482,7 +483,7 @@ class AcerEstimator():
                                  Q_tilt_a_prime, a_prime):
 
         # compute gradient with importance weight truncation using c = 10
-        c = tf.constant(10, tf.float32, name="importance_weight_truncation_thres")
+        c = tf.constant(FLAGS.importance_weight_truncation_threshold, tf.float32)
 
         with tf.name_scope("truncation"):
             with tf.name_scope("truncated_importance_weight"):
@@ -528,7 +529,7 @@ class AcerEstimator():
         the caller doesn't have to pass these as argument anymore
         """
 
-        def Q_tilt(action, name, num_samples=8):
+        def Q_tilt(action, name, num_samples=FLAGS.num_sdn_samples):
             with tf.name_scope(name):
                 # See eq. 13 in ACER
                 if len(action.get_shape()) != 4:

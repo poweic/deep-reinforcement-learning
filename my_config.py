@@ -23,9 +23,6 @@ tf.flags.DEFINE_float("decay-rate", 0.7071, "Decay learning using exponential_de
 tf.flags.DEFINE_float("per-process-gpu-memory-fraction", 1.0, "per_process_gpu_memory_fraction for TF session config")
 tf.flags.DEFINE_boolean("staircase", False, "Set exponential_decay with staircase=True/False")
 
-tf.flags.DEFINE_float("eps-init", 0.10, "initial value for epsilon in eps-greedy algorithm")
-tf.flags.DEFINE_integer("effective-timescale", 10, "Effective timestep = (global_step / effective_timescale) + 1")
-
 tf.flags.DEFINE_integer("eval-every", 30, "Evaluate the policy every N seconds")
 tf.flags.DEFINE_integer("parallelism", 1, "Number of threads to run. If not set we run [num_cpu_cores] threads.")
 tf.flags.DEFINE_integer("downsample", 5, "Downsample transitions to reduce sample correlation")
@@ -40,10 +37,12 @@ tf.flags.DEFINE_boolean("prioritize-replay", False, "Use choice(length) to sampl
 tf.flags.DEFINE_integer("regenerate-size", 1000, "number of episodes experience to regenerate after resuming")
 
 tf.flags.DEFINE_float("avg-net-momentum", 0.995, "soft update momentum for average policy network in TRPO")
+tf.flags.DEFINE_float("importance-weight-truncation-threshold", 10, "soft update momentum for average policy network in TRPO")
 tf.flags.DEFINE_float("max-Q-diff", None, "Maximum Q difference (for robustness)")
 tf.flags.DEFINE_boolean("mixture-model", False, "Use single Gaussian if set to True, use GMM otherwise")
 tf.flags.DEFINE_string("policy-dist", "Gaussian", "Either Gaussian, Beta, or StudentT")
 tf.flags.DEFINE_integer("bucket-width", 10, "bucket_width")
+tf.flags.DEFINE_integer("num-sdn-samples", 8, "soft update momentum for average policy network in TRPO")
 
 tf.flags.DEFINE_boolean("bi-directional", False, "If set, use bi-directional RNN/LSTM")
 tf.flags.DEFINE_boolean("drift", False, "If set, turn on drift")
@@ -103,14 +102,6 @@ def parse_flags():
     from ac.utils import AttrDict, mkdir_p
 
     mkdir_p(FLAGS.checkpoint_dir)
-
-    FLAGS.action_space = AttrDict(
-        n_actions   = 2,
-        low        = [FLAGS.min_mu_vf   , FLAGS.min_mu_steer   ],
-        high       = [FLAGS.max_mu_vf   , FLAGS.max_mu_steer   ],
-        sigma_low  = [FLAGS.min_sigma_vf, FLAGS.min_sigma_steer],
-        sigma_high = [FLAGS.max_sigma_vf, FLAGS.max_sigma_steer],
-    )
 
     if FLAGS.random_learning_rate:
         low  = np.log10(FLAGS.min_learning_rate)
