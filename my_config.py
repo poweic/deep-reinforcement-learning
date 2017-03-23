@@ -30,6 +30,7 @@ tf.flags.DEFINE_integer("parallelism", 1, "Number of threads to run. If not set 
 tf.flags.DEFINE_integer("downsample", 5, "Downsample transitions to reduce sample correlation")
 tf.flags.DEFINE_integer("n-agents-per-worker", 1, "Downsample transitions to reduce sample correlation")
 tf.flags.DEFINE_integer("save-every-n-minutes", 10, "Save model every N minutes")
+tf.flags.DEFINE_integer("copy-params-every-nth", 1, "Save model every N minutes")
 
 tf.flags.DEFINE_integer("field-of-view", 20, "size of front view (N x N) passed to network")
 

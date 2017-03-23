@@ -159,7 +159,8 @@ class AcerWorker(Worker):
             indices = np.random.randint(len(rp), size=N)
 
         for i, idx in enumerate(indices):
-            self.copy_params_from_global()
+            if i % FLAGS.copy_params_every_nth == 0:
+                self.copy_params_from_global()
 
             # Compute gradient and Perform update
             self.update(rp[idx], on_policy=False, display=(i == 0))
