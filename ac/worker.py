@@ -100,7 +100,7 @@ class Worker(object):
                 pi_stats=pi_stats,
                 action=self.action.copy(),
                 reward=reward.copy(),
-                hidden_states=self.local_net.lstm.prev_state_out,
+                # hidden_states=self.local_net.lstm.prev_state_out,
                 done=done.copy()
             ))
 

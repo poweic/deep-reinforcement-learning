@@ -325,37 +325,22 @@ class AcerEstimator():
         return feed_dict
 
     def reset_lstm_state(self):
-        self.lstm.prev_state_out = None
-
-    """
-    def fill_lstm_state_placeholder(self, feed_dict, B):
-        # If previous LSTM state out is empty, then set it to zeros
-        if self.lstm.prev_state_out is None:
-
-            self.lstm.prev_state_out = [
-                np.zeros((B, s.get_shape().as_list()[1]), np.float32)
-                for s in self.lstm.state_in
-            ]
-
-        # Set placeholders with previous LSTM state output
-        try:
-            for sin, prev_sout in zip(self.lstm.state_in, self.lstm.prev_state_out):
-                feed_dict[sin] = prev_sout
-        except:
-            print "self.lstm.state_in = {}".format(self.lstm.state_in)
-            print "self.lstm.prev_state_out = {}".format(self.lstm.prev_state_out)
-            sys.exit()
-    """
+        if self.lstm:
+            self.lstm.prev_state_out = None
 
     def predict(self, tensors, feed_dict, sess=None):
         sess = sess or tf.get_default_session()
 
         B = feed_dict[self.state.prev_reward].shape[1]
-        fill_lstm_state_placeholder(self.lstm, feed_dict, B)
 
-        output, self.lstm.prev_state_out = sess.run([
-            tensors, self.lstm.state_out
-        ], feed_dict)
+        if self.lstm:
+            fill_lstm_state_placeholder(self.lstm, feed_dict, B)
+
+            output, self.lstm.prev_state_out = sess.run([
+                tensors, self.lstm.state_out
+            ], feed_dict)
+        else:
+            output = sess.run(tensors, feed_dict)
 
         return output
 
@@ -368,8 +353,10 @@ class AcerEstimator():
         with self.avg_net.lock:
 
             B = feed_dict[self.state.prev_reward].shape[1]
-            self.avg_net.reset_lstm_state()
-            fill_lstm_state_placeholder(self.avg_net.lstm, feed_dict, B)
+
+            if self.lstm:
+                self.avg_net.reset_lstm_state()
+                fill_lstm_state_placeholder(self.avg_net.lstm, feed_dict, B)
 
             output = self.predict(tensors, feed_dict, sess)
 
@@ -564,6 +551,7 @@ class AcerEstimator():
                 input_with_a = flatten_all_leading_axes(input_with_a)
 
                 # 1st fully connected layer
+                # fc1 = input_with_a
                 fc1 = tf.contrib.layers.fully_connected(
                     inputs=input_with_a,
                     num_outputs=256,

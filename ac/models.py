@@ -171,11 +171,13 @@ def build_shared_network(input, add_summaries=False):
 
     fc = tf.contrib.layers.fully_connected(
         inputs=input,
-        num_outputs=256,
-        activation_fn=tf.nn.elu,
+        num_outputs=64,
+        activation_fn=tf.nn.tanh,
         scope="state-hidden-dense")
 
-    with tf.name_scope("lstm"):
+    layers = [fc]
+
+    if FLAGS.use_lstm:
         # Flatten convolutions output to fit fully connected layer
         fc = deflatten(fc, S, B)
 
@@ -185,15 +187,50 @@ def build_shared_network(input, add_summaries=False):
         # with previous reward (see https://arxiv.org/abs/1611.03673)
         # concat1 = tf.concat(2, [fc, input.prev_reward])
         concat1 = fc
-        lstms.append(LSTM(concat1, 128, scope="LSTM-1"))
+        lstms.append(LSTM(concat1, 64, scope="LSTM-1"))
 
         # LSTM-2
         # Concatenate previous output with vehicle_state and prev_action
         # concat2 = tf.concat(2, [fc, lstms[-1].output, vehicle_state, input.prev_action])
         concat2 = lstms[-1].output
-        lstms.append(LSTM(concat2, 256, scope="LSTM-2"))
+        lstms.append(LSTM(concat2, 64, scope="LSTM-2"))
 
-        output = lstms[-1].output
+        layers += lstms
+
+        output = layers[-1].output
+
+        state_in, state_out = [], []
+        for lstm in lstms:
+            state_in  += lstm.state_in
+            state_out += lstm.state_out
+
+        lstm = AttrDict(
+            state_in  = state_in,
+            state_out = state_out,
+            prev_state_out = None
+        )
+    else:
+        layers.append(tf.contrib.layers.fully_connected(
+            inputs=layers[-1],
+            num_outputs=64,
+            activation_fn=tf.nn.tanh,
+            scope="state-hidden-dense-2"
+        ))
+
+        """
+        layers.append(tf.contrib.layers.fully_connected(
+            inputs=layers[-1],
+            num_outputs=64,
+            activation_fn=tf.nn.tanh,
+            scope="state-hidden-dense-3"
+        ))
+        """
+
+        layers.append(deflatten(layers[-1], S, B))
+
+        output = layers[-1]
+
+        lstm = None
 
     """
     if add_summaries:
@@ -207,21 +244,10 @@ def build_shared_network(input, add_summaries=False):
             # for layer in layers: tf.contrib.layers.summarize_activation(layer)
     """
 
-    layers = [fc, concat1] + lstms
-
     for layer in layers:
         tf.logging.info(layer)
 
-    state_in, state_out = [], []
-    for lstm in lstms:
-        state_in  += lstm.state_in
-        state_out += lstm.state_out
-
-    return output, AttrDict(
-        state_in  = state_in,
-        state_out = state_out,
-        prev_state_out = None
-    )
+    return output, lstm
 
 def policy_network(input, num_outputs, clip_mu=True):
 
@@ -231,11 +257,13 @@ def policy_network(input, num_outputs, clip_mu=True):
         S, B = get_seq_length_batch_size(input)
         input = flatten(input)
 
+    """
     input = tf.contrib.layers.fully_connected(
         inputs=input,
         num_outputs=256,
         activation_fn=None,
         scope="policy-input-dense")
+    """
 
     # Linear classifiers for mu and sigma
     mu = tf.contrib.layers.fully_connected(
@@ -268,11 +296,13 @@ def state_value_network(input, num_outputs=1):
         S, B = get_seq_length_batch_size(input)
         input = flatten(input)
 
+    """
     input = tf.contrib.layers.fully_connected(
         inputs=input,
         num_outputs=256,
         activation_fn=None,
         scope="value-input-dense")
+    """
 
     # This is just linear classifier
     value = tf.contrib.layers.fully_connected(

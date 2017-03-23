@@ -83,12 +83,10 @@ class EpisodeStats(object):
 
         # set print options
         np.set_printoptions(formatter={'float_kind': lambda x: "{:.2f}".format(x)})
-        """
         tf.logging.info(
             "Episode {:05d}: total return: {} [mean = {:.2f}], length = {}, timesteps = \33[93m{}\33[0m".format(
                 self.num_episodes(), rewards_all_agent, reward, length, timesteps
         ))
-        """
         # reset print options
         np.set_printoptions()
 
