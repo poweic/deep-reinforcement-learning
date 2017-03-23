@@ -21,7 +21,7 @@ class A3CEstimator():
         with tf.name_scope("outputs"):
             self.advantages  = tf.placeholder(tf.float32, [seq_length, batch_size, 1], "advantages")
             self.returns     = tf.placeholder(tf.float32, [seq_length, batch_size, 1], "returns")
-            self.actions_ext = tf.placeholder(tf.float32, [seq_length, batch_size, 2], "actions_ext")
+            self.actions_ext = tf.placeholder(tf.float32, [seq_length, batch_size, FLAGS.num_actions], "actions_ext")
 
         with tf.variable_scope("shared"):
             shared, self.lstm = build_shared_network(self.state, add_summaries=add_summaries)
