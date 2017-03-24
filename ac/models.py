@@ -151,6 +151,27 @@ def build_convnet(input):
 
     return flat
 
+def resnet_block(inputs, num_outputs, activation_fn=tf.nn.relu):
+    y = inputs
+
+    y = tf.contrib.layers.fully_connected(
+        y, num_outputs, activation_fn=activation_fn,
+        normalizer_fn=tf.contrib.layers.batch_norm,
+        normalizer_params={'updates_collections': None}
+    )
+
+    y = tf.contrib.layers.fully_connected(
+        y, num_outputs, activation_fn=None,
+        normalizer_fn=tf.contrib.layers.batch_norm,
+        normalizer_params={'updates_collections': None}
+    )
+
+    y += inputs
+
+    y = activation_fn(y)
+
+    return y
+
 def build_shared_network(input, add_summaries=False):
     """
     Builds a 3-layer network conv -> conv -> fc as described
