@@ -51,6 +51,7 @@ tf.flags.DEFINE_boolean("bi-directional", False, "If set, use bi-directional RNN
 tf.flags.DEFINE_boolean("drift", False, "If set, turn on drift")
 tf.flags.DEFINE_boolean("reset", False, "If set, delete the existing model directory and start training from scratch.")
 tf.flags.DEFINE_boolean("display", True, "If set, no imshow will be called")
+tf.flags.DEFINE_boolean("show-memory-usage", False, "If set, show memory usage during training")
 tf.flags.DEFINE_boolean("resume", False, "If set, resume training from the corresponding last checkpoint file")
 tf.flags.DEFINE_boolean("debug", False, "If set, turn on the debug flag")
 tf.flags.DEFINE_boolean("dump-crash-report", False, "If set, dump mdp_states and internal TF variables when crashed.")

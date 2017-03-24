@@ -71,7 +71,8 @@ class AcerWorker(Worker):
         if self.gstep % FLAGS.decay_steps == 0:
             tf.logging.info("learning rate = {}".format(self.sess.run(self.local_net.lr)))
 
-        show_mem_usage()
+        if FLAGS.show_memory_usage:
+            show_mem_usage()
 
         # Run on-policy ACER
         self._run_on_policy()
