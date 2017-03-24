@@ -73,7 +73,6 @@ class Worker(object):
         seed = self.env.seed()
         self.reset_env()
         self.local_net.reset_lstm_state()
-        prev_done = False
 
         reward = np.zeros((1, self.n_agents), dtype=np.float32)
         for i in range(n_steps):
@@ -104,15 +103,15 @@ class Worker(object):
                 done=done.copy()
             ))
 
-            if prev_done:
-                break
-
-            if np.any(done):
-                prev_done = True
-
             self.state = next_state
 
+            if np.any(done):
+                state = form_state(self.env, self.state, self.action, reward)
+                transitions.append(AttrDict(state=state))
+                break
+
         rollout = self.process_rollouts(transitions, seed)
+        rollout.r = self.total_return
 
         return rollout
 
