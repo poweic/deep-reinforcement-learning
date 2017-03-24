@@ -117,7 +117,8 @@ class AcerWorker(Worker):
         # last consecutive N episodes
         stats = self.global_episode_stats
         mean, std, msg = stats.last_n_stats()
-        tf.logging.info("\33[93m" + msg + "\33[0m")
+        if self.name == "worker_0":
+            tf.logging.info("\33[93m" + msg + "\33[0m")
 
         """
         solved = stats.num_episodes() > FLAGS.min_episodes and mean > FLAGS.score_to_win
@@ -196,7 +197,7 @@ class AcerWorker(Worker):
         loss, summaries, _, debug, self.gstep = net.update(self.step_op, feed_dict, self.sess)
         loss = AttrDict(loss)
 
-        if display:
+        if display and self.name == "worker_0":
             tf.logging.info((
                 "#{:6d}: pi_loss = {:+8.3f}, vf_loss = {:+8.3f}, entropy_loss = {:8.3f},"
                 "loss = {:+8.3f} {}\33[0m S = {:3d}, B = {} [{}] global_norm = {:7.2e}"
