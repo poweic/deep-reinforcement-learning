@@ -1,7 +1,7 @@
 import numpy as np
 import tensorflow as tf
-from ac.distributions import create_distribution
-from ac.models import policy_network
+from drl.ac.distributions import create_distribution
+from drl.ac.models import policy_network
 FLAGS = tf.flags.FLAGS
 
 def build_policy(input, dist_type):

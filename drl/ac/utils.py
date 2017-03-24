@@ -495,7 +495,7 @@ def put_kernels_on_grid(kernel, pad = 1):
     return x7
 
 def compute_mean_steering_angle(reward):
-    from ac.utils import to_image
+    from drl.ac.utils import to_image
     import cv2
     rimg = to_image(reward, 20)
     cv2.imshow("reward", rimg)

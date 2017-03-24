@@ -12,7 +12,7 @@ import shutil
 import threading
 import time
 import schedule
-from my_config import parse_flags
+from drl.config import parse_flags
 
 tf.flags.DEFINE_integer("max-steps", "1000", "Maximum steps per episode")
 tf.flags.DEFINE_integer("random-seed", None, "Random seed for gym.env and TensorFlow")
@@ -22,9 +22,9 @@ FLAGS = parse_flags()
 import gym
 import gym_offroad_nav.envs
 
-from ac.estimators import get_estimator
-from ac.worker import Worker
-from ac.utils import save_model, write_statistics, EpisodeStats, warm_up_env
+from drl.ac.estimators import get_estimator
+from drl.ac.worker import Worker
+from drl.ac.utils import save_model, write_statistics, EpisodeStats, warm_up_env
 warm_up_env()
 
 import Queue

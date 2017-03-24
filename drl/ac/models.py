@@ -1,6 +1,6 @@
 import sys
 import tensorflow as tf
-from ac.utils import *
+from drl.ac.utils import *
 FLAGS = tf.flags.FLAGS
 batch_size = FLAGS.batch_size
 

@@ -3,9 +3,9 @@ import tensorflow as tf
 import scipy.io
 import traceback
 import time
-import ac.a3c.estimators
-from ac.worker import Worker
-from ac.utils import *
+import drl.ac.a3c.estimators
+from drl.ac.worker import Worker
+from drl.ac.utils import *
 
 FLAGS = tf.flags.FLAGS
 
@@ -21,7 +21,7 @@ class A3CWorker(Worker):
     summary_writer: A tf.train.SummaryWriter for Tensorboard summaries
     """
     def __init__(self, **kwargs):
-        self.Estimator = ac.a3c.estimators.A3CEstimator
+        self.Estimator = drl.ac.a3c.estimators.A3CEstimator
         super(A3CWorker, self).__init__(**kwargs)
 
     def set_global_net(self, global_net):

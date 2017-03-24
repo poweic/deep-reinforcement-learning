@@ -1,5 +1,5 @@
 import tensorflow as tf
-from ac.utils import *
+from drl.ac.utils import *
 FLAGS = tf.flags.FLAGS
 
 def create_distribution(dist_type, bijectors=None, **stats):

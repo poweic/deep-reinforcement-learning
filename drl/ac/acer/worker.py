@@ -2,9 +2,9 @@
 import gc
 from collections import OrderedDict
 import tensorflow as tf
-import ac.acer.estimators
-from ac.worker import Worker
-from ac.utils import *
+import drl.ac.acer.estimators
+from drl.ac.worker import Worker
+from drl.ac.utils import *
 import time
 
 class AcerWorker(Worker):
@@ -19,7 +19,7 @@ class AcerWorker(Worker):
     summary_writer: A tf.train.SummaryWriter for Tensorboard summaries
     """
     def __init__(self, **kwargs):
-        self.Estimator = ac.acer.estimators.AcerEstimator
+        self.Estimator = drl.ac.acer.estimators.AcerEstimator
         super(AcerWorker, self).__init__(**kwargs)
 
     def set_global_net(self, global_net):
@@ -37,7 +37,7 @@ class AcerWorker(Worker):
         self.prev_debug = None
         self.prev_mdp_states = None
 
-        train_and_update_avgnet_op = ac.acer.estimators.create_avgnet_init_op(
+        train_and_update_avgnet_op = drl.ac.acer.estimators.create_avgnet_init_op(
             self.global_step, avg_vars, global_net, self.local_net
         )
 

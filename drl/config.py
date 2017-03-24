@@ -105,7 +105,7 @@ def parse_flags():
     FLAGS.checkpoint_dir = FLAGS.exp_dir + "/checkpoint"
     FLAGS.save_path      = FLAGS.checkpoint_dir + "/model"
 
-    from ac.utils import AttrDict, mkdir_p
+    from drl.ac.utils import AttrDict, mkdir_p
 
     mkdir_p(FLAGS.checkpoint_dir)
 
@@ -116,7 +116,7 @@ def parse_flags():
 
     FLAGS.regenerate_exp_after_resume = FLAGS.resume
 
-    import my_logger
+    import drl.logger
 
     exp_config = pprint.pformat(FLAGS.__flags)
     FLAGS.exp_config = exp_config

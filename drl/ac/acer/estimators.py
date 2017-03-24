@@ -1,11 +1,11 @@
 import sys
 import tensorflow as tf
 from pprint import pprint
-from ac.utils import *
-from ac.distributions import *
-from ac.models import *
-from ac.policies import build_policy
-import ac.acer.worker
+from drl.ac.utils import *
+from drl.ac.distributions import *
+from drl.ac.models import *
+from drl.ac.policies import build_policy
+import drl.ac.acer.worker
 import threading
 
 FLAGS = tf.flags.FLAGS
@@ -599,4 +599,4 @@ class AcerEstimator():
                 AcerEstimator.average_net = AcerEstimator(add_summaries=False, trainable=False)
                 AcerEstimator.average_net.lock = threading.Lock()
 
-AcerEstimator.Worker = ac.acer.worker.AcerWorker
+AcerEstimator.Worker = drl.ac.acer.worker.AcerWorker
