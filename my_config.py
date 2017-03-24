@@ -61,6 +61,7 @@ tf.flags.DEFINE_boolean("train-value-scale", False, "If set, add additional trai
 tf.flags.DEFINE_float("t-max", 30, "Maximum elasped time per simulation (in seconds)")
 tf.flags.DEFINE_float("command-freq", 20, "How frequent we send command to vehicle (in Hz)")
 
+tf.flags.DEFINE_integer("hidden-size", 128, "size of hidden layer")
 tf.flags.DEFINE_float("learning-rate", 2e-4, "Learning rate for policy net and value net")
 tf.flags.DEFINE_float("lr-vp-ratio", 1, "Learning rate of value:Learning rate of policy")
 tf.flags.DEFINE_boolean("random-learning-rate", False, "Random sample learning rate from LogUniform(min, max)")

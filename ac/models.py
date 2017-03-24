@@ -190,31 +190,32 @@ def build_shared_network(input, add_summaries=False):
     else:
         input = flatten(input.state)
 
-    fc = tf.contrib.layers.fully_connected(
-        inputs=input,
-        num_outputs=64,
-        activation_fn=tf.nn.tanh,
-        scope="state-hidden-dense")
+    layers = [input]
 
-    layers = [fc]
+    layers.append(tf.contrib.layers.fully_connected(
+        inputs=layers[-1],
+        num_outputs=FLAGS.hidden_size,
+        activation_fn=tf.nn.tanh,
+        scope="state-hidden-dense"
+    ))
 
     if FLAGS.use_lstm:
         # Flatten convolutions output to fit fully connected layer
-        fc = deflatten(fc, S, B)
+        layers.append(deflatten(layers[-1], S, B))
 
         lstms = []
         # LSTM-1
         # Concatenate encoder's output (i.e. flattened result from conv net)
         # with previous reward (see https://arxiv.org/abs/1611.03673)
         # concat1 = tf.concat(2, [fc, input.prev_reward])
-        concat1 = fc
-        lstms.append(LSTM(concat1, 64, scope="LSTM-1"))
+        concat1 = layers[-1]
+        lstms.append(LSTM(concat1, FLAGS.hidden_size, scope="LSTM-1"))
 
         # LSTM-2
         # Concatenate previous output with vehicle_state and prev_action
         # concat2 = tf.concat(2, [fc, lstms[-1].output, vehicle_state, input.prev_action])
         concat2 = lstms[-1].output
-        lstms.append(LSTM(concat2, 64, scope="LSTM-2"))
+        lstms.append(LSTM(concat2, FLAGS.hidden_size, scope="LSTM-2"))
 
         layers += lstms
 
@@ -231,9 +232,15 @@ def build_shared_network(input, add_summaries=False):
             prev_state_out = None
         )
     else:
+
+        """
+        for i in range(3):
+            layers.append(resnet_block(layers[-1], FLAGS.hidden_size, tf.nn.relu))
+
+        """
         layers.append(tf.contrib.layers.fully_connected(
             inputs=layers[-1],
-            num_outputs=64,
+            num_outputs=FLAGS.hidden_size,
             activation_fn=tf.nn.tanh,
             scope="state-hidden-dense-2"
         ))
@@ -241,7 +248,7 @@ def build_shared_network(input, add_summaries=False):
         """
         layers.append(tf.contrib.layers.fully_connected(
             inputs=layers[-1],
-            num_outputs=64,
+            num_outputs=FLAGS.hidden_size,
             activation_fn=tf.nn.tanh,
             scope="state-hidden-dense-3"
         ))
