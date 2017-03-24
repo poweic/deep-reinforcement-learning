@@ -203,7 +203,7 @@ class Worker(object):
 
         rp.append(rollout)
 
-        if len(rp) % 100 == 0:
+        if len(rp) % 100 == 0 and len(rp) < FLAGS.max_replay_buffer_size:
             tf.logging.info("len(replay_buffer) = {}".format(len(rp)))
 
     def run(self, sess, coord):
