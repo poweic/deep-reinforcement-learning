@@ -47,6 +47,7 @@ tf.flags.DEFINE_string("policy-dist", "Gaussian", "Either Gaussian, Beta, or Stu
 tf.flags.DEFINE_integer("bucket-width", 10, "bucket_width")
 tf.flags.DEFINE_integer("num-sdn-samples", 8, "soft update momentum for average policy network in TRPO")
 
+tf.flags.DEFINE_boolean("share-network", True, "If set, value net and policy net will share a common network")
 tf.flags.DEFINE_boolean("bi-directional", False, "If set, use bi-directional RNN/LSTM")
 tf.flags.DEFINE_boolean("drift", False, "If set, turn on drift")
 tf.flags.DEFINE_boolean("reset", False, "If set, delete the existing model directory and start training from scratch.")

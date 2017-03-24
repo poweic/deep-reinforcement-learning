@@ -172,7 +172,7 @@ def resnet_block(inputs, num_outputs, activation_fn=tf.nn.relu):
 
     return y
 
-def build_shared_network(input, add_summaries=False):
+def build_network(input, add_summaries=False):
     """
     Builds a 3-layer network conv -> conv -> fc as described
     in the A3C paper. This network is shared by both the policy and value net.
@@ -266,14 +266,14 @@ def build_shared_network(input, add_summaries=False):
             conv1_w = [v for v in tf.trainable_variables() if "conv1/weights"][0]
             grid = put_kernels_on_grid(conv1_w)
             tf.summary.image("conv1/weights", grid)
-
             tf.summary.image("front_view", front_view, max_outputs=500)
-
             # for layer in layers: tf.contrib.layers.summarize_activation(layer)
     """
 
     for layer in layers:
         tf.logging.info(layer)
+
+    output = tf_check_numerics(output)
 
     return output, lstm
 

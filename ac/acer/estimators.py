@@ -60,8 +60,7 @@ class AcerEstimator():
             self.done = tf.placeholder(tf.bool, [batch_size, 1], "done")
 
         with tf.variable_scope("shared"):
-            shared, self.lstm = build_shared_network(self.state, add_summaries)
-            shared = tf_check_numerics(shared)
+            shared, self.lstm = build_network(self.state, add_summaries)
 
         # For k-step rollout s_i, i = 0, 1, ..., k-1, we need one additional
         # state s_k s.t. we can bootstrap value from it, i.e. we need V(s_k)
@@ -71,6 +70,10 @@ class AcerEstimator():
             self.value_last = value[-1:, ...] * tf.to_float(~self.done)[None, ...]
             self.value = value[:self.seq_length, ...]
 
+        with tf.variable_scope("shared-policy"):
+            if not FLAGS.share_network:
+                # right now this only works for non-lstm version
+                shared, _ = build_network(self.state, add_summaries)
             shared = shared[:self.seq_length, ...]
 
         with tf.variable_scope("policy"):
