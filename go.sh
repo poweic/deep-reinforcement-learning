@@ -5,10 +5,10 @@
   --game OffRoadNav-v0 \
   --base-dir /Data3/a3c-post-icml2017/ \
   --max-global-steps 80000 \
-  --estimator-type A3C \
+  --estimator-type ACER \
   --log-file train.$(date +%s).log \
   --stats-file train.$(date +%s).stats.csv \
-  --parallelism 2 \
+  --parallelism 1 \
   --track big_track \
   --save-every-n-minutes 30 \
   --policy-dist Beta \
@@ -20,12 +20,14 @@
   --field-of-view 20 \
   --timestep 0.0025 \
   --replay-ratio 8 \
+  --lambda_ 0.5 \
   --avg-net-momentum 0.95 \
   --max-replay-buffer-size 5000 \
   --command-freq 5 \
   --discount-factor 0.99 \
   --n-agents-per-worker 16 \
   --vehicle-model-noise-level 2e-2 \
+  --entropy-cost-mult 1e-2 \
   --regenerate-size 10 \
   --l2-reg 1e-4 \
   $@

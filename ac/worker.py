@@ -73,7 +73,6 @@ class Worker(object):
         seed = self.env.seed()
         self.reset_env()
         self.local_net.reset_lstm_state()
-        prev_done = False
 
         reward = np.zeros((1, self.n_agents), dtype=np.float32)
         for i in range(n_steps):
@@ -85,6 +84,9 @@ class Worker(object):
 
             # Take a step in environment
             next_state, reward, done, _ = self.env.step(self.action.squeeze())
+            if FLAGS.game == "Humanoid-v1" and self.name == "worker_0" and FLAGS.display:
+                self.env.render()
+            # if done: reward -= 100
             reward = np.array([reward], np.float32).reshape(1, self.n_agents)
             done = np.array(done).reshape(1, self.n_agents)
 
@@ -104,15 +106,15 @@ class Worker(object):
                 done=done.copy()
             ))
 
-            if prev_done:
-                break
-
-            if np.any(done):
-                prev_done = True
-
             self.state = next_state
 
+            if np.any(done):
+                state = form_state(self.env, self.state, self.action, reward)
+                transitions.append(AttrDict(state=state))
+                break
+
         rollout = self.process_rollouts(transitions, seed)
+        rollout.r = self.total_return
 
         return rollout
 
@@ -154,8 +156,8 @@ class Worker(object):
         if rollout.seq_length <= max_length:
             return rollout
 
-        # start = np.random.randint(max(0, rollout.seq_length - max_length))
-        start = 0
+        start = np.random.randint(max(0, rollout.seq_length - max_length))
+        # start = 0
         end = start + max_length
         s  = slice(start, end)
         s1 = slice(start, end + 1)
@@ -204,7 +206,7 @@ class Worker(object):
 
         rp.append(rollout)
 
-        if len(rp) % 100 == 0:
+        if len(rp) % 100 == 0 and len(rp) < FLAGS.max_replay_buffer_size:
             tf.logging.info("len(replay_buffer) = {}".format(len(rp)))
 
     def run(self, sess, coord):

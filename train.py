@@ -32,6 +32,7 @@ import multiprocessing
 
 def make_env(worker=None):
     env = gym.make(FLAGS.game)
+    env.reset()
 
     if FLAGS.random_seed is not None:
         env.seed(FLAGS.random_seed)
@@ -50,13 +51,13 @@ def render(q):
         try:
             rollout = q.get_nowait()
 
-            env.seed(rollout.seed)
+            # env.seed(rollout.seed[0])
             env.reset()
 
             for action in rollout.action:
-                env.step(action.T)
+                # time.sleep(0.02)
                 env.render()
-                cv2.waitKey(20)
+                env.step(action.T)
 
         except Queue.Empty:
             print "wait another 5 seconds"
@@ -66,6 +67,7 @@ env = make_env()
 if FLAGS.display:
     env.render()
     cv2.waitKey(10)
+    env.close()
 
 # Optionally empty model directory
 if FLAGS.reset:
@@ -165,15 +167,17 @@ with tf.Session(config=cfg) as sess:
 
     q = multiprocessing.Manager().Queue(maxsize=5)
     render_process = multiprocessing.Process(target=render, args=(q,))
-    render_process.start()
+    # render_process.start()
 
     # Show how agent behaves in envs in main thread
     while not Worker.stop:
+        """
         if FLAGS.display and len(Worker.replay_buffer) > 0:
             try:
                 q.put_nowait(Worker.replay_buffer[-1])
             except:
                 pass
+        """
 
         time.sleep(1)
 

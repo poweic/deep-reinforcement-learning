@@ -68,9 +68,14 @@ class AcerEstimator():
         with tf.variable_scope("V"):
             value = state_value_network(shared)
             value *= tf.Variable(1, dtype=tf.float32, name="value_scale", trainable=FLAGS.train_value_scale)
-            shared = shared[:self.seq_length, ...]
             self.value_last = value[-1:, ...] * tf.to_float(~self.done)[None, ...]
             self.value = value[:self.seq_length, ...]
+
+        """
+        with tf.variable_scope("shared-policy"):
+            shared, _ = build_shared_network(self.state, add_summaries)
+            shared = shared[:self.seq_length, ...]
+        """
 
         with tf.variable_scope("policy"):
             self.pi, self.pi_behavior = build_policy(shared, FLAGS.policy_dist)
