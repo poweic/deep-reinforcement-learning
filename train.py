@@ -13,7 +13,6 @@ import threading
 import time
 import schedule
 from my_config import parse_flags
-import multiprocessing
 
 tf.flags.DEFINE_integer("max-steps", "1000", "Maximum steps per episode")
 tf.flags.DEFINE_integer("random-seed", None, "Random seed for gym.env and TensorFlow")
@@ -29,34 +28,13 @@ from ac.utils import save_model, write_statistics, EpisodeStats, warm_up_env
 warm_up_env()
 
 import Queue
+from drl.monitor import Monitor
 import multiprocessing
-
-def render(q):
-    env = gym.make(FLAGS.game)
-    while True:
-        try:
-            rollout = q.get_nowait()
-
-            env.seed(rollout.seed[0])
-            env.reset()
-
-            for action in rollout.action:
-                # time.sleep(0.02)
-                env.render()
-                env.step(action.T)
-
-        except Queue.Empty:
-            tf.logging.info("wait another 5 seconds")
-            time.sleep(5)
-
-        except Exception as e:
-            tf.logging.info("\33[31m[Exception]\33[0m {}".format(e))
+tf.logging.info("Number of cpus = {}".format(multiprocessing.cpu_count()))
 
 # Optionally empty model directory
 if FLAGS.reset:
     shutil.rmtree(FLAGS.base_dir, ignore_errors=True)
-
-tf.logging.info("Number of cpus = {}".format(multiprocessing.cpu_count()))
 
 # Optionally empty model directory
 cfg = tf.ConfigProto()
@@ -146,19 +124,13 @@ with tf.Session(config=cfg) as sess:
             time.sleep(5)
         worker_threads.append(t)
 
-    # server.start()
-
-    q = multiprocessing.Manager().Queue(maxsize=5)
-    render_process = multiprocessing.Process(target=render, args=(q,))
-    render_process.start()
+    monitor = Monitor()
+    monitor.start()
 
     # Show how agent behaves in envs in main thread
     while not Worker.stop:
         if FLAGS.display and len(Worker.replay_buffer) > 0:
-            try:
-                q.put_nowait(Worker.replay_buffer[-1])
-            except:
-                pass
+            monitor.send(Worker.replay_buffer[-1])
 
         time.sleep(1)
 
@@ -166,7 +138,7 @@ with tf.Session(config=cfg) as sess:
 
     # Wait for threads and process to finish
     coord.join(worker_threads)
-    render_process.join()
+    monitor.join()
 
     # Save model and statistics
     save_model()
