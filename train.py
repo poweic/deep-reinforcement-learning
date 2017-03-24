@@ -25,47 +25,32 @@ import gym_offroad_nav.envs
 
 from ac.estimators import get_estimator
 from ac.worker import Worker
-from ac.utils import save_model, write_statistics, EpisodeStats, get_dof, state_featurizer
+from ac.utils import save_model, write_statistics, EpisodeStats, warm_up_env
+warm_up_env()
 
 import Queue
 import multiprocessing
 
-def make_env(worker=None):
-    env = gym.make(FLAGS.game)
-
-    if FLAGS.random_seed is not None:
-        env.seed(FLAGS.random_seed)
-
-    FLAGS.action_space = env.action_space
-    FLAGS.num_actions = get_dof(env.action_space)
-    FLAGS.num_states = get_dof(env.observation_space)
-
-    FLAGS.featurize_state, FLAGS.num_states = state_featurizer(env)
-
-    return env
-
 def render(q):
-
+    env = gym.make(FLAGS.game)
     while True:
         try:
             rollout = q.get_nowait()
 
-            env.seed(rollout.seed)
+            env.seed(rollout.seed[0])
             env.reset()
 
             for action in rollout.action:
-                env.step(action.T)
+                # time.sleep(0.02)
                 env.render()
-                cv2.waitKey(20)
+                env.step(action.T)
 
         except Queue.Empty:
-            print "wait another 5 seconds"
+            tf.logging.info("wait another 5 seconds")
             time.sleep(5)
 
-env = make_env()
-if FLAGS.display:
-    env.render()
-    cv2.waitKey(10)
+        except Exception as e:
+            tf.logging.info("\33[31m[Exception]\33[0m {}".format(e))
 
 # Optionally empty model directory
 if FLAGS.reset:
@@ -113,7 +98,7 @@ with tf.Session(config=cfg) as sess:
 
         worker = Estimator.Worker(
             name=name,
-            make_env=make_env,
+            env=gym.make(FLAGS.game),
             global_counter=global_counter,
             global_episode_stats=FLAGS.stats,
             global_net=global_net,

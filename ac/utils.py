@@ -9,6 +9,7 @@ import scipy.interpolate as interpolate
 import tensorflow as tf
 import inspect
 import schedule
+import gym
 from gym import spaces
 FLAGS = tf.flags.FLAGS
 
@@ -21,6 +22,29 @@ def get_dof(space):
             return space.n
         except: # else Box
             return np.prod(space.shape)
+
+def initialize_env_related_flags(env):
+    if FLAGS.random_seed is not None:
+        env.seed(FLAGS.random_seed)
+
+    FLAGS.action_space = env.action_space
+    FLAGS.num_actions = get_dof(env.action_space)
+    FLAGS.num_states = get_dof(env.observation_space)
+
+    FLAGS.featurize_state, FLAGS.num_states = state_featurizer(env)
+
+def warm_up_env():
+    # If tf.contribs is imported earlier than the first env.render(), contribs
+    # will mess up some resource needed by env.render(). YOU MUST call this
+    # function before using tf.contribs to warm up.
+
+    env = gym.make(FLAGS.game)
+    initialize_env_related_flags(env)
+
+    if FLAGS.display:
+        env.render()
+
+    env.close()
 
 def check_none_grads(grads_and_vars):
 
