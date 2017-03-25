@@ -9,6 +9,7 @@ import scipy.interpolate as interpolate
 import tensorflow as tf
 import inspect
 import schedule
+import cv2
 import gym
 from gym import spaces
 FLAGS = tf.flags.FLAGS
@@ -402,7 +403,7 @@ def varName(var):
 
 def tf_check_numerics(x, message=None):
     if not FLAGS.debug:
-	return x
+        return x
 
     if message is None:
         message = varName(x)
@@ -494,9 +495,13 @@ def put_kernels_on_grid(kernel, pad = 1):
     # scaling to [0, 255] is not necessary for tensorboard
     return x7
 
+def to_image(R, K, interpolation=cv2.INTER_NEAREST):
+    R = normalize(R)
+    R = cv2.resize(R, (R.shape[1] * K, R.shape[0] * K), interpolation=interpolation)[..., None]
+    R = np.concatenate([R, R, R], axis=2)
+    return R
+
 def compute_mean_steering_angle(reward):
-    from drl.ac.utils import to_image
-    import cv2
     rimg = to_image(reward, 20)
     cv2.imshow("reward", rimg)
 
