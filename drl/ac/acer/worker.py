@@ -90,11 +90,11 @@ class AcerWorker(Worker):
         tf.logging.info("Re-generating {} experiences ...".format(N))
 
         self.copy_params_from_global()
-        while len(Worker.replay_buffer) < N:
+        while len(self.replay_buffer) < N:
             self.store_experience(self.run_n_steps(FLAGS.max_steps))
 
         tf.logging.info("Regeneration done. len(replay_buffer) = {}.".format(
-            len(Worker.replay_buffer)))
+            len(self.replay_buffer)))
 
     def should_stop(self):
 
@@ -140,7 +140,7 @@ class AcerWorker(Worker):
         self._run_off_policy(N)
 
     def _run_off_policy(self, N):
-        rp = Worker.replay_buffer
+        rp = self.replay_buffer
 
         if len(rp) <= N:
             return

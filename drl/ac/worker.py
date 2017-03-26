@@ -43,9 +43,8 @@ class Worker(object):
         self.max_return = 0
         self.summary_writer = None
 
-        self.local_counter = itertools.count()
-
-        self.reset_env()
+        # Assign each worker (thread) a memory replay buffer
+        self.replay_buffer = deque(maxlen=FLAGS.max_replay_buffer_size)
 
     def copy_params_from_global(self):
         # Copy Parameters from the global networks
@@ -199,7 +198,7 @@ class Worker(object):
 
         # Store rollout in the replay buffer, discard the oldest by popping
         # the 1st element if it exceeds maximum buffer size
-        rp = Worker.replay_buffer
+        rp = self.replay_buffer
 
         rp.append(rollout)
 
@@ -222,4 +221,3 @@ class Worker(object):
                 traceback.print_exc()
 
 Worker.stop = False
-Worker.replay_buffer = deque(maxlen=FLAGS.max_replay_buffer_size)

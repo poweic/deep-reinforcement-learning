@@ -129,8 +129,9 @@ with tf.Session(config=cfg) as sess:
 
     # Show how agent behaves in envs in main thread
     while not Worker.stop:
-        if FLAGS.display and len(Worker.replay_buffer) > 0:
-            monitor.send(Worker.replay_buffer[-1])
+        tf.logging.info("len(workers[0].replay_buffer) = {}".format(len(workers[0].replay_buffer)))
+        if FLAGS.display and len(workers[0].replay_buffer) > 0:
+            monitor.send(workers[0].replay_buffer[-1])
 
         time.sleep(1)
         schedule.run_pending()
