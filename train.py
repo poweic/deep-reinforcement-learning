@@ -133,15 +133,15 @@ with tf.Session(config=cfg) as sess:
             monitor.send(Worker.replay_buffer[-1])
 
         time.sleep(1)
-
         schedule.run_pending()
 
     # Wait for threads and process to finish
     coord.join(worker_threads)
     monitor.join()
 
-    # Save model and statistics
+    # Save model and dump statistics to both file and screen
     save_model()
     write_statistics()
+    tf.logging.info(FLAGS.stats.summary())
 
 env.close()

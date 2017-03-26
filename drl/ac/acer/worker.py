@@ -81,12 +81,7 @@ class AcerWorker(Worker):
         self._run_off_policy_n_times()
 
         if self.should_stop():
-            """ tf.logging.info("Optimization done. @ step {} because {}".format(
-            self.gstep, "problem solved." if solved else "maximum steps reached"
-            )) """
             tf.logging.info("Optimization done. @ step {}".format(self.gstep))
-            tf.logging.info(self.global_episode_stats.summary())
-
             Worker.stop = True
             self.coord.request_stop()
 
