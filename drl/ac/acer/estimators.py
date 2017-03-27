@@ -553,7 +553,7 @@ class AcerEstimator():
                 # fc1 = input_with_a
                 fc1 = tf.contrib.layers.fully_connected(
                     inputs=input_with_a,
-                    num_outputs=256,
+                    num_outputs=FLAGS.hidden_size,
                     activation_fn=tf.nn.relu,
                     scope="fc1")
 
