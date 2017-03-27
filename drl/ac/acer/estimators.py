@@ -444,7 +444,7 @@ class AcerEstimator():
         V_l2_loss = 0.5 * tf.square(V_diff)
 
         # This is the surrogate loss function for V_l2
-        V_l2_loss_sur = tf.stop_gradient(V_diff) * value
+        V_l2_loss_sur = -tf.stop_gradient(V_diff) * value
 
         # Compute the objective function (obj) we try to maximize
         loss     = Q_l2_loss + V_l2_loss
