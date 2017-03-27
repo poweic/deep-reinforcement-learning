@@ -182,7 +182,8 @@ class AcerWorker(Worker):
         if rollout.seq_length == 0:
             return
 
-        rollout = self.get_partial_rollout(rollout, FLAGS.max_seq_length)
+        length = rollout.seq_length if on_policy else FLAGS.max_seq_length
+        rollout = self.get_partial_rollout(rollout, length)
         # self.summarize_rollout(rollout)
 
         # Start to put things in placeholders in graph
