@@ -135,6 +135,21 @@ class AcerWorker(Worker):
         # Store experience and collect statistics
         self.store_experience(rollout)
 
+        """
+        # If this rollout is 3*std better than last 1000 average, then we run
+        # this policy more times than usual (without copy_params_from_global)
+        mean, std, msg = self.global_episode_stats.last_n_stats(1000)
+        if rollout.r - mean > 2 * std:
+            n_more_times = int((rollout.r - mean) / std * 5)
+            tf.logging.info("\33[96mRe-run {} more times\33[0m".format(
+                n_more_times))
+
+            for i in range(n_more_times):
+                rollout = self.run_n_steps(FLAGS.max_steps)
+                self.update(rollout)
+                self.store_experience(rollout)
+        """
+
     def _run_off_policy_n_times(self):
         N = np.random.poisson(FLAGS.replay_ratio)
         self._run_off_policy(N)
