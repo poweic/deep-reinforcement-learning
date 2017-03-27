@@ -147,13 +147,14 @@ class Worker(object):
             seed = seed,
         )
 
-    def get_partial_rollout(self, rollout, max_length):
+    def get_partial_rollout(self, rollout, max_length, start=None):
 
         if rollout.seq_length <= max_length:
             return rollout
 
-        # start = np.random.randint(max(0, rollout.seq_length - max_length))
-        start = 0
+        if start is None:
+            start = np.random.randint(max(0, rollout.seq_length - max_length))
+
         end = start + max_length
         s  = slice(start, end)
         s1 = slice(start, end + 1)
