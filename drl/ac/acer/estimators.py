@@ -434,12 +434,6 @@ class AcerEstimator():
 
     def get_value_loss(self, Q_ret, Q_tilt_a, rho, value):
 
-        """ # DEBUG
-        cond = tf.reduce_mean(0.5 * tf.square(Q_ret - Q_tilt_a)) > 5000.
-        Q_ret = tf_print(Q_ret, "Q_ret = ", cond)
-        Q_tilt_a = tf_print(Q_tilt_a, "Q_tilt_a = ", cond)
-        """
-
         tf.logging.info("Computing value loss ...")
 
         Q_diff = Q_ret - Q_tilt_a
