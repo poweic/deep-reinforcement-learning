@@ -124,14 +124,13 @@ with tf.Session(config=cfg) as sess:
             time.sleep(5)
         worker_threads.append(t)
 
-    monitor = Monitor()
+    # Show how each agent behaves in a seperate monitor thread
+    monitor = Monitor(workers)
     monitor.start()
 
-    # Show how agent behaves in envs in main thread
     while not Worker.stop:
-        tf.logging.info("len(workers[0].replay_buffer) = {}".format(len(workers[0].replay_buffer)))
-        if FLAGS.display and len(workers[0].replay_buffer) > 0:
-            monitor.send(workers[0].replay_buffer[-1])
+        if FLAGS.display:
+            monitor.refresh()
 
         time.sleep(1)
         schedule.run_pending()

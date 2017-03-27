@@ -33,7 +33,9 @@ def renderer(q):
 
 
 class Monitor(object):
-    def __init__(self):
+    def __init__(self, workers):
+        self.prev_data = [None] * len(workers)
+        self.workers = workers
         self.queue = multiprocessing.Manager().Queue(maxsize=5)
         self.render_process = multiprocessing.Process(
             target=renderer, args=(self.queue,))
@@ -43,6 +45,21 @@ class Monitor(object):
             self.queue.put_nowait(data)
         except:
             pass
+
+    def refresh(self):
+        # Iterate all workers and see whether there's new rollout to render
+        # We keep track the previous data we sent for each worker so that we
+        # won't render same rollout twice.
+        for i, worker in enumerate(self.workers):
+            if len(worker.replay_buffer) == 0:
+                continue
+
+            data = worker.replay_buffer[-1]
+            if self.prev_data[i] == data:
+                continue
+
+            self.send(data)
+            self.prev_data[i] = data
     
     def start(self):
         self.render_process.start()
