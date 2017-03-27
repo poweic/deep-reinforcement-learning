@@ -54,7 +54,7 @@ class AcerEstimator():
             # Come up a solution to pass seq_length+1 and seq_length at the same time.
             # maybe a assertion ? But that could be hard to understand
             self.seq_length = tf.placeholder(tf.int32, [], "seq_length")
-            self.state = get_state_placeholder(seq_length if seq_length is None else seq_length + 1)
+            self.state = get_state_placeholder()
             self.a = tf.placeholder(tf.float32, [seq_length, batch_size, FLAGS.num_actions], "actions")
             self.r = tf.placeholder(tf.float32, [seq_length, batch_size, 1], "rewards")
             self.done = tf.placeholder(tf.bool, [batch_size, 1], "done")

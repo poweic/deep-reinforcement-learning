@@ -2,7 +2,6 @@ import sys
 import tensorflow as tf
 from drl.ac.utils import *
 FLAGS = tf.flags.FLAGS
-batch_size = FLAGS.batch_size
 
 def naive_mean_steer_policy(front_view):
     H, W = front_view.get_shape().as_list()[2:4]
@@ -29,7 +28,9 @@ def naive_mean_steer_policy(front_view):
 
     return num / denom
 
-def get_state_placeholder(seq_length=FLAGS.seq_length):
+def get_state_placeholder():
+    seq_length = FLAGS.seq_length
+    batch_size = FLAGS.batch_size
 
     # Note that placeholder are tf.Tensor not tf.Variable
     prev_action = tf.placeholder(tf.float32, [seq_length, batch_size, FLAGS.num_actions], "prev_action")
@@ -55,7 +56,9 @@ def get_state_placeholder(seq_length=FLAGS.seq_length):
 
     return placeholder
 
-def LSTM(input, num_outputs, scope=None):
+def LSTM(input, num_outputs, scope=None, state_in_fw=None, state_in_bw=None):
+
+    batch_size = FLAGS.batch_size
 
     with tf.variable_scope(scope):
         # Forward LSTM Cell and its initial state placeholder
@@ -64,10 +67,11 @@ def LSTM(input, num_outputs, scope=None):
             # cell_clip=10., num_proj=num_outputs, proj_clip=10.
         )
 
-        state_in_fw = [
-            tf.placeholder(tf.float32, [batch_size, lstm_fw.state_size.c], name="c_fw"),
-            tf.placeholder(tf.float32, [batch_size, lstm_fw.state_size.h], name="h_fw")
-        ]
+        if state_in_fw is None:
+            state_in_fw = [
+                tf.placeholder(tf.float32, [batch_size, lstm_fw.state_size.c], name="c_fw"),
+                tf.placeholder(tf.float32, [batch_size, lstm_fw.state_size.h], name="h_fw")
+            ]
 
         if FLAGS.bi_directional:
             # Backward LSTM Cell and its initial state placeholder
@@ -76,10 +80,11 @@ def LSTM(input, num_outputs, scope=None):
                 # cell_clip=10., num_proj=num_outputs, proj_clip=10.
             )
 
-            state_in_bw = [
-                tf.placeholder(tf.float32, [batch_size, lstm_bw.state_size.c], name="c_bw"),
-                tf.placeholder(tf.float32, [batch_size, lstm_bw.state_size.h], name="h_bw")
-            ]
+            if state_in_bw is None:
+                state_in_bw = [
+                    tf.placeholder(tf.float32, [batch_size, lstm_bw.state_size.c], name="c_bw"),
+                    tf.placeholder(tf.float32, [batch_size, lstm_bw.state_size.h], name="h_bw")
+                ]
 
             broadcaster = tf.to_int32(input[0, :, 0]) * 0
             sequence_length = tf.shape(input)[0] + broadcaster
