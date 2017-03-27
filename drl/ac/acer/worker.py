@@ -218,46 +218,7 @@ class AcerWorker(Worker):
                 rollout.seq_length, rollout.batch_size, self.name, loss.global_norm
             ))
 
-        """
-        if "grad_norms" in loss:
-            grad_norms = OrderedDict(sorted(loss.grad_norms.items()))
-            max_len = max(map(len, grad_norms.keys()))
-            for k, v in grad_norms.iteritems():
-                tf.logging.info("{} grad norm: {}{:12.6e}\33[0m".format(
-                    k.ljust(max_len), "\33[94m" if v > 0 else "\33[2m", v))
-        """
-
-        """
-        # ======================= DEBUG =================================
-        if FLAGS.dump_crash_report and np.isnan(loss.total):
-            np.set_printoptions(precision=4, linewidth=500, suppress=True, formatter={
-                'float_kind': lambda x: ("\33[2m" if x == 0 else "") + (("{:+12.5e}" if abs(x) < 1e-9 or abs(x) > 10 else "{:+12.9f}").format(x)) + "\33[0m"
-            })
-            
-            for k in debug_keys:
-                tf.logging.info("\33[93m {} [{}] = \33[0m\n{}".format(k, debug[k].shape, debug[k]))
-
-            import scipy.io
-            scipy.io.savemat("debug.mat", debug)
-            scipy.io.savemat("prev_debug.mat", self.prev_debug)
-
-            scipy.io.savemat("mdp_states.mat", mdp_states)
-            scipy.io.savemat("prev_mdp_states.mat", self.prev_mdp_states)
-
-            import ipdb; ipdb.set_trace()
-
-            np.set_printoptions()
-
-            self.prev_debug = debug
-            self.prev_mdp_states = mdp_states
-        # ======================= DEBUG =================================
-
-        self.sess.run(FLAGS.set_time_op, feed_dict={
-            FLAGS.global_timestep_placeholder: int(time.time())
-        })
-
         # Write summaries
         if self.summary_writer is not None:
             self.summary_writer.add_summary(summaries, self.gstep)
             self.summary_writer.flush()
-        """

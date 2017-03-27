@@ -120,8 +120,8 @@ class AcerEstimator():
             # Surrogate loss is the loss tensor we passed to optimizer for
             # automatic gradient computation, it uses lots of stop_gradient.
             # Therefore it's different from the true loss (self.loss)
-            entropy = tf.reduce_sum(tf.reduce_mean(self.pi.entropy(), axis=1), axis=0)
-            self.entropy_loss = -entropy * FLAGS.entropy_cost_mult
+            self.entropy = tf.reduce_sum(tf.reduce_mean(self.pi.entropy(), axis=1), axis=0)
+            self.entropy_loss = -self.entropy * FLAGS.entropy_cost_mult
 
             for loss in [self.pi_loss_sur, self.vf_loss_sur, self.entropy_loss]:
                 assert len(loss.get_shape()) == 0
@@ -580,9 +580,18 @@ class AcerEstimator():
         if not add_summaries:
             return tf.no_op()
 
+        # sum over rewards along the sequence dimension to get total return
+        # and take mean along the batch dimension
+        self.total_return = tf.reduce_mean(tf.reduce_sum(self.r, axis=0))
+
+        keys_to_summarize = [
+            "vf_loss", "pi_loss", "entropy", "mean_KL", "loss",
+            "total_return", "seq_length"
+        ]
+
         tf.logging.info("Adding summaries ...")
         with tf.name_scope("summaries"):
-            for key in ["vf_loss", "pi_loss", "entropy_loss", "mean_KL", "loss"]:
+            for key in keys_to_summarize:
                 tf.summary.scalar(key, getattr(self, key))
 
         return tf.summary.merge_all()
