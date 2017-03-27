@@ -132,8 +132,6 @@ class AcerEstimator():
                 + self.entropy_loss
             )
 
-            # self.g_phi = tf.pack(tf.gradients(self.loss_sur, self.pi.phi), axis=-1)
-
             self.loss = self.pi_loss + self.vf_loss + self.entropy_loss
 
         with tf.name_scope("grads_and_optimizer"):
@@ -170,7 +168,6 @@ class AcerEstimator():
 
         self.lock = None
 
-        tf.logging.info("Adding summaries ...")
         self.summaries = self.summarize(add_summaries)
 
     def compute_rho(self, a, a_prime, pi, pi_behavior):
@@ -295,6 +292,8 @@ class AcerEstimator():
             KL_divergence = tf.contrib.distributions.kl(
                 pi_avg.dist, pi.dist, allow_nan=False)
 
+            self.mean_KL = tf.reduce_mean(KL_divergence)
+
             # Take the partial derivatives w.r.t. phi (i.e. mu and sigma)
             # k = tf.pack(tf.gradients(KL_divergence, pi.phi), axis=-1)
             k = tf_concat(-1, tf.gradients(KL_divergence, pi.phi))
@@ -305,7 +304,6 @@ class AcerEstimator():
 
             # Hold gradient back a little bit if KL divergence is too large
             correction = tf.maximum(0., num / denom) * k
-            self.correction = correction
 
             # z* is the TRPO regularized gradient
             z_star = g - correction
@@ -582,10 +580,10 @@ class AcerEstimator():
         if not add_summaries:
             return tf.no_op()
 
+        tf.logging.info("Adding summaries ...")
         with tf.name_scope("summaries"):
-            tf.summary.scalar("vf_loss", self.vf_loss)
-            tf.summary.scalar("pi_loss", self.pi_loss)
-            tf.summary.scalar("loss", self.loss)
+            for key in ["vf_loss", "pi_loss", "entropy_loss", "mean_KL", "loss"]:
+                tf.summary.scalar(key, getattr(self, key))
 
         return tf.summary.merge_all()
 

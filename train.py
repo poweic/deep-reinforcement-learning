@@ -87,7 +87,7 @@ with tf.Session(config=cfg) as sess:
 
     if FLAGS.summarize:
         tf.logging.info("Create summary writer ... (this takes a long time)")
-        summary_dir = os.path.join(FLAGS.base_dir, "train")
+        summary_dir = os.path.join(FLAGS.exp_dir, "train")
         summary_writer = tf.summary.FileWriter(summary_dir, sess.graph)
         workers[0].summary_writer = summary_writer
 
