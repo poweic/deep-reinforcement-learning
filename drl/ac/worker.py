@@ -128,13 +128,12 @@ class Worker(object):
         reward = np.stack([t.reward.T for t in trans])
         done = np.stack([t.done.T for t in trans])
 
+        pi_stats = None
         if trans[0].pi_stats is not None:
             pi_stats = {
                 k: np.concatenate([t.pi_stats[k] for t in trans])
                 for k in trans[0].pi_stats.keys()
             }
-        else:
-            pi_stats = None
 
         return AttrDict(
             states = states,
@@ -150,7 +149,7 @@ class Worker(object):
     def get_partial_rollout(self, rollout, max_length, start=None):
 
         if rollout.seq_length <= max_length:
-            return rollout
+            start = 0
 
         if start is None:
             start = np.random.randint(max(0, rollout.seq_length - max_length))
