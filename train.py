@@ -22,13 +22,16 @@ FLAGS = parse_flags()
 import gym
 import gym_offroad_nav.envs
 
+from drl.monitor import Monitor
+# Show how each agent behaves in a seperate monitor thread
+monitor = Monitor()
+monitor.start()
+
 from drl.ac.estimators import get_estimator
 from drl.ac.worker import Worker
 from drl.ac.utils import save_model, write_statistics, EpisodeStats, warm_up_env
 warm_up_env()
 
-import Queue
-from drl.monitor import Monitor
 import multiprocessing
 tf.logging.info("Number of cpus = {}".format(multiprocessing.cpu_count()))
 
@@ -124,9 +127,7 @@ with tf.Session(config=cfg) as sess:
             time.sleep(5)
         worker_threads.append(t)
 
-    # Show how each agent behaves in a seperate monitor thread
-    monitor = Monitor(workers)
-    monitor.start()
+    monitor.monitor(workers)
 
     while not Worker.stop:
         if FLAGS.display:

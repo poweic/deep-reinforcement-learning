@@ -35,16 +35,13 @@ def initialize_env_related_flags(env):
     FLAGS.featurize_state, FLAGS.num_states = state_featurizer(env)
 
 def warm_up_env():
+    # DEPRECATED because I move monitor to the top of train.py
     # If tf.contribs is imported earlier than the first env.render(), contribs
     # will mess up some resource needed by env.render(). YOU MUST call this
     # function before using tf.contribs to warm up.
 
     env = gym.make(FLAGS.game)
     initialize_env_related_flags(env)
-
-    if FLAGS.display:
-        env.render()
-
     env.close()
 
 def check_none_grads(grads_and_vars):

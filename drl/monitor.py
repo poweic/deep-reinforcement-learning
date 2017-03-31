@@ -10,11 +10,16 @@ FLAGS = tf.flags.FLAGS
 # actions and render.
 def renderer(q):
 
-    env = gym.make(FLAGS.game)
+    env = None
 
     while True:
         try:
             rollout = q.get_nowait()
+
+            # env was initially set to None, because we start rendering only
+            # after we receive data
+            if env is None:
+                env = gym.make(FLAGS.game)
 
             env.seed(rollout.seed[0])
             env.reset()
@@ -22,7 +27,6 @@ def renderer(q):
             for action in rollout.action:
                 env.render()
                 env.step(action.T)
-                time.sleep(0.01)
 
         except Queue.Empty:
             tf.logging.info("Nothing in queue to render, wait 5 seconds ...")
@@ -33,9 +37,7 @@ def renderer(q):
 
 
 class Monitor(object):
-    def __init__(self, workers):
-        self.prev_data = [None] * len(workers)
-        self.workers = workers
+    def __init__(self):
         self.queue = multiprocessing.Manager().Queue(maxsize=5)
         self.render_process = multiprocessing.Process(
             target=renderer, args=(self.queue,))
@@ -46,6 +48,10 @@ class Monitor(object):
         except:
             pass
 
+    def monitor(self, workers):
+        self.workers = workers
+        self.prev_data = [None] * len(workers)
+
     def refresh(self):
         # Iterate all workers and see whether there's new rollout to render
         # We keep track the previous data we sent for each worker so that we
@@ -55,7 +61,7 @@ class Monitor(object):
                 continue
 
             data = worker.replay_buffer[-1]
-            if self.prev_data[i] == data:
+            if self.prev_data[i] is data:
                 continue
 
             self.send(data)
