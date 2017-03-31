@@ -52,11 +52,10 @@ class Worker(object):
 
     def reset_env(self):
 
-        self.state = self.env.reset()
+        env_state = self.env.reset()
 
         # Reshape to compatiable format
-        # self.state = self.state.astype(np.float32).reshape(6, -1)
-        self.action = np.zeros((FLAGS.num_actions, self.n_agents), dtype=np.float32)
+        action = np.zeros((FLAGS.num_actions, self.n_agents), dtype=np.float32)
 
         self.total_return = np.zeros((1, self.n_agents), dtype=np.float32)
         self.current_reward = np.zeros((1, self.n_agents), dtype=np.float32)
@@ -64,25 +63,30 @@ class Worker(object):
         # Set initial timestamp
         self.global_episode_stats.set_initial_timestamp()
 
+        return env_state, action
+
     def run_n_steps(self, n_steps):
 
         transitions = []
 
         # Initial state
         seed = self.env.seed()
-        self.reset_env()
-        self.local_net.reset_lstm_state()
+        env_state, action = self.reset_env()
+        hidden_states = self.local_net.get_initial_hidden_states(self.n_agents)
 
         reward = np.zeros((1, self.n_agents), dtype=np.float32)
         for i in range(n_steps):
 
-            state = form_state(self.env, self.state, self.action, reward)
+            # Note: state is "fully observable" state, it contains env.state,
+            # lstm.hidden_states, and other things like prev_action and reward
+            state = form_state(self.env, env_state, action, reward, hidden_states)
 
             # Predict an action
-            self.action, pi_stats = self.local_net.predict_actions(state, self.sess)
+            action, pi_stats, hidden_states = \
+                self.local_net.predict_actions(state, self.sess)
 
             # Take a step in environment
-            next_state, reward, done, _ = self.env.step(self.action.squeeze())
+            env_state, reward, done, _ = self.env.step(action.squeeze())
             reward = np.array([reward], np.float32).reshape(1, self.n_agents)
             done = np.array(done).reshape(1, self.n_agents)
 
@@ -96,17 +100,15 @@ class Worker(object):
             transitions.append(AttrDict(
                 state=state,
                 pi_stats=pi_stats,
-                action=self.action.copy(),
+                action=action.copy(),
                 reward=reward.copy(),
-                # hidden_states=self.local_net.lstm.prev_state_out,
                 done=done.copy()
             ))
 
-            self.state = next_state
-
             if np.any(done):
-                state = form_state(self.env, self.state, self.action, reward)
-                transitions.append(AttrDict(state=state))
+                transitions.append(AttrDict(state=form_state(
+                    self.env, env_state, action, reward, hidden_states
+                )))
                 break
 
         rollout = self.process_rollouts(transitions, seed)
@@ -146,27 +148,77 @@ class Worker(object):
             seed = seed,
         )
 
-    def get_partial_rollout(self, rollout, max_length, start=None):
+    def get_partial_rollout(self, rollout, length=None, start=None):
+        """
+        Returns a random slice of rollout consisting of
+        min(length, FLAGS.max_seq_length) steps
+        """
 
-        if rollout.seq_length <= max_length:
+        # if length is not specified, then use the full sequence
+        if length is None:
+            length = rollout.seq_length
+
+        # the length can't be longer than max_seq_length, which is used to
+        # protect GPU OOM (out of memory) error
+        length = min(length, FLAGS.max_seq_length)
+
+        # Decide a start index, either from 0 if rollout is not long enough, or
+        # randomly choose one between 0 to max(0, rollout.seq_length - length)
+        if rollout.seq_length <= length:
             start = 0
 
         if start is None:
-            start = np.random.randint(max(0, rollout.seq_length - max_length))
+            start = np.random.randint(max(0, rollout.seq_length - length))
 
-        end = start + max_length
+        # We use slice(start, end) for most of the attributes in rollout, but
+        # slice(start, end + 1) for states, since we need to bootstrap value
+        # from the last state
+        end = start + length
         s  = slice(start, end)
         s1 = slice(start, end + 1)
 
+        lstm_state_keys = self.local_net.lstm.inputs.keys()
+
         return AttrDict(
-            states = AttrDict({k: v[s1] for k, v in rollout.states.iteritems()}),
+            states = AttrDict({
+                k: v[s1] if k not in lstm_state_keys else v[start]
+                for k, v in rollout.states.iteritems()
+            }),
             action = rollout.action[s],
             reward = rollout.reward[s],
             done = rollout.done[s],
             pi_stats = None if rollout.pi_stats is None else {k: v[s] for k, v in rollout.pi_stats.iteritems()},
-            seq_length = min(rollout.seq_length, max_length),
+            seq_length = min(rollout.seq_length, length),
             batch_size = rollout.batch_size,
             seed = rollout.seed,
+        )
+
+    def batch_rollouts(self, rollouts):
+
+        for rollout in rollouts:
+            assert rollout.seq_length == rollouts[0].seq_length
+
+        def concat(key):
+            return np.concatenate([r[key] for r in rollouts], axis=-2)
+
+        return AttrDict(
+            states = {
+                k: np.concatenate(
+                    [r.states[k] for r in rollouts],
+                    axis=(-2 if k is not "front_view" else 1)
+                )
+                for k in rollouts[0].states.keys()
+            },
+            action = concat('action'),
+            reward = concat('reward'),
+            done = concat('done'),
+            pi_stats = {
+                k: np.concatenate([r.pi_stats[k] for r in rollouts], axis=-2)
+                for k in rollouts[0].pi_stats.keys()
+            },
+            seq_length = rollouts[0].seq_length,
+            batch_size = self.n_agents * len(rollouts),
+            seed = [r.seed for r in rollouts],
         )
 
     def summarize_rollout(self, rollout):

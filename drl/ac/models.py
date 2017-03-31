@@ -129,6 +129,7 @@ def build_convnet(input):
     # rank = get_rank(input.front_view)
     S, B = get_seq_length_batch_size(input.front_view)
     front_view = flatten(input.front_view)
+    layers = [front_view]
 
     with tf.name_scope("conv"):
 
@@ -137,24 +138,21 @@ def build_convnet(input):
 
         # Batch norm is NOT compatible with LSTM
         # (see Issue: https://github.com/tensorflow/tensorflow/issues/6087)
-        batch_norm = None # tf.contrib.layers.batch_norm
+        conv_options = {
+            "activation_fn": tf.nn.relu,
+            "normalizer_fn": None, # tf.contrib.layers.batch_norm,
+            "normalizer_params": None, # {'updates_collections': None}
+        }
 
-        conv1 = conv2d(front_view, 64, 5, activation_fn=tf.nn.relu, normalizer_fn=batch_norm, scope="conv1")
-        conv2 = conv2d(conv1, 64, 5, activation_fn=tf.nn.relu, normalizer_fn=batch_norm, scope="conv2")
-        pool1 = max_pool2d(conv2, 3, stride=2, scope='pool1', padding="SAME")
-
-        conv3 = conv2d(pool1, 64, 5, activation_fn=tf.nn.relu, normalizer_fn=batch_norm, scope="conv3")
-        conv4 = conv2d(conv3, 64, 5, activation_fn=tf.nn.relu, normalizer_fn=batch_norm, scope="conv4")
-        pool2 = max_pool2d(conv4, 3, stride=2, scope='pool2', padding="SAME")
-
-        # conv5 = conv2d(pool2, 64, 5, activation_fn=tf.nn.relu, normalizer_fn=batch_norm, scope="conv5")
-        # conv6 = conv2d(conv5, 64, 5, activation_fn=tf.nn.relu, normalizer_fn=batch_norm, scope="conv6")
-        # pool3 = max_pool2d(conv6, 3, stride=2, scope='pool3', padding="SAME")
+        for i in range(2):
+            layers.append(conv2d(layers[-1], 32, 5, scope="conv%d-1" % i, **conv_options))
+            layers.append(conv2d(layers[-1], 32, 5, scope="conv%d-2" % i, **conv_options))
+            layers.append(max_pool2d(layers[-1], 3, stride=2, scope='pool%d' % i, padding="SAME"))
 
         # Reshape [seq_len * batch_size, H, W, C] to [seq_len * batch_size, H * W * C]
-        flat = tf.contrib.layers.flatten(pool2)
+        layers.append(tf.contrib.layers.flatten(layers[-1]))
 
-    return flat
+    return layers[-1]
 
 def resnet_block(inputs, num_outputs, activation_fn=tf.nn.relu):
     y = inputs
@@ -177,7 +175,7 @@ def resnet_block(inputs, num_outputs, activation_fn=tf.nn.relu):
 
     return y
 
-def build_network(input, add_summaries=False):
+def build_network(input, scope_name, add_summaries=False):
     """
     Builds a 3-layer network conv -> conv -> fc as described
     in the A3C paper. This network is shared by both the policy and value net.
@@ -219,8 +217,10 @@ def build_network(input, add_summaries=False):
         # LSTM-2
         # Concatenate previous output with vehicle_state and prev_action
         # concat2 = tf.concat(2, [fc, lstms[-1].output, vehicle_state, input.prev_action])
+        """
         concat2 = lstms[-1].output
         lstms.append(LSTM(concat2, FLAGS.hidden_size, scope="LSTM-2"))
+        """
 
         layers += lstms
 
@@ -231,11 +231,17 @@ def build_network(input, add_summaries=False):
             state_in  += lstm.state_in
             state_out += lstm.state_out
 
-        lstm = AttrDict(
-            state_in  = state_in,
-            state_out = state_out,
-            prev_state_out = None
+        # Given a TF variable v, remove the leading scope name and ":0" part
+        def _hash_(v):
+            return str(v.name).replace(scope_name, "").replace(":0", "")
+
+        keys = [_hash_(v) for v in state_in]
+
+        states = AttrDict(
+            inputs = {k: v for k, v in zip(keys, state_in)},
+            outputs = {k: v for k, v in zip(keys, state_out)},
         )
+
     else:
 
         """
@@ -263,7 +269,10 @@ def build_network(input, add_summaries=False):
 
         output = layers[-1]
 
-        lstm = None
+        states = AttrDict(
+            inputs = {},
+            outputs = {}
+        )
 
     """
     if add_summaries:
@@ -280,7 +289,7 @@ def build_network(input, add_summaries=False):
 
     output = tf_check_numerics(output)
 
-    return output, lstm
+    return output, states
 
 def policy_network(input, num_outputs, clip_mu=True):
 
@@ -351,23 +360,16 @@ def state_value_network(input, num_outputs=1):
 
     return value
 
-def fill_lstm_state_placeholder(lstm, feed_dict, batch_size):
-    # If previous LSTM state out is empty, then set it to zeros
-    if lstm.prev_state_out is None:
+def get_lstm_initial_states(lstm_states, batch_size):
 
-        lstm.prev_state_out = [
-            np.zeros((batch_size, s.get_shape().as_list()[1]), np.float32)
-            for s in lstm.state_in
-        ]
+    # the shape of s is [batch_size, hidden_size] & batch_size is usually None
+    def get_hidden_size(s):
+        return s.get_shape().as_list()[1]
 
-    # Set placeholders with previous LSTM state output
-    try:
-        for sin, prev_sout in zip(lstm.state_in, lstm.prev_state_out):
-            feed_dict[sin] = prev_sout
-    except:
-        print "lstm.state_in = {}".format(lstm.state_in)
-        print "lstm.prev_state_out = {}".format(lstm.prev_state_out)
-        sys.exit()
+    return {
+        k: np.zeros((batch_size, get_hidden_size(v)), np.float32)
+        for k, v in lstm_states.iteritems()
+    }
 
 def get_forward_velocity(state):
     v = state.vehicle_state[..., 4:5]

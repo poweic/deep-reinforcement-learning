@@ -130,7 +130,7 @@ class AcerWorker(Worker):
         rollout = self.run_n_steps(FLAGS.max_steps)
 
         # Compute gradient and Perform update
-        self.update(rollout)
+        self.update(self.get_partial_rollout(rollout))
 
         # Store experience and collect statistics
         self.store_experience(rollout)
@@ -151,7 +151,7 @@ class AcerWorker(Worker):
         """
 
     def _run_off_policy_n_times(self):
-        N = np.random.poisson(FLAGS.replay_ratio)
+        N = np.random.poisson(FLAGS.replay_ratio) * FLAGS.off_policy_batch_size
         self._run_off_policy(N)
 
     def _run_off_policy(self, N):
@@ -170,20 +170,25 @@ class AcerWorker(Worker):
         else:
             indices = np.random.randint(len(rp), size=N)
 
-        for i, idx in enumerate(indices):
-            if i % FLAGS.copy_params_every_nth == 0:
-                self.copy_params_from_global()
+        for i, chucked_indices in enumerate(chunks(indices, FLAGS.off_policy_batch_size)):
+            self.copy_params_from_global()
 
-            # Compute gradient and Perform update
-            self.update(rp[idx], on_policy=False, display=(i == 0))
+            # Compute gradient and perform update
+            length = min([rp[idx].seq_length for idx in chucked_indices])
+            rollouts = [
+                self.get_partial_rollout(rp[idx], length=length)
+                for idx in chucked_indices
+            ]
+
+            batched_rollouts = self.batch_rollouts(rollouts)
+
+            self.update(batched_rollouts, on_policy=False, display=(i == 0))
 
     def update(self, rollout, on_policy=True, display=True):
 
         if rollout.seq_length == 0:
             return
 
-        length = rollout.seq_length if on_policy else FLAGS.max_seq_length
-        rollout = self.get_partial_rollout(rollout, length)
         # self.summarize_rollout(rollout)
 
         # Start to put things in placeholders in graph
@@ -202,8 +207,6 @@ class AcerWorker(Worker):
         feed_dict.update({net.state[k]:     v for k, v in rollout.states.iteritems()})
         feed_dict.update({avg_net.state[k]: v for k, v in rollout.states.iteritems()})
         feed_dict.update({net.pi_behavior.stats[k]: v for k, v in rollout.pi_stats.iteritems()})
-
-        net.reset_lstm_state()
 
         loss, summaries, _, debug, self.gstep = net.update(self.step_op, feed_dict, self.sess)
         loss = AttrDict(loss)

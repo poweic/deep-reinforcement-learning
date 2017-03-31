@@ -63,22 +63,23 @@ def pretty_float(fmt):
     fmt = fmt.replace("%f", "{:+8.3f}")
     return fmt
 
-def form_state(env, state, prev_action, prev_reward):
-    state = FLAGS.featurize_state(state)
+def form_state(env, env_state, prev_action, prev_reward, hidden_states):
+    env_state = FLAGS.featurize_state(env_state)
 
-    if "OffRoadNav" in FLAGS.game:
-        return AttrDict(
-            front_view    = env.get_front_view(state).copy(),
-            vehicle_state = state.copy().T,
-            prev_action   = prev_action.copy().T,
-            prev_reward   = prev_reward.copy().T
-        )
-    else:
-        return AttrDict(
-            state = state.reshape(-1, 1).copy().T,
-            prev_action = prev_action.copy().T,
-            prev_reward = prev_reward.copy().T
-        )
+    state = AttrDict(
+        prev_action   = prev_action.copy().T,
+        prev_reward   = prev_reward.copy().T
+    )
+
+    if hidden_states is not None:
+        state.update(hidden_states)
+
+    if "OffRoadNav" not in FLAGS.game:
+        env_state = {"state": env_state.reshape(-1, 1).copy().T}
+
+    state.update(env_state)
+
+    return state
 
 class EpisodeStats(object):
     def __init__(self):

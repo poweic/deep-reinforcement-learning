@@ -49,6 +49,8 @@ class AcerEstimator():
 
         self.avg_net = getattr(AcerEstimator, "average_net", self)
 
+        scope_name = tf.get_variable_scope().name + '/'
+
         with tf.name_scope("inputs"):
             # TODO When seq_length is None, use seq_length + 1 is somewhat counter-intuitive.
             # Come up a solution to pass seq_length+1 and seq_length at the same time.
@@ -60,7 +62,7 @@ class AcerEstimator():
             self.done = tf.placeholder(tf.bool, [batch_size, 1], "done")
 
         with tf.variable_scope("shared"):
-            shared, self.lstm = build_network(self.state, add_summaries)
+            shared, self.lstm = build_network(self.state, scope_name, add_summaries)
 
         # For k-step rollout s_i, i = 0, 1, ..., k-1, we need one additional
         # state s_k s.t. we can bootstrap value from it, i.e. we need V(s_k)
@@ -72,9 +74,14 @@ class AcerEstimator():
 
         with tf.variable_scope("shared-policy"):
             if not FLAGS.share_network:
-                # right now this only works for non-lstm version
-                shared, _ = build_network(self.state, add_summaries)
+                # FIXME right now this only works for non-lstm version
+                shared, lstm2 = build_network(self.state, scope_name, add_summaries)
+                self.lstm.inputs.update(lstm2.inputs)
+                self.lstm.outputs.update(lstm2.outputs)
+
             shared = shared[:self.seq_length, ...]
+
+        self.state.update(self.lstm.inputs)
 
         with tf.variable_scope("policy"):
             self.pi, self.pi_behavior = build_policy(shared, FLAGS.policy_dist)
@@ -289,8 +296,8 @@ class AcerEstimator():
         try:
             # Compute the KL-divergence between the policy distribution of the
             # average policy network and those of this network, i.e. KL(avg || this)
-            KL_divergence = tf.contrib.distributions.kl(
-                pi_avg.dist, pi.dist, allow_nan=False)
+            KL_divergence = tf.reduce_sum(tf.contrib.distributions.kl(
+                pi_avg.dist, pi.dist, allow_nan=False), axis=2)
 
             self.mean_KL = tf.reduce_mean(KL_divergence)
 
@@ -319,35 +326,28 @@ class AcerEstimator():
         return z_star
 
     def to_feed_dict(self, state):
-        rank_a = len(self.state.prev_reward.get_shape())
-        rank_b = state.prev_reward.ndim
 
         feed_dict = {
-            self.state[k]: state[k] if rank_a == rank_b else state[k][None, ...]
+            self.state[k]: state[k]
+            if same_rank(self.state[k], state[k]) else state[k][None, ...]
             for k in state.keys()
         }
 
         return feed_dict
 
-    def reset_lstm_state(self):
-        if self.lstm:
-            self.lstm.prev_state_out = None
+    def get_initial_hidden_states(self, batch_size):
+        return get_lstm_initial_states(self.lstm.inputs, batch_size)
 
     def predict(self, tensors, feed_dict, sess=None):
         sess = sess or tf.get_default_session()
 
         B = feed_dict[self.state.prev_reward].shape[1]
 
-        if self.lstm:
-            fill_lstm_state_placeholder(self.lstm, feed_dict, B)
+        output, hidden_states = sess.run([
+            tensors, self.lstm.outputs
+        ], feed_dict)
 
-            output, self.lstm.prev_state_out = sess.run([
-                tensors, self.lstm.state_out
-            ], feed_dict)
-        else:
-            output = sess.run(tensors, feed_dict)
-
-        return output
+        return output, hidden_states
 
     def update(self, tensors, feed_dict, sess=None):
         sess = sess or tf.get_default_session()
@@ -356,14 +356,7 @@ class AcerEstimator():
         # avg_net.LSTM states won't be changed by other threads before
         # calling sess.run
         with self.avg_net.lock:
-
-            B = feed_dict[self.state.prev_reward].shape[1]
-
-            if self.lstm:
-                self.avg_net.reset_lstm_state()
-                fill_lstm_state_placeholder(self.avg_net.lstm, feed_dict, B)
-
-            output = self.predict(tensors, feed_dict, sess)
+            output, _ = self.predict(tensors, feed_dict, sess)
 
         return output
 
@@ -372,11 +365,11 @@ class AcerEstimator():
         feed_dict = self.to_feed_dict(state)
         feed_dict[self.seq_length] = 1
 
-        a_prime, stats = self.predict(self.action_and_stats, feed_dict, sess)
+        (a_prime, stats), hidden_states = self.predict(self.action_and_stats, feed_dict, sess)
 
         a_prime = a_prime[0, ...].T
 
-        return a_prime, stats
+        return a_prime, stats, hidden_states
 
     def get_policy_loss(self, rho, pi, a, Q_opc, value, rho_prime,
                         Q_tilt_a_prime, a_prime):
