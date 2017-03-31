@@ -106,10 +106,11 @@ class Worker(object):
             ))
 
             if np.any(done):
-                transitions.append(AttrDict(state=form_state(
-                    self.env, env_state, action, reward, hidden_states
-                )))
                 break
+
+        transitions.append(AttrDict(state=form_state(
+            self.env, env_state, action, reward, hidden_states
+        )))
 
         rollout = self.process_rollouts(transitions, seed)
         rollout.r = self.total_return
