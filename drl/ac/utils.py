@@ -140,8 +140,11 @@ class EpisodeStats(object):
     def last_n_stats(self, N=None):
         if N is None:
             N = FLAGS.min_episodes
-        last_n = self.episode_rewards[-N:]
-        mean, std = np.mean(last_n), np.std(last_n)
+        if self.num_episodes() == 0:
+            mean, std = 0, 0
+        else:
+            last_n = self.episode_rewards[-N:]
+            mean, std = np.mean(last_n), np.std(last_n)
         return mean, std, "Last {} episodes' score: {} ± {}".format(N, mean, std)
 
     def num_episodes(self):
