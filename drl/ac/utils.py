@@ -237,7 +237,13 @@ def tf_concat(axis, tensors):
     return tf.concat(axis, tensors)
 
 def get_rank(x):
-    return len(x.get_shape())
+    try:
+        return x.ndim
+    except:
+        return len(x.get_shape())
+
+def same_rank(x, y):
+    return get_rank(x) == get_rank(y)
 
 def get_seq_length_batch_size(x):
     shape = tf.shape(x)
@@ -551,3 +557,8 @@ def gumbel_softmax(logits, temperature, hard=False):
         y = tf.stop_gradient(y_hard - y) + y
 
     return y
+
+def chunks(l, n):
+    """Yield successive n-sized chunks from l."""
+    for i in range(0, len(l), n):
+        yield l[i:i + n]
