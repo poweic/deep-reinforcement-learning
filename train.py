@@ -14,9 +14,6 @@ import time
 import schedule
 from drl.config import parse_flags
 
-tf.flags.DEFINE_integer("max-steps", "1000", "Maximum steps per episode")
-tf.flags.DEFINE_integer("random-seed", None, "Random seed for gym.env and TensorFlow")
-
 FLAGS = parse_flags()
 
 import gym

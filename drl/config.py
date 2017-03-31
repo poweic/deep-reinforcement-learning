@@ -3,6 +3,9 @@ import numpy as np
 import tensorflow as tf
 import pprint
 
+tf.flags.DEFINE_integer("max-steps", "1000", "Maximum steps per episode")
+tf.flags.DEFINE_integer("random-seed", None, "Random seed for gym.env and TensorFlow")
+
 tf.flags.DEFINE_string("base-dir", "exp/", "Directory to write Tensorboard summaries and models to.")
 tf.flags.DEFINE_string("exp", None, "Optional experiment tag")
 tf.flags.DEFINE_string("log-file", None, "log file")
