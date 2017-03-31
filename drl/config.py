@@ -17,7 +17,7 @@ tf.flags.DEFINE_float("score-to-win", 100.0, "score to win if the average of las
 tf.flags.DEFINE_integer("max-global-steps", None, "Stop training after this many updates of neural network. Defaults to run forever.")
 tf.flags.DEFINE_integer("seq-length", None, "sequence length used for construct TF graph")
 tf.flags.DEFINE_integer("batch-size", None, "batch size used for construct TF graph")
-tf.flags.DEFINE_integer("max-seq-length", 512, "maximum sequence length without out of memory")
+tf.flags.DEFINE_integer("max-seq-length", 1024, "maximum sequence length without out of memory")
 tf.flags.DEFINE_integer("decay-steps", 1000, "Decay learning using exponential_decay with staircase=True")
 tf.flags.DEFINE_float("decay-rate", 0.7071, "Decay learning using exponential_decay with staircase=True")
 tf.flags.DEFINE_float("per-process-gpu-memory-fraction", 1.0, "per_process_gpu_memory_fraction for TF session config")
@@ -30,7 +30,7 @@ tf.flags.DEFINE_integer("parallelism", 1, "Number of threads to run. If not set 
 tf.flags.DEFINE_integer("downsample", 5, "Downsample transitions to reduce sample correlation")
 tf.flags.DEFINE_integer("n-agents-per-worker", 1, "Downsample transitions to reduce sample correlation")
 tf.flags.DEFINE_integer("save-every-n-minutes", 10, "Save model every N minutes")
-tf.flags.DEFINE_integer("copy-params-every-nth", 1, "Save model every N minutes")
+tf.flags.DEFINE_integer("off-policy-batch-size", 1, "batch rollouts when performing off-policy updates")
 
 tf.flags.DEFINE_integer("field-of-view", 20, "size of front view (N x N) passed to network")
 
