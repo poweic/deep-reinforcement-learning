@@ -30,6 +30,8 @@ def initialize_env_related_flags(env):
 
     FLAGS.action_space = env.action_space
     FLAGS.num_actions = get_dof(env.action_space)
+
+    FLAGS.observation_space = env.observation_space
     FLAGS.num_states = get_dof(env.observation_space)
 
     FLAGS.featurize_state, FLAGS.num_states = state_featurizer(env)

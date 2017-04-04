@@ -29,12 +29,12 @@ def naive_mean_steer_policy(front_view):
     return num / denom
 
 def get_state_placeholder():
-    seq_length = FLAGS.seq_length
-    batch_size = FLAGS.batch_size
+    S = FLAGS.seq_length
+    B = FLAGS.batch_size
 
     # Note that placeholder are tf.Tensor not tf.Variable
-    prev_action = tf.placeholder(tf.float32, [seq_length, batch_size, FLAGS.num_actions], "prev_action")
-    prev_reward = tf.placeholder(tf.float32, [seq_length, batch_size, 1], "prev_reward")
+    prev_action = tf.placeholder(tf.float32, [S, B, FLAGS.num_actions], "prev_action")
+    prev_reward = tf.placeholder(tf.float32, [S, B, 1], "prev_reward")
 
     placeholder = AttrDict(
         prev_action = prev_action,
@@ -42,16 +42,16 @@ def get_state_placeholder():
     )
 
     if "OffRoadNav" in FLAGS.game:
-        FOV = FLAGS.field_of_view
-        front_view    = tf.placeholder(tf.float32, [seq_length, batch_size, FOV, FOV, 1], "front_view")
-        vehicle_state = tf.placeholder(tf.float32, [seq_length, batch_size, 6], "vehicle_state")
+        front_view_shape = list(FLAGS.observation_space.spaces[0].shape)
+        front_view    = tf.placeholder(tf.float32, [S, B] + front_view_shape, "front_view")
+        vehicle_state = tf.placeholder(tf.float32, [S, B, 6], "vehicle_state")
 
         placeholder.update({
             'front_view': front_view,
             'vehicle_state': vehicle_state
         })
     else:
-        state = tf.placeholder(tf.float32, [seq_length, batch_size, FLAGS.num_states], "state")
+        state = tf.placeholder(tf.float32, [S, B, FLAGS.num_states], "state")
         placeholder.update({'state': state})
 
     return placeholder
@@ -119,7 +119,7 @@ def LSTM(input, num_outputs, scope=None, state_in_fw=None, state_in_bw=None):
         state_out = state_out
     )
 
-def build_convnet(input):
+def build_convnet(input, params):
     """
     vehicle_state = input.vehicle_state
     prev_action = input.prev_action
@@ -138,19 +138,22 @@ def build_convnet(input):
 
         # Batch norm is NOT compatible with LSTM
         # (see Issue: https://github.com/tensorflow/tensorflow/issues/6087)
-        conv_options = {
-            "activation_fn": tf.nn.relu,
-            "normalizer_fn": None, # tf.contrib.layers.batch_norm,
-            "normalizer_params": None, # {'updates_collections': None}
-        }
+        conv_options = {"activation_fn": tf.nn.relu}
+        conv_options.update(params)
 
-        for i in range(2):
-            layers.append(conv2d(layers[-1], 32, 5, scope="conv%d-1" % i, **conv_options))
-            layers.append(conv2d(layers[-1], 32, 5, scope="conv%d-2" % i, **conv_options))
-            layers.append(max_pool2d(layers[-1], 3, stride=2, scope='pool%d' % i, padding="SAME"))
+        nf = 32
+
+        for i in range(4):
+            layers.append(conv2d(layers[-1], nf, 4, scope="conv%d-1" % i, stride=2, **conv_options))
+            layers.append(conv2d(layers[-1], nf, 4, scope="conv%d-2" % i, **conv_options))
+            nf = min(nf * 2, 128)
+            # layers.append(max_pool2d(layers[-1], 3, stride=2, scope='pool%d' % i, padding="SAME"))
 
         # Reshape [seq_len * batch_size, H, W, C] to [seq_len * batch_size, H * W * C]
         layers.append(tf.contrib.layers.flatten(layers[-1]))
+
+    for layer in layers:
+        tf.logging.info(layer)
 
     return layers[-1]
 
@@ -185,11 +188,18 @@ def build_network(input, scope_name, add_summaries=False):
     Final layer activations.
     """
 
+    params = {}
+    if FLAGS.batch_norm:
+        params.update({
+            "normalizer_fn": tf.contrib.layers.batch_norm,
+            "normalizer_params": {'updates_collections': None}
+        })
+
     S, B = get_seq_length_batch_size(input.prev_action)
 
     if "OffRoadNav" in FLAGS.game:
         tf.logging.info("building convnet ...")
-        input = build_convnet(input)
+        input = build_convnet(input, params)
     else:
         input = flatten(input.state)
 
@@ -199,7 +209,8 @@ def build_network(input, scope_name, add_summaries=False):
         inputs=layers[-1],
         num_outputs=FLAGS.hidden_size,
         activation_fn=tf.nn.tanh,
-        scope="state-hidden-dense"
+        scope="state-hidden-dense",
+        **params
     ))
 
     if FLAGS.use_lstm:
@@ -253,7 +264,8 @@ def build_network(input, scope_name, add_summaries=False):
             inputs=layers[-1],
             num_outputs=FLAGS.hidden_size,
             activation_fn=tf.nn.tanh,
-            scope="state-hidden-dense-2"
+            scope="state-hidden-dense-2",
+            **params
         ))
 
         """
@@ -274,15 +286,12 @@ def build_network(input, scope_name, add_summaries=False):
             outputs = {}
         )
 
-    """
     if add_summaries:
         with tf.name_scope("summaries"):
-            conv1_w = [v for v in tf.trainable_variables() if "conv1/weights"][0]
+            conv1_w = [v for v in tf.trainable_variables() if "conv1-1/weights"][0]
             grid = put_kernels_on_grid(conv1_w)
-            tf.summary.image("conv1/weights", grid)
-            tf.summary.image("front_view", front_view, max_outputs=500)
-            # for layer in layers: tf.contrib.layers.summarize_activation(layer)
-    """
+            tf.logging.info("grid.shape = {}".format(grid.get_shape()))
+            tf.summary.image("conv1-1/weights", grid)
 
     for layer in layers:
         tf.logging.info(layer)
