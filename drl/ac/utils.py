@@ -474,6 +474,11 @@ def put_kernels_on_grid(kernel, pad = 1):
                 if i == 1: print('Who would enter a prime number of filters?')
                 return (i, int(n / i))
 
+    shape = kernel.get_shape().as_list()
+    kernel = tf.reshape(kernel, [
+        shape[0], shape[1], 1, shape[2] * shape[3]
+    ])
+
     (grid_Y, grid_X) = factorize(kernel.get_shape()[3].value)
     # print 'grid: %d = (%d, %d)' % (kernel.get_shape()[3].value, grid_Y, grid_X)
 
