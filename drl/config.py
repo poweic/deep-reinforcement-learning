@@ -11,7 +11,7 @@ tf.flags.DEFINE_string("exp", None, "Optional experiment tag")
 tf.flags.DEFINE_string("log-file", None, "log file")
 tf.flags.DEFINE_string("stats-file", None, "stats file")
 tf.flags.DEFINE_string("game", None, "Game environment. Ex: Humanoid-v1, OffRoadNav-v0")
-tf.flags.DEFINE_string("map_def", "map0", "map definition file in *.yaml format for OffRoadNav-v0")
+tf.flags.DEFINE_string("map-def", "map0", "map definition file in *.yaml format for OffRoadNav-v0")
 tf.flags.DEFINE_string("estimator-type", "ACER", "Choose A3C or ACER")
 
 tf.flags.DEFINE_integer("min-episodes", 100, "minimum episodes to play")
@@ -26,6 +26,7 @@ tf.flags.DEFINE_float("decay-rate", 0.7071, "Decay learning using exponential_de
 tf.flags.DEFINE_float("per-process-gpu-memory-fraction", 1.0, "per_process_gpu_memory_fraction for TF session config")
 tf.flags.DEFINE_boolean("staircase", False, "Set exponential_decay with staircase=True/False")
 tf.flags.DEFINE_boolean("use-lstm", True, "Use LSTM when set True")
+tf.flags.DEFINE_boolean("batch-norm", False, "Use batch norm whenever possible")
 tf.flags.DEFINE_boolean("summarize", False, "Create summary writer")
 
 tf.flags.DEFINE_integer("eval-every", 30, "Evaluate the policy every N seconds")
