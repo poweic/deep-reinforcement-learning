@@ -29,7 +29,7 @@ def renderer(q):
                 env.step(action.T)
 
         except Queue.Empty:
-            tf.logging.info("Nothing in queue to render, wait 5 seconds ...")
+            # Nothing in queue to render, wait 5 seconds ...
             time.sleep(5)
 
         except Exception as e:
