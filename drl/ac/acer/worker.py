@@ -173,14 +173,19 @@ class AcerWorker(Worker):
         for i, chucked_indices in enumerate(chunks(indices, FLAGS.off_policy_batch_size)):
             self.copy_params_from_global()
 
+            """
             # Compute gradient and perform update
             length = min([rp[idx].seq_length for idx in chucked_indices])
+            length = min(length, 64)
             rollouts = [
                 self.get_partial_rollout(rp[idx], length=length)
                 for idx in chucked_indices
             ]
 
             batched_rollouts = self.batch_rollouts(rollouts)
+            """
+
+            batched_rollouts = self.get_partial_rollout(rp[chucked_indices[0]])
 
             self.update(batched_rollouts, on_policy=False, display=(i == 0))
 
