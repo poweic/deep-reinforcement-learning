@@ -420,9 +420,6 @@ class AcerEstimator():
         tf.logging.info("Computing value loss ...")
 
         Q_diff = Q_ret - Q_tilt_a
-        if FLAGS.max_Q_diff is not None:
-            Q_diff = clip(Q_diff, -FLAGS.max_Q_diff, FLAGS.max_Q_diff)
-        V_diff = tf.minimum(1., rho) * Q_diff
 
         # L2 norm as loss function
         Q_l2_loss = 0.5 * tf.square(Q_diff)

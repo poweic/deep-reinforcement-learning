@@ -46,7 +46,6 @@ tf.flags.DEFINE_integer("regenerate-size", 1000, "number of episodes experience 
 
 tf.flags.DEFINE_float("avg-net-momentum", 0.995, "soft update momentum for average policy network in TRPO")
 tf.flags.DEFINE_float("importance-weight-truncation-threshold", 10, "soft update momentum for average policy network in TRPO")
-tf.flags.DEFINE_float("max-Q-diff", None, "Maximum Q difference (for robustness)")
 tf.flags.DEFINE_boolean("mixture-model", False, "Use single Gaussian if set to True, use GMM otherwise")
 tf.flags.DEFINE_string("policy-dist", "Gaussian", "Either Gaussian, Beta, or StudentT")
 tf.flags.DEFINE_integer("bucket-width", 10, "bucket_width")
