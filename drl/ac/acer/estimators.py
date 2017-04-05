@@ -149,7 +149,7 @@ class AcerEstimator():
                 global_step = FLAGS.global_step
 
                 self.lr = tf.train.exponential_decay(
-                    FLAGS.learning_rate, FLAGS.global_timestep,
+                    tf_const(FLAGS.learning_rate), FLAGS.global_timestep,
                     FLAGS.decay_steps, FLAGS.decay_rate, staircase=FLAGS.staircase
                 )
 
