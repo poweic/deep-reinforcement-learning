@@ -248,8 +248,8 @@ class AcerEstimator():
                 r_i = r[i:i+1, ...]
 
             with tf.name_scope("pre_update"):
-                Q_ret_i = tf_check_numerics(r_i + gamma * Q_ret_i)
-                Q_opc_i = tf_check_numerics(r_i + gamma * Q_opc_i)
+                Q_ret_i = r_i + gamma * Q_ret_i
+                Q_opc_i = r_i + gamma * Q_opc_i
 
             # TF equivalent of .prepend()
             with tf.name_scope("prepend"):
@@ -265,8 +265,8 @@ class AcerEstimator():
                 # ACER with Generalized Advantage Estimation (GAE):
                 # For lambda = 1: this is original ACER with k-step TD error
                 # For lambda = 0: 1-step TD error (low variance, high bias)
-                Q_ret_i = tf_check_numerics(FLAGS.lambda_ * c_i * (Q_ret_i - Q_i) + V_i)
-                Q_opc_i = tf_check_numerics(FLAGS.lambda_ * (Q_opc_i - Q_i) + V_i)
+                Q_ret_i = FLAGS.lambda_ * c_i * (Q_ret_i - Q_i) + V_i
+                Q_opc_i = FLAGS.lambda_       * (Q_opc_i - Q_i) + V_i
 
             return i-1, Q_ret_i, Q_opc_i, Q_ret, Q_opc
 
