@@ -288,10 +288,7 @@ def build_network(input, scope_name, add_summaries=False):
 
     if add_summaries:
         with tf.name_scope("summaries"):
-            conv1_w = [v for v in tf.trainable_variables() if "conv1-1/weights"][0]
-            grid = put_kernels_on_grid(conv1_w)
-            tf.logging.info("grid.shape = {}".format(grid.get_shape()))
-            tf.summary.image("conv1-1/weights", grid)
+            summarize_conv_kernels()
 
     for layer in layers:
         tf.logging.info(layer)
@@ -299,6 +296,20 @@ def build_network(input, scope_name, add_summaries=False):
     output = tf_check_numerics(output)
 
     return output, states
+
+def summarize_conv_kernels():
+    conv_kernels = [
+        v for v in tf.trainable_variables()
+        if "conv" in v.name and "weights" in v.name and "global_net" in v.name
+    ]
+
+    if len(conv_kernels) == 0:
+        return
+
+    for kernels in conv_kernels:
+        grid = put_kernels_on_grid(kernels)
+        tf.logging.info("grid of {} has shape = {}".format(kernels.name, grid.get_shape()))
+        tf.summary.image(kernels.name.replace(":0", ""), grid)
 
 def policy_network(input, num_outputs, clip_mu=True):
 
