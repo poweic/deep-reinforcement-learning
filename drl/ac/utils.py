@@ -1,6 +1,7 @@
 # -*- coding: utf-8 -*-
 import os
 import time
+import zlib
 import psutil
 import numpy as np
 import scipy.signal
@@ -11,6 +12,7 @@ import schedule
 import cv2
 import gym
 import sys
+import cPickle
 from numbers import Number
 from collections import Set, Mapping, deque
 from gym import spaces
@@ -206,7 +208,7 @@ def mkdir_p(dirname):
     if not os.path.exists(dirname):
         os.makedirs(dirname)
 
-def show_mem_usage(x):
+def show_mem_usage(x=None, subject=None):
 
     if x is None:
         process = psutil.Process(os.getpid())
@@ -214,7 +216,8 @@ def show_mem_usage(x):
         subject = "this process"
     else:
         num_bytes = sizeof(x)
-        subject = varName(x)
+        if subject is None:
+            subject = varName(x)
 
     for order, unit in zip([10, 20, 30], ["KB", "MB", "GB"]):
         if num_bytes > 2. ** order:
@@ -613,3 +616,63 @@ def sizeof(obj_0):
         return size
 
     return inner(obj_0)
+
+def compress_decompress_dict(rollout, fn):
+    return AttrDict({
+        k: fn(v.tobytes()) if isinstance(v, np.ndarray) else v
+        for k, v in rollout.iteritems()
+    })
+
+class Timer(object):
+    def __init__(self, message, maxlen=1000):
+        self.timer = deque(maxlen=maxlen)
+        self.counter = 0
+        self.message = message
+
+    def tic(self):
+        self.t = time.time()
+
+    def toc(self):
+        self.timer.append(time.time() - self.t)
+
+        self.counter += 1
+        if self.counter % self.timer.maxlen == 0:
+            self.counter = 0
+            tf.logging.info("average time of {} = {:.2f} ms".format(
+                self.message, np.mean(self.timer) * 1000
+            ))
+
+class ReplayBuffer(deque):
+
+    def __init__(self, maxlen=None):
+        super(ReplayBuffer, self).__init__(maxlen=maxlen)
+
+        # keep last 1000 compress, decompress time for profiling purpose
+        self.timer = AttrDict(
+            compress = Timer("compress"),
+            decompress = Timer("decompress")
+        )
+
+        self.counter = 0
+
+    def append(self, x):
+
+        self.timer.compress.tic()
+        compressed = zlib.compress(cPickle.dumps(x, protocol=cPickle.HIGHEST_PROTOCOL))
+        self.timer.compress.toc()
+
+        self.counter += 1
+        if self.counter % self.maxlen == 0:
+            show_mem_usage(self, "replay buffer")
+            self.counter = 0
+
+        super(ReplayBuffer, self).append(compressed)
+
+    def __getitem__(self, key):
+        compressed = super(ReplayBuffer, self).__getitem__(key)
+
+        self.timer.decompress.tic()
+        decompressed = cPickle.loads(zlib.decompress(compressed))
+        self.timer.decompress.toc()
+
+        return decompressed

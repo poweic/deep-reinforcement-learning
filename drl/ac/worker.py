@@ -3,7 +3,6 @@ import itertools
 import numpy as np
 import tensorflow as tf
 from drl.ac.utils import *
-from collections import deque
 FLAGS = tf.flags.FLAGS
 
 class Worker(object):
@@ -44,7 +43,7 @@ class Worker(object):
         self.summary_writer = None
 
         # Assign each worker (thread) a memory replay buffer
-        self.replay_buffer = deque(maxlen=FLAGS.max_replay_buffer_size)
+        self.replay_buffer = ReplayBuffer(maxlen=FLAGS.max_replay_buffer_size)
 
     def copy_params_from_global(self):
         # Copy Parameters from the global networks
@@ -254,7 +253,6 @@ class Worker(object):
         rp = self.replay_buffer
 
         rp.append(rollout)
-        show_mem_usage(rp)
 
         if len(rp) % 100 == 0 and len(rp) < FLAGS.max_replay_buffer_size:
             tf.logging.info("len(replay_buffer) = {}".format(len(rp)))
