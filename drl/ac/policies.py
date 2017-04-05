@@ -13,7 +13,7 @@ def build_policy(input, dist_type):
         raise ValueError('dist_type must be either "Gaussian" or "Beta"')
 
 def get_param_placeholder(name):
-    return tf.placeholder(tf.float32, [
+    return tf.placeholder(FLAGS.dtype, [
         FLAGS.seq_length, FLAGS.batch_size, FLAGS.num_actions
     ], name=name)
 
@@ -40,8 +40,8 @@ def gaussian_policy(input):
 
     AS = FLAGS.action_space
     broadcaster = mu[..., 0:1] * 0
-    low  = tf.constant(AS.low , tf.float32)[None, None, :] + broadcaster
-    high = tf.constant(AS.high, tf.float32)[None, None, :] + broadcaster
+    low  = tf_const(AS.low )[None, None, :] + broadcaster
+    high = tf_const(AS.high)[None, None, :] + broadcaster
     mu    = softclip(mu, low , high)
 
     # sigma = tf.nn.softplus(sigma) + 1e-4

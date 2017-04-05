@@ -57,8 +57,8 @@ class AcerEstimator():
             # maybe a assertion ? But that could be hard to understand
             self.seq_length = tf.placeholder(tf.int32, [], "seq_length")
             self.state = get_state_placeholder()
-            self.a = tf.placeholder(tf.float32, [seq_length, batch_size, FLAGS.num_actions], "actions")
-            self.r = tf.placeholder(tf.float32, [seq_length, batch_size, 1], "rewards")
+            self.a = tf.placeholder(FLAGS.dtype, [seq_length, batch_size, FLAGS.num_actions], "actions")
+            self.r = tf.placeholder(FLAGS.dtype, [seq_length, batch_size, 1], "rewards")
             self.done = tf.placeholder(tf.bool, [batch_size, 1], "done")
 
         with tf.variable_scope("shared"):
@@ -68,8 +68,8 @@ class AcerEstimator():
         # state s_k s.t. we can bootstrap value from it, i.e. we need V(s_k)
         with tf.variable_scope("V"):
             value = state_value_network(shared)
-            value *= tf.Variable(1, dtype=tf.float32, name="value_scale", trainable=FLAGS.train_value_scale)
-            self.value_last = value[-1:, ...] * tf.to_float(~self.done)[None, ...]
+            value *= tf.Variable(1, dtype=FLAGS.dtype, name="value_scale", trainable=FLAGS.train_value_scale)
+            self.value_last = value[-1:, ...] * tf.cast(~self.done, FLAGS.dtype)[None, ...]
             self.value = value[:self.seq_length, ...]
 
         with tf.variable_scope("shared-policy"):
@@ -106,7 +106,7 @@ class AcerEstimator():
                 )
 
             with tf.name_scope("c_i"):
-                self.c = tf.minimum(1., self.rho ** (1. / FLAGS.num_actions), "c_i")
+                self.c = tf.minimum(tf_const(1.), self.rho ** (1. / FLAGS.num_actions), "c_i")
                 tf.logging.info("c.shape = {}".format(tf_shape(self.c)))
 
             with tf.name_scope("Q_Retrace"):
@@ -178,10 +178,6 @@ class AcerEstimator():
         self.summaries = self.summarize(add_summaries)
 
     def compute_rho(self, a, a_prime, pi, pi_behavior):
-        # rho = tf.zeros_like(self.value)
-        # rho_prime = tf.zeros_like(self.value)
-        # return rho, rho_prime
-
         # compute rho, rho_prime, and c
         with tf.name_scope("pi_a"):
             self.pi_a = pi_a = pi.prob(a, "In pi_a: ")[..., None]
@@ -216,19 +212,15 @@ class AcerEstimator():
         """
         Use tf.while_loop to compute Q_ret, Q_opc
         """
-        # Q_ret = tf.zeros_like(self.value)
-        # Q_opc = tf.zeros_like(self.value)
-        # return Q_ret, Q_opc
 
         tf.logging.info("Compute Q_ret & Q_opc recursively ...")
-        gamma = tf.constant(FLAGS.discount_factor, dtype=tf.float32)
+        gamma = tf_const(FLAGS.discount_factor)
+        lambda_ = tf_const(FLAGS.lambda_)
         # gamma = tf_print(gamma, "gamma = ")
 
         with tf.name_scope("initial_value"):
             # Use "done" to determine whether x_k is terminal state. If yes,
             # set initial Q_ret to 0. Otherwise, bootstrap initial Q_ret from V.
-            # FIXME Use V(next_state) instead of V(this_state)
-            # Q_ret_0 = tf.zeros_like(values[0:1, ...]) # tf.zeros((1, batch_size, 1), dtype=tf.float32)
             Q_ret_0 = value_last * int(FLAGS.bootstrap)
             Q_opc_0 = Q_ret_0
 
@@ -265,8 +257,8 @@ class AcerEstimator():
                 # ACER with Generalized Advantage Estimation (GAE):
                 # For lambda = 1: this is original ACER with k-step TD error
                 # For lambda = 0: 1-step TD error (low variance, high bias)
-                Q_ret_i = FLAGS.lambda_ * c_i * (Q_ret_i - Q_i) + V_i
-                Q_opc_i = FLAGS.lambda_       * (Q_opc_i - Q_i) + V_i
+                Q_ret_i = lambda_ * c_i * (Q_ret_i - Q_i) + V_i
+                Q_opc_i = lambda_       * (Q_opc_i - Q_i) + V_i
 
             return i-1, Q_ret_i, Q_opc_i, Q_ret, Q_opc
 
@@ -310,7 +302,7 @@ class AcerEstimator():
             denom = tf.reduce_sum(k * k, axis=2, keep_dims=True)
 
             # Hold gradient back a little bit if KL divergence is too large
-            correction = tf.maximum(0., num / denom) * k
+            correction = tf.maximum(tf_const(0.), num / denom) * k
 
             # z* is the TRPO regularized gradient
             z_star = g - correction
@@ -462,7 +454,7 @@ class AcerEstimator():
                                  Q_tilt_a_prime, a_prime):
 
         # compute gradient with importance weight truncation using c = 10
-        c = tf.constant(FLAGS.importance_weight_truncation_threshold, tf.float32)
+        c = tf_const(FLAGS.importance_weight_truncation_threshold)
 
         with tf.name_scope("truncation"):
             with tf.name_scope("truncated_importance_weight"):
@@ -536,7 +528,7 @@ class AcerEstimator():
 
             with tf.name_scope(name):
                 ndims = len(actions.get_shape())
-                broadcaster = tf.zeros([num_samples] + [1] * (ndims-1))
+                broadcaster = tf.zeros([num_samples] + [1] * (ndims-1), dtype=FLAGS.dtype)
                 input_ = input[None, ...] + broadcaster
 
                 input_with_a = tf_concat(-1, [input_, actions])

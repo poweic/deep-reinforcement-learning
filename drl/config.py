@@ -27,6 +27,7 @@ tf.flags.DEFINE_float("per-process-gpu-memory-fraction", 1.0, "per_process_gpu_m
 tf.flags.DEFINE_boolean("staircase", False, "Set exponential_decay with staircase=True/False")
 tf.flags.DEFINE_boolean("use-lstm", True, "Use LSTM when set True")
 tf.flags.DEFINE_boolean("batch-norm", False, "Use batch norm whenever possible")
+tf.flags.DEFINE_boolean("double-precision", False, "Use tf.float64")
 tf.flags.DEFINE_boolean("summarize", False, "Create summary writer")
 
 tf.flags.DEFINE_integer("eval-every", 30, "Evaluate the policy every N seconds")
@@ -108,6 +109,8 @@ def parse_flags():
     # FLAGS.monitor_dir    = FLAGS.exp_dir + "/monitor"
     FLAGS.checkpoint_dir = FLAGS.exp_dir + "/checkpoint"
     FLAGS.save_path      = FLAGS.checkpoint_dir + "/model"
+
+    FLAGS.dtype = tf.float64 if FLAGS.double_precision else tf.float32
 
     from drl.ac.utils import AttrDict, mkdir_p
 

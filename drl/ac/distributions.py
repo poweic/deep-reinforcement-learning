@@ -29,8 +29,8 @@ def create_distribution(dist_type, bijectors=None, **stats):
 
 def to_transformed_distribution(dist, dist_type):
 
-    low  = tf.constant(FLAGS.action_space.low , tf.float32)[None, None, None, ...]
-    high = tf.constant(FLAGS.action_space.high, tf.float32)[None, None, None, ...]
+    low  = tf_const(FLAGS.action_space.low )[None, None, None, ...]
+    high = tf_const(FLAGS.action_space.high)[None, None, None, ...]
 
     def log_prob(x, msg=None):
         x = x[None, ...]

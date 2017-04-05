@@ -24,6 +24,9 @@ def get_dof(space):
         except: # else Box
             return np.prod(space.shape)
 
+def tf_const(c):
+    return tf.constant(c, dtype=FLAGS.dtype)
+
 def initialize_env_related_flags(env):
     if FLAGS.random_seed is not None:
         env.seed(FLAGS.random_seed)
@@ -333,8 +336,8 @@ def make_copy_params_op(v1_list, v2_list, alpha=0.):
     if alpha == 0.:
         return tf.group(*[v2.assign(v1) for v1, v2 in zip(v1_list, v2_list)])
     else:
-        a = tf.constant(alpha, tf.float32)
-        b = 1. - a
+        a = tf_const(alpha)
+        b = tf_const(1. - alpha)
         return tf.group(*[v2.assign(a * v2 + b * v1) for v1, v2 in zip(v1_list, v2_list)])
 
 def discount(x, gamma):

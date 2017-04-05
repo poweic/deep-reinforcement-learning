@@ -15,7 +15,7 @@ def naive_mean_steer_policy(front_view):
     # Make sure it's symmetric with negative sign
     assert np.all(theta[:, :W/2] == -theta[:, -1:W/2-1:-1])
 
-    theta = tf.constant(theta)[None, None, ..., None]
+    theta = tf_const(theta)[None, None, ..., None]
 
     # Substract min from front_view to make sure positivity
     r = front_view - tf.reduce_min(front_view, keep_dims=True,
@@ -33,8 +33,8 @@ def get_state_placeholder():
     B = FLAGS.batch_size
 
     # Note that placeholder are tf.Tensor not tf.Variable
-    prev_action = tf.placeholder(tf.float32, [S, B, FLAGS.num_actions], "prev_action")
-    prev_reward = tf.placeholder(tf.float32, [S, B, 1], "prev_reward")
+    prev_action = tf.placeholder(FLAGS.dtype, [S, B, FLAGS.num_actions], "prev_action")
+    prev_reward = tf.placeholder(FLAGS.dtype, [S, B, 1], "prev_reward")
 
     placeholder = AttrDict(
         prev_action = prev_action,
@@ -43,15 +43,15 @@ def get_state_placeholder():
 
     if "OffRoadNav" in FLAGS.game:
         front_view_shape = list(FLAGS.observation_space.spaces[0].shape)
-        front_view    = tf.placeholder(tf.float32, [S, B] + front_view_shape, "front_view")
-        vehicle_state = tf.placeholder(tf.float32, [S, B, 6], "vehicle_state")
+        front_view    = tf.placeholder(FLAGS.dtype, [S, B] + front_view_shape, "front_view")
+        vehicle_state = tf.placeholder(FLAGS.dtype, [S, B, 6], "vehicle_state")
 
         placeholder.update({
             'front_view': front_view,
             'vehicle_state': vehicle_state
         })
     else:
-        state = tf.placeholder(tf.float32, [S, B, FLAGS.num_states], "state")
+        state = tf.placeholder(FLAGS.dtype, [S, B, FLAGS.num_states], "state")
         placeholder.update({'state': state})
 
     return placeholder
@@ -69,8 +69,8 @@ def LSTM(input, num_outputs, scope=None, state_in_fw=None, state_in_bw=None):
 
         if state_in_fw is None:
             state_in_fw = [
-                tf.placeholder(tf.float32, [batch_size, lstm_fw.state_size.c], name="c_fw"),
-                tf.placeholder(tf.float32, [batch_size, lstm_fw.state_size.h], name="h_fw")
+                tf.placeholder(FLAGS.dtype, [batch_size, lstm_fw.state_size.c], name="c_fw"),
+                tf.placeholder(FLAGS.dtype, [batch_size, lstm_fw.state_size.h], name="h_fw")
             ]
 
         if FLAGS.bi_directional:
@@ -82,8 +82,8 @@ def LSTM(input, num_outputs, scope=None, state_in_fw=None, state_in_bw=None):
 
             if state_in_bw is None:
                 state_in_bw = [
-                    tf.placeholder(tf.float32, [batch_size, lstm_bw.state_size.c], name="c_bw"),
-                    tf.placeholder(tf.float32, [batch_size, lstm_bw.state_size.h], name="h_bw")
+                    tf.placeholder(FLAGS.dtype, [batch_size, lstm_bw.state_size.c], name="c_bw"),
+                    tf.placeholder(FLAGS.dtype, [batch_size, lstm_bw.state_size.h], name="h_bw")
                 ]
 
             broadcaster = tf.to_int32(input[0, :, 0]) * 0
@@ -91,7 +91,7 @@ def LSTM(input, num_outputs, scope=None, state_in_fw=None, state_in_bw=None):
 
             # bi-directional LSTM (forward + backward)
             lstm_outputs, state_out = tf.nn.bidirectional_dynamic_rnn(
-                lstm_fw, lstm_bw, input, dtype=tf.float32, time_major=True, scope=scope,
+                lstm_fw, lstm_bw, input, dtype=FLAGS.dtype, time_major=True, scope=scope,
                 sequence_length=sequence_length,
                 initial_state_fw=tf.nn.rnn_cell.LSTMStateTuple(*state_in_fw),
                 initial_state_bw=tf.nn.rnn_cell.LSTMStateTuple(*state_in_bw)
@@ -107,7 +107,7 @@ def LSTM(input, num_outputs, scope=None, state_in_fw=None, state_in_bw=None):
         else:
             # 1-directional LSTM (forward only)
             lstm_outputs, state_out = tf.nn.dynamic_rnn(
-                lstm_fw, input, dtype=tf.float32, time_major=True, scope=scope,
+                lstm_fw, input, dtype=FLAGS.dtype, time_major=True, scope=scope,
                 initial_state=tf.nn.rnn_cell.LSTMStateTuple(*state_in_fw)
             )
 
