@@ -254,6 +254,7 @@ class Worker(object):
         rp = self.replay_buffer
 
         rp.append(rollout)
+        show_mem_usage(rp)
 
         if len(rp) % 100 == 0 and len(rp) < FLAGS.max_replay_buffer_size:
             tf.logging.info("len(replay_buffer) = {}".format(len(rp)))

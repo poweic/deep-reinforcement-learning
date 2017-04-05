@@ -2,7 +2,6 @@
 import os
 import time
 import psutil
-import collections
 import numpy as np
 import scipy.signal
 import scipy.interpolate as interpolate
@@ -11,6 +10,9 @@ import inspect
 import schedule
 import cv2
 import gym
+import sys
+from numbers import Number
+from collections import Set, Mapping, deque
 from gym import spaces
 FLAGS = tf.flags.FLAGS
 
@@ -204,15 +206,23 @@ def mkdir_p(dirname):
     if not os.path.exists(dirname):
         os.makedirs(dirname)
 
-def show_mem_usage():
-    process = psutil.Process(os.getpid())
-    usage = float(process.memory_info().rss)
+def show_mem_usage(x):
+
+    if x is None:
+        process = psutil.Process(os.getpid())
+        num_bytes = float(process.memory_info().rss)
+        subject = "this process"
+    else:
+        num_bytes = sizeof(x)
+        subject = varName(x)
 
     for order, unit in zip([10, 20, 30], ["KB", "MB", "GB"]):
-        if usage > 2. ** order:
-            usage_v = "{:.3f} {}".format(usage / (2. ** order), unit)
+        if num_bytes > 2. ** order:
+            usage = "{:.3f} {}".format(num_bytes / (2. ** order), unit)
 
-    tf.logging.info("Memory usage: {} ({} Bytes)".format(usage_v, usage))
+    tf.logging.info("Memory usage of {}: {} ({} Bytes)".format(
+        subject, usage, num_bytes
+    ))
 
 def save_model():
     step = FLAGS.sess.run(tf.contrib.framework.get_global_step())
@@ -573,3 +583,33 @@ def chunks(l, n):
     """Yield successive n-sized chunks from l."""
     for i in range(0, len(l), n):
         yield l[i:i + n]
+
+def sizeof(obj_0):
+    try: # Python 2
+        zero_depth_bases = (basestring, Number, xrange, bytearray)
+        iteritems = 'iteritems'
+    except NameError: # Python 3
+        zero_depth_bases = (str, bytes, Number, range, bytearray)
+        iteritems = 'items'
+
+    """Recursively iterate to sum size of object & members."""
+    def inner(obj, _seen_ids = set()):
+        obj_id = id(obj)
+        if obj_id in _seen_ids:
+            return 0
+        _seen_ids.add(obj_id)
+        size = sys.getsizeof(obj)
+        if isinstance(obj, zero_depth_bases):
+            pass # bypass remaining control flow and return
+        elif isinstance(obj, (tuple, list, Set, deque)):
+            size += sum(inner(i) for i in obj)
+        elif isinstance(obj, Mapping) or hasattr(obj, iteritems):
+            size += sum(inner(k) + inner(v) for k, v in getattr(obj, iteritems)())
+        # Check for custom object instances - may subclass above too
+        if hasattr(obj, '__dict__'):
+            size += inner(vars(obj))
+        if hasattr(obj, '__slots__'): # can have __slots__ with __dict__
+            size += sum(inner(getattr(obj, s)) for s in obj.__slots__ if hasattr(obj, s))
+        return size
+
+    return inner(obj_0)
