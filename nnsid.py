@@ -68,37 +68,32 @@ def compute_mean_squared_loss(states_pred, states_gnd):
 
     return loss
 
-def train(sess, env, nnsid):
+def gen_data(env, seq_length=10, batch_size=10):
 
-    batch_size = 8
-    seq_length = 100
+    actions = np.zeros((seq_length, batch_size, FLAGS.num_actions), dtype=np.float32)
+    states  = np.zeros((seq_length, batch_size, FLAGS.num_states),  dtype=np.float32)
 
-    for i in range(10000):
-        idx = i % batch_size
-        if idx == 0:
-            actions = np.zeros((seq_length, batch_size, FLAGS.num_actions), dtype=np.float32)
-            states  = np.zeros((seq_length, batch_size, FLAGS.num_states),  dtype=np.float32)
+    for i in range(batch_size):
 
         state = env.reset()
         for j in range(seq_length):
-            states[j, idx] = state[:]
+            states[j, i] = state[:]
 
             action = env.action_space.sample()
-            actions[j, idx] = action[:]
+            actions[j, i] = action[:]
             env.step(action)
 
             state, reward, done, _ = env.step(action)
             env.render()
 
-        if idx == 0:
-            loss = nnsid.update(actions, states, sess)
-            tf.logging.info("#{:04d}: loss = {}".format(i, loss))
+    return (actions, states)
 
 class NNSID(object):
-    def __init__(self):
+    def __init__(self, sess):
 
         self.actions = tf.placeholder(tf.float32, [None, None, FLAGS.num_actions], name="actions")
         self.states = tf.placeholder(tf.float32, [None, None, FLAGS.num_states], name="states")
+        self.sess = sess
 
         states_pred, self.lstm = build_network(
             actions=self.actions[:-1],
@@ -111,7 +106,7 @@ class NNSID(object):
 
         self.train_step = tf.train.AdamOptimizer(self.lr).minimize(self.loss)
 
-    def update(self, actions, states, sess):
+    def update(self, actions, states):
 
         feed_dict = {
             self.actions: actions,
@@ -120,21 +115,36 @@ class NNSID(object):
         batch_size = actions.shape[1]
         fill_lstm_state_placeholder(self.lstm, feed_dict, batch_size)
 
-        _, loss = sess.run([self.train_step, self.loss], feed_dict)
+        _, loss = self.sess.run([self.train_step, self.loss], feed_dict)
 
         return loss
 
-def main():
+def train(nnsid, data):
 
-    with tf.device('/cpu:0'):
-        nnsid = NNSID()
+    for i, (actions, states) in enumerate(data):
+        loss = nnsid.update(actions, states)
+        tf.logging.info("#{:04d}: loss = {}".format(i, loss))
+
+def main():
 
     env = gym.make("Humanoid-v1")
 
+    actions, states = gen_data(env, seq_length=20, batch_size=1000)
+
+    import scipy.io
+    scipy.io.savemat("/home/boton/humanoid_data.mat", dict(actions=actions, states=states))
+
+    return
+
     with tf.Session() as sess:
+        with tf.device('/cpu:0'):
+            nnsid = NNSID(sess)
+
         tf.logging.info("Initializing all TensorFlow variables ...")
         sess.run(tf.global_variables_initializer())
-        train(sess, env, nnsid)
+
+        for epoch in range(100):
+            train(nnsid, data)
 
 if __name__ == "__main__":
     main()
