@@ -55,7 +55,12 @@ class AcerWorker(Worker):
             },
             net.summaries,
             train_and_update_avgnet_op,
-            tf.no_op(),
+            {
+                'Q_ret': net.Q_ret,
+                'Q_tilt_a': net.Q_tilt_a,
+                'value': net.value_all,
+                'done': net.done
+            },
             self.inc_global_step, # TODO is it the correct way to use?
         ]
 
@@ -164,7 +169,7 @@ class AcerWorker(Worker):
         # idx = np.random.randint(len(rp))
         # lengths = np.array([len(t) for t in rp], dtype=np.float32)
         if FLAGS.prioritize_replay:
-            lengths = np.array([len(t) for t in list(rp)], dtype=np.float32)
+            lengths = np.array([rp[i].seq_length for i in range(len(rp))], dtype=np.float32)
             prob = lengths / np.sum(lengths)
             indices = np.random.choice(len(prob), N, p=prob, replace=False)
         else:
@@ -185,7 +190,8 @@ class AcerWorker(Worker):
             batched_rollouts = self.batch_rollouts(rollouts)
             """
 
-            batched_rollouts = self.get_partial_rollout(rp[chucked_indices[0]])
+            rollout = rp[chucked_indices[0]]
+            batched_rollouts = self.get_partial_rollout(rollout)
 
             self.update(batched_rollouts, on_policy=False, display=(i == 0))
 
@@ -230,3 +236,7 @@ class AcerWorker(Worker):
         if self.summary_writer is not None:
             self.summary_writer.add_summary(summaries, self.gstep)
             self.summary_writer.flush()
+
+        if FLAGS.debug_dump and self.gstep > 1000 and self.gstep % 100 == 0:
+            import scipy.io
+            scipy.io.savemat("{}/Q_{}.mat".format(FLAGS.debug_dir, self.gstep), debug)
