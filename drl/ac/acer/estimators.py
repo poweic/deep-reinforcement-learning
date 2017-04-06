@@ -419,18 +419,19 @@ class AcerEstimator():
 
         tf.logging.info("Computing value loss ...")
 
-        Q_diff = Q_ret - Q_tilt_a
+        Q_diff = tf.stop_gradient(Q_ret - Q_tilt_a)
 
         # L2 norm as loss function
         Q_l2_loss = 0.5 * tf.square(Q_diff)
-        V_l2_loss = 0.5 * tf.square(V_diff)
 
-        # This is the surrogate loss function for V_l2
-        V_l2_loss_sur = -tf.stop_gradient(V_diff) * value
+        # surrogate loss function for L2-norm of Q and V, the derivatives of
+        # (-Q_diff * Q_tilt_a) is the same as that of (0.5 * tf.square(Q_diff))
+        Q_l2_loss_sur = -Q_diff * Q_tilt_a
+        V_l2_loss_sur = -Q_diff * value * tf.minimum(tf_const(1.), rho)
 
         # Compute the objective function (obj) we try to maximize
-        loss     = Q_l2_loss + V_l2_loss
-        loss_sur = Q_l2_loss + V_l2_loss_sur
+        loss     = Q_l2_loss
+        loss_sur = Q_l2_loss_sur + V_l2_loss_sur
 
         # Take mean over batch axis
         loss     = tf.reduce_mean(tf.squeeze(loss,     -1), axis=1)
