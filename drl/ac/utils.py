@@ -114,7 +114,7 @@ class EpisodeStats(object):
         timesteps = np.sum(self.episode_lengths)
 
         # set print options
-        np.set_printoptions(formatter={'float_kind': lambda x: "{:.2f}".format(x)})
+        np.set_printoptions(formatter={'float_kind': lambda x: "{:.2f}".format(x)}, linewidth=1000)
         tf.logging.info(
             "Episode {:05d}: total return: {} [mean = {:.2f}], length = {}, timesteps = \33[93m{}\33[0m".format(
                 self.num_episodes(), rewards_all_agent, reward, length, timesteps
