@@ -34,7 +34,7 @@ def renderer(q):
 
         except Exception as e:
             tf.logging.info("\33[31m[Exception]\33[0m {}".format(e))
-
+            raise e
 
 class Monitor(object):
     def __init__(self):
