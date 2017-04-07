@@ -117,7 +117,7 @@ class AcerWorker(Worker):
         # last consecutive N episodes
         stats = self.global_episode_stats
         mean, std, msg = stats.last_n_stats()
-        if self.name == "worker_0":
+        if self.name == "worker_0" and self.gstep % 50:
             tf.logging.info("\33[93m" + msg + "\33[0m")
 
         """
@@ -225,11 +225,11 @@ class AcerWorker(Worker):
         if display and self.name == "worker_0":
             tf.logging.info((
                 "#{:6d}: pi_loss = {:+8.3f}, vf_loss = {:+8.3f}, entropy_loss = {:8.3f},"
-                "loss = {:+8.3f} {}\33[0m S = {:3d}, B = {} [{}] global_norm = {:7.2e}"
+                "loss = {:+8.3f} {}\33[0m S = {:3d}, B = {} norm = {:7.2e}"
             ).format(
                 self.gstep, loss.pi, loss.vf, loss.entropy, loss.total,
                 "\33[92m[on  policy]" if on_policy else "\33[93m[off policy]",
-                rollout.seq_length, rollout.batch_size, self.name, loss.global_norm
+                rollout.seq_length, rollout.batch_size, loss.global_norm
             ))
 
         # Write summaries

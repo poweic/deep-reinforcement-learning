@@ -119,17 +119,10 @@ def LSTM(input, num_outputs, scope=None, state_in_fw=None, state_in_bw=None):
         state_out = state_out
     )
 
-def build_convnet(input, params):
-    """
-    vehicle_state = input.vehicle_state
-    prev_action = input.prev_action
-    prev_reward = input.prev_reward
-    """
+def build_convnet(front_view, params):
 
-    # rank = get_rank(input.front_view)
-    S, B = get_seq_length_batch_size(input.front_view)
-    front_view = flatten(input.front_view)
-    layers = [front_view]
+    S, B = get_seq_length_batch_size(front_view)
+    layers = [flatten(front_view)]
 
     with tf.name_scope("conv"):
 
@@ -138,16 +131,28 @@ def build_convnet(input, params):
 
         # Batch norm is NOT compatible with LSTM
         # (see Issue: https://github.com/tensorflow/tensorflow/issues/6087)
+
+        conv_options = {"activation_fn": tf.nn.relu, "padding": "VALID"}
+        conv_options.update(params)
+        layers.append(conv2d(layers[-1], 24, 3, scope="conv-1", stride=2, **conv_options))
+        layers.append(conv2d(layers[-1], 32, 3, scope="conv-2", stride=2, **conv_options))
+        layers.append(conv2d(layers[-1], 64, 3, scope="conv-3", stride=1, **conv_options))
+        layers.append(conv2d(layers[-1], 64, 3, scope="conv-4", **conv_options))
+        layers.append(conv2d(layers[-1], 64, 3, scope="conv-5", **conv_options))
+        """
+
         conv_options = {"activation_fn": tf.nn.relu}
         conv_options.update(params)
 
-        nf = 32
+        layers.append(conv2d(layers[-1], 24, 5, stride=2, scope="conv1", **conv_options))
+        layers.append(conv2d(layers[-1], 32, 5, stride=1, scope="conv2", **conv_options))
 
-        for i in range(4):
-            layers.append(conv2d(layers[-1], nf, 4, scope="conv%d-1" % i, stride=2, **conv_options))
-            layers.append(conv2d(layers[-1], nf, 4, scope="conv%d-2" % i, **conv_options))
-            nf = min(nf * 2, 128)
-            # layers.append(max_pool2d(layers[-1], 3, stride=2, scope='pool%d' % i, padding="SAME"))
+        layers.append(conv2d(layers[-1], 48, 5, stride=2, scope="conv3", **conv_options))
+        layers.append(conv2d(layers[-1], 64, 5, stride=1, scope="conv4", **conv_options))
+
+        layers.append(conv2d(layers[-1], 128, 5, stride=2, scope="conv5", **conv_options))
+        layers.append(conv2d(layers[-1], 256, 5, stride=2, scope="conv6", **conv_options))
+        """
 
         # Reshape [seq_len * batch_size, H, W, C] to [seq_len * batch_size, H * W * C]
         layers.append(tf.contrib.layers.flatten(layers[-1]))
@@ -197,13 +202,12 @@ def build_network(input, scope_name, add_summaries=False):
 
     S, B = get_seq_length_batch_size(input.prev_action)
 
+    layers = []
     if "OffRoadNav" in FLAGS.game:
         tf.logging.info("building convnet ...")
-        input = build_convnet(input, params)
+        layers.append(build_convnet(input.front_view, params))
     else:
-        input = flatten(input.state)
-
-    layers = [input]
+        layers.append(flatten(input.state))
 
     layers.append(tf.contrib.layers.fully_connected(
         inputs=layers[-1],
@@ -222,16 +226,18 @@ def build_network(input, scope_name, add_summaries=False):
         # Concatenate encoder's output (i.e. flattened result from conv net)
         # with previous reward (see https://arxiv.org/abs/1611.03673)
         # concat1 = tf.concat(2, [fc, input.prev_reward])
-        concat1 = layers[-1]
+        concat1 = tf.concat(2, [layers[-1]] + [
+            input.vehicle_state, input.prev_action, input.prev_reward
+        ])
         lstms.append(LSTM(concat1, FLAGS.hidden_size, scope="LSTM-1"))
 
         # LSTM-2
         # Concatenate previous output with vehicle_state and prev_action
         # concat2 = tf.concat(2, [fc, lstms[-1].output, vehicle_state, input.prev_action])
-        """
-        concat2 = lstms[-1].output
+        concat2 = tf.concat(2, [lstms[-1].output] + [
+            concat1, input.vehicle_state, input.prev_action, input.prev_reward
+        ])
         lstms.append(LSTM(concat2, FLAGS.hidden_size, scope="LSTM-2"))
-        """
 
         layers += lstms
 
@@ -361,7 +367,7 @@ def state_value_network(input, num_outputs=1):
     """
     input = tf.contrib.layers.fully_connected(
         inputs=input,
-        num_outputs=256,
+        num_outputs=FLAGS.hidden_size,
         activation_fn=None,
         scope="value-input-dense")
     """

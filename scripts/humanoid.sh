@@ -21,7 +21,7 @@ M=000000
   --avg-net-momentum 0.995 \
   --max-replay-buffer-size 1000 \
   --num-sdn-samples 64 \
-  --exp exp/Beta-lstm-64-rp-8-gae-lambda-0.97-gamma-0.995-lr-1e-3 \
+  --exp exp/debug \
   --policy-dist Beta \
   --staircase True \
   --prioritize-replay False \
@@ -29,8 +29,9 @@ M=000000
   --regenerate-size 500 \
   --entropy-cost-mult 1e-3 \
   --l2-reg 1e-4 \
-  --parallelism 16 \
+  --parallelism 8 \
+  --max-seq-length 256 \
   --stats-file $(date +%s).stats.csv \
   --log-file $(date +%s).log \
-  --summarize True
+  --summarize True \
   $@

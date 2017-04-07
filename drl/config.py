@@ -11,7 +11,6 @@ tf.flags.DEFINE_string("exp", None, "Optional experiment tag")
 tf.flags.DEFINE_string("log-file", None, "log file")
 tf.flags.DEFINE_string("stats-file", None, "stats file")
 tf.flags.DEFINE_string("game", None, "Game environment. Ex: Humanoid-v1, OffRoadNav-v0")
-tf.flags.DEFINE_string("map-def", "map0", "map definition file in *.yaml format for OffRoadNav-v0")
 tf.flags.DEFINE_string("estimator-type", "ACER", "Choose A3C or ACER")
 
 tf.flags.DEFINE_integer("min-episodes", 100, "minimum episodes to play")
@@ -29,23 +28,21 @@ tf.flags.DEFINE_boolean("use-lstm", True, "Use LSTM when set True")
 tf.flags.DEFINE_boolean("batch-norm", False, "Use batch norm whenever possible")
 tf.flags.DEFINE_boolean("double-precision", False, "Use tf.float64")
 tf.flags.DEFINE_boolean("summarize", False, "Create summary writer")
+tf.flags.DEFINE_boolean("debug-dump", False, "dump debugging information to *.mat file")
 
 tf.flags.DEFINE_integer("eval-every", 30, "Evaluate the policy every N seconds")
 tf.flags.DEFINE_integer("parallelism", 1, "Number of threads to run. If not set we run [num_cpu_cores] threads.")
-tf.flags.DEFINE_integer("downsample", 5, "Downsample transitions to reduce sample correlation")
-tf.flags.DEFINE_integer("n-agents-per-worker", 1, "Downsample transitions to reduce sample correlation")
 tf.flags.DEFINE_integer("save-every-n-minutes", 10, "Save model every N minutes")
 tf.flags.DEFINE_integer("off-policy-batch-size", 1, "batch rollouts when performing off-policy updates")
-
-tf.flags.DEFINE_integer("field-of-view", 20, "size of front view (N x N) passed to network")
 
 tf.flags.DEFINE_float("replay-ratio", 10, "off-policy memory replay ratio, choose a number from {0, 1, 4, 8}")
 tf.flags.DEFINE_integer("max-replay-buffer-size", 100, "off-policy memory replay buffer")
 tf.flags.DEFINE_boolean("prioritize-replay", False, "Use choice(length) to sample replay")
+tf.flags.DEFINE_boolean("compress", False, "compress memory replay using cPickle + zlib")
 tf.flags.DEFINE_integer("regenerate-size", 1000, "number of episodes experience to regenerate after resuming")
 
 tf.flags.DEFINE_float("avg-net-momentum", 0.995, "soft update momentum for average policy network in TRPO")
-tf.flags.DEFINE_float("importance-weight-truncation-threshold", 10, "soft update momentum for average policy network in TRPO")
+tf.flags.DEFINE_float("importance-weight-truncation-threshold", 5, "soft update momentum for average policy network in TRPO")
 tf.flags.DEFINE_boolean("mixture-model", False, "Use single Gaussian if set to True, use GMM otherwise")
 tf.flags.DEFINE_string("policy-dist", "Gaussian", "Either Gaussian, Beta, or StudentT")
 tf.flags.DEFINE_integer("bucket-width", 10, "bucket_width")
@@ -53,7 +50,6 @@ tf.flags.DEFINE_integer("num-sdn-samples", 8, "soft update momentum for average 
 
 tf.flags.DEFINE_boolean("share-network", True, "If set, value net and policy net will share a common network")
 tf.flags.DEFINE_boolean("bi-directional", False, "If set, use bi-directional RNN/LSTM")
-tf.flags.DEFINE_boolean("drift", False, "If set, turn on drift")
 tf.flags.DEFINE_boolean("reset", False, "If set, delete the existing model directory and start training from scratch.")
 tf.flags.DEFINE_boolean("display", True, "If set, no imshow will be called")
 tf.flags.DEFINE_boolean("show-memory-usage", False, "If set, show memory usage during training")
@@ -64,7 +60,6 @@ tf.flags.DEFINE_boolean("bootstrap", True, "If set, bootstrap V from the next st
 tf.flags.DEFINE_boolean("train-value-scale", False, "If set, add additional trainable value scale TF variable")
 
 tf.flags.DEFINE_float("t-max", 30, "Maximum elasped time per simulation (in seconds)")
-tf.flags.DEFINE_float("command-freq", 20, "How frequent we send command to vehicle (in Hz)")
 
 tf.flags.DEFINE_integer("hidden-size", 128, "size of hidden layer")
 tf.flags.DEFINE_float("learning-rate", 2e-4, "Learning rate for policy net and value net")
@@ -82,7 +77,15 @@ tf.flags.DEFINE_float("entropy-cost-mult", 1e-3, "multiplier used by entropy reg
 tf.flags.DEFINE_float("discount-factor", 0.995, "discount factor in Markov decision process (MDP)")
 tf.flags.DEFINE_float("lambda_", 0.95, "lambda in TD-Lambda (temporal difference learning)")
 
-tf.flags.DEFINE_float("min-mu-vf", 6. / 3.6, "Minimum forward velocity of vehicle (m/s)")
+tf.flags.DEFINE_string("map-def", "map0", "map definition file in *.yaml format for OffRoadNav-v0")
+tf.flags.DEFINE_float("command-freq", 20, "How frequent we send command to vehicle (in Hz)")
+tf.flags.DEFINE_integer("field-of-view", 20, "size of front view (N x N) passed to network")
+tf.flags.DEFINE_integer("downsample", 1, "downsample front view by this scale")
+tf.flags.DEFINE_integer("n-agents-per-worker", 1, "number of agents per worker thread")
+tf.flags.DEFINE_integer("viewport-scale", 4, "number of agents per worker thread")
+tf.flags.DEFINE_boolean("drift", False, "If set, turn on drift")
+
+tf.flags.DEFINE_float("min-mu-vf", 2. / 3.6, "Minimum forward velocity of vehicle (m/s)")
 tf.flags.DEFINE_float("max-mu-vf", 14. / 3.6, "Maximum forward velocity of vehicle (m/s)")
 tf.flags.DEFINE_float("min-mu-steer", -30 * np.pi / 180, "Minimum steering angle (rad)")
 tf.flags.DEFINE_float("max-mu-steer", +30 * np.pi / 180, "Maximum steering angle (rad)")
@@ -108,12 +111,14 @@ def parse_flags():
     # FLAGS.monitor_dir    = FLAGS.exp_dir + "/monitor"
     FLAGS.checkpoint_dir = FLAGS.exp_dir + "/checkpoint"
     FLAGS.save_path      = FLAGS.checkpoint_dir + "/model"
+    FLAGS.debug_dir      = FLAGS.exp_dir + "/debug"
 
     FLAGS.dtype = tf.float64 if FLAGS.double_precision else tf.float32
 
     from drl.ac.utils import AttrDict, mkdir_p
 
     mkdir_p(FLAGS.checkpoint_dir)
+    mkdir_p(FLAGS.debug_dir)
 
     if FLAGS.random_learning_rate:
         low  = np.log10(FLAGS.min_learning_rate)

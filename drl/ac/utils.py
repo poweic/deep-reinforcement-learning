@@ -655,24 +655,26 @@ class ReplayBuffer(deque):
 
         self.counter = 0
 
-    def append(self, x):
+    def append(self, item):
 
-        self.timer.compress.tic()
-        compressed = zlib.compress(cPickle.dumps(x, protocol=cPickle.HIGHEST_PROTOCOL))
-        self.timer.compress.toc()
+        if FLAGS.compress:
+            self.timer.compress.tic()
+            item = zlib.compress(cPickle.dumps(item, protocol=cPickle.HIGHEST_PROTOCOL))
+            self.timer.compress.toc()
 
-        self.counter += 1
-        if self.counter % self.maxlen == 0:
-            show_mem_usage(self, "replay buffer")
-            self.counter = 0
+            self.counter += 1
+            if self.counter % self.maxlen == 0:
+                show_mem_usage(self, "replay buffer")
+                self.counter = 0
 
-        super(ReplayBuffer, self).append(compressed)
+        super(ReplayBuffer, self).append(item)
 
     def __getitem__(self, key):
-        compressed = super(ReplayBuffer, self).__getitem__(key)
+        item = super(ReplayBuffer, self).__getitem__(key)
 
-        self.timer.decompress.tic()
-        decompressed = cPickle.loads(zlib.decompress(compressed))
-        self.timer.decompress.toc()
+        if FLAGS.compress:
+            self.timer.decompress.tic()
+            item = cPickle.loads(zlib.decompress(item))
+            self.timer.decompress.toc()
 
-        return decompressed
+        return item
