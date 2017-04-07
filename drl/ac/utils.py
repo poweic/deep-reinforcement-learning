@@ -113,14 +113,20 @@ class EpisodeStats(object):
 
         timesteps = np.sum(self.episode_lengths)
 
-        # set print options
-        np.set_printoptions(formatter={'float_kind': lambda x: "{:.2f}".format(x)}, linewidth=1000)
-        tf.logging.info(
-            "Episode {:05d}: total return: {} [mean = {:.2f}], length = {}, timesteps = \33[93m{}\33[0m".format(
-                self.num_episodes(), rewards_all_agent, reward, length, timesteps
-        ))
-        # reset print options
-        np.set_printoptions()
+        if self.num_episodes() % FLAGS.log_episode_stats_every_nth == 0:
+            # set print options
+            np.set_printoptions(
+                formatter={'float_kind': lambda x: "{:.2f}".format(x)},
+                linewidth=1000
+            )
+
+            fmt = "Episode {:05d} [{}]: return: {} [mean = {:.2f}], length = {}"
+            tf.logging.info(fmt.format(
+                self.num_episodes(),timesteps,rewards_all_agent,reward,length
+            ))
+
+            # reset print options
+            np.set_printoptions()
 
     def __str__(self):
 
@@ -150,12 +156,18 @@ class EpisodeStats(object):
     def last_n_stats(self, N=None):
         if N is None:
             N = FLAGS.min_episodes
+
         if self.num_episodes() == 0:
             mean, std = 0, 0
         else:
             last_n = self.episode_rewards[-N:]
             mean, std = np.mean(last_n), np.std(last_n)
-        return mean, std, "Last {} episodes' score: {} ± {}".format(N, mean, std)
+
+        if self.num_episodes() % FLAGS.log_episode_stats_every_nth == 0:
+            fmt = "\33[33mLast {} episodes' score: {:.4f} ± {:.4f}\33[0m"
+            tf.logging.info(fmt.format(N, mean, std))
+
+        return mean, std
 
     def num_episodes(self):
         return len(self.episode_lengths)
@@ -253,7 +265,7 @@ def tf_concat(axis, tensors):
     if axis == -1:
         axis = get_rank(tensors[0]) - 1
 
-    return tf.concat(axis, tensors)
+    return tf.concat(axis=axis, values=tensors)
 
 def get_rank(x):
     try:
@@ -349,8 +361,8 @@ def make_copy_params_op(v1_list, v2_list, alpha=0.):
     if alpha == 0.:
         return tf.group(*[v2.assign(v1) for v1, v2 in zip(v1_list, v2_list)])
     else:
-        a = tf_const(alpha)
-        b = tf_const(1. - alpha)
+        a = alpha
+        b = tf_const(1.) - alpha
         return tf.group(*[v2.assign(a * v2 + b * v1) for v1, v2 in zip(v1_list, v2_list)])
 
 def discount(x, gamma):
@@ -374,7 +386,7 @@ def deflatten(x, n, m=-1): # de-flatten the first axes
     try:
         return x.reshape((n, -1,) + x.shape[1:])
     except:
-        shape = tf.concat(0, [[n], [m], x.get_shape().as_list()[1:]])
+        shape = tf.concat(axis=0, values=[[n], [m], x.get_shape().as_list()[1:]])
         return tf.reshape(x, shape)
 
 def inverse_transform_sampling_2d(data, n_samples, version=2):

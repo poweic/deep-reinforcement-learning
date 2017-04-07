@@ -257,6 +257,25 @@ class Worker(object):
         if len(rp) % 100 == 0 and len(rp) < FLAGS.max_replay_buffer_size:
             tf.logging.info("len(replay_buffer) = {}".format(len(rp)))
 
+    def should_stop(self):
+
+        # Condition 1: maximum step reached
+        # max_step_reached = self.gstep > FLAGS.max_global_steps
+        max_step_reached = self.gstep > FLAGS.max_global_steps
+
+        # Condition 2: problem solved by achieving a high average reward over
+        # last consecutive N episodes
+        stats = self.global_episode_stats
+        mean, std = stats.last_n_stats()
+
+        """
+        solved = stats.num_episodes() > FLAGS.min_episodes \
+            and mean > FLAGS.score_to_win
+        """
+
+        # return (max_step_reached or solved)
+        return max_step_reached
+
     def run(self, sess, coord):
 
         self.sess = sess

@@ -72,10 +72,6 @@ class AcerWorker(Worker):
             self.regenerate_experiences()
             FLAGS.regenerate_exp_after_resume = False
 
-        # Show learning rate every FLAGS.decay_steps
-        if self.gstep % FLAGS.decay_steps == 0:
-            tf.logging.info("learning rate = {}".format(self.sess.run(self.local_net.lr)))
-
         if FLAGS.show_memory_usage:
             show_mem_usage()
 
@@ -100,32 +96,6 @@ class AcerWorker(Worker):
 
         tf.logging.info("Regeneration done. len(replay_buffer) = {}.".format(
             len(self.replay_buffer)))
-
-    def should_stop(self):
-
-        # Condition 1: maximum step reached
-        # max_step_reached = self.gstep > FLAGS.max_global_steps
-        """ FIXME from gym-offroad-nav:master
-        global_timestep = self.sess.run(FLAGS.global_timestep)
-        t, lr = self.sess.run([FLAGS.global_timestep, self.local_net.lr])
-        tf.logging.info("global_timestep = {}, learning rate = {}".format(t, lr))
-        max_step_reached = global_timestep > FLAGS.max_global_steps
-        """
-        max_step_reached = self.gstep > FLAGS.max_global_steps
-
-        # Condition 2: problem solved by achieving a high average reward over
-        # last consecutive N episodes
-        stats = self.global_episode_stats
-        mean, std, msg = stats.last_n_stats()
-        if self.name == "worker_0" and self.gstep % 50:
-            tf.logging.info("\33[93m" + msg + "\33[0m")
-
-        """
-        solved = stats.num_episodes() > FLAGS.min_episodes and mean > FLAGS.score_to_win
-        """
-
-        # return (max_step_reached or solved)
-        return max_step_reached
 
     def _run_on_policy(self):
         self.copy_params_from_global()
@@ -236,6 +206,11 @@ class AcerWorker(Worker):
         if self.summary_writer is not None:
             self.summary_writer.add_summary(summaries, self.gstep)
             self.summary_writer.flush()
+
+        # Show learning rate every FLAGS.decay_steps
+        if self.gstep % FLAGS.decay_steps == 1:
+            tf.logging.info("learning rate = {}".format(
+                self.sess.run(self.local_net.lr)))
 
         if FLAGS.debug_dump and self.gstep > 1000 and self.gstep % 100 == 0:
             import scipy.io
