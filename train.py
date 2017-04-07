@@ -1,4 +1,4 @@
-#!/usr/bin/python
+#!/usr/bin/env python
 import colored_traceback.always
 
 import os
@@ -6,12 +6,16 @@ import sys
 import cv2
 import scipy.io
 import numpy as np
-import tensorflow as tf
 import itertools
 import shutil
 import threading
 import time
 import schedule
+import tensorflow as tf
+from packaging import version
+assert version.parse(tf.__version__) > version.parse("1.0.0"), \
+    "Tensorflow version >= 1.0.0 required"
+
 from drl.config import parse_flags
 
 FLAGS = parse_flags()

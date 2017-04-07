@@ -261,12 +261,6 @@ def tf_shape(x):
     except:
         return x.get_shape()
 
-def tf_concat(axis, tensors):
-    if axis == -1:
-        axis = get_rank(tensors[0]) - 1
-
-    return tf.concat(axis=axis, values=tensors)
-
 def get_rank(x):
     try:
         return x.ndim
@@ -386,7 +380,7 @@ def deflatten(x, n, m=-1): # de-flatten the first axes
     try:
         return x.reshape((n, -1,) + x.shape[1:])
     except:
-        shape = tf.concat(axis=0, values=[[n], [m], x.get_shape().as_list()[1:]])
+        shape = tf.concat([[n], [m], x.get_shape().as_list()[1:]], 0)
         return tf.reshape(x, shape)
 
 def inverse_transform_sampling_2d(data, n_samples, version=2):

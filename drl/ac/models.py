@@ -60,9 +60,12 @@ def LSTM(input, num_outputs, scope=None, state_in_fw=None, state_in_bw=None):
 
     batch_size = FLAGS.batch_size
 
+    # starting from TensorFlow v1.0, tf.nn.rnn_cell is moved to tf.contrib.rnn
+    rnn_core = tf.contrib.rnn
+
     with tf.variable_scope(scope):
         # Forward LSTM Cell and its initial state placeholder
-        lstm_fw = tf.nn.rnn_cell.LSTMCell(
+        lstm_fw = rnn_core.LSTMCell(
             num_outputs, state_is_tuple=True, use_peepholes=True,
             # cell_clip=10., num_proj=num_outputs, proj_clip=10.
         )
@@ -75,7 +78,7 @@ def LSTM(input, num_outputs, scope=None, state_in_fw=None, state_in_bw=None):
 
         if FLAGS.bi_directional:
             # Backward LSTM Cell and its initial state placeholder
-            lstm_bw = tf.nn.rnn_cell.LSTMCell(
+            lstm_bw = rnn_core.LSTMCell(
                 num_outputs, state_is_tuple=True, use_peepholes=True,
                 # cell_clip=10., num_proj=num_outputs, proj_clip=10.
             )
@@ -93,8 +96,8 @@ def LSTM(input, num_outputs, scope=None, state_in_fw=None, state_in_bw=None):
             lstm_outputs, state_out = tf.nn.bidirectional_dynamic_rnn(
                 lstm_fw, lstm_bw, input, dtype=FLAGS.dtype, time_major=True, scope=scope,
                 sequence_length=sequence_length,
-                initial_state_fw=tf.nn.rnn_cell.LSTMStateTuple(*state_in_fw),
-                initial_state_bw=tf.nn.rnn_cell.LSTMStateTuple(*state_in_bw)
+                initial_state_fw=rnn_core.LSTMStateTuple(*state_in_fw),
+                initial_state_bw=rnn_core.LSTMStateTuple(*state_in_bw)
             )
 
             # Concate forward/backward output to create a tensor of shape
@@ -108,7 +111,7 @@ def LSTM(input, num_outputs, scope=None, state_in_fw=None, state_in_bw=None):
             # 1-directional LSTM (forward only)
             lstm_outputs, state_out = tf.nn.dynamic_rnn(
                 lstm_fw, input, dtype=FLAGS.dtype, time_major=True, scope=scope,
-                initial_state=tf.nn.rnn_cell.LSTMStateTuple(*state_in_fw)
+                initial_state=rnn_core.LSTMStateTuple(*state_in_fw)
             )
 
             state_in = state_in_fw
@@ -203,9 +206,11 @@ def build_network(input, scope_name, add_summaries=False):
     S, B = get_seq_length_batch_size(input.prev_action)
 
     layers = []
+    other_states = []
     if "OffRoadNav" in FLAGS.game:
         tf.logging.info("building convnet ...")
         layers.append(build_convnet(input.front_view, params))
+        other_states = [input.vehicle_state, input.prev_action, input.prev_reward]
     else:
         layers.append(flatten(input.state))
 
@@ -226,17 +231,13 @@ def build_network(input, scope_name, add_summaries=False):
         # Concatenate encoder's output (i.e. flattened result from conv net)
         # with previous reward (see https://arxiv.org/abs/1611.03673)
         # concat1 = tf.concat(2, [fc, input.prev_reward])
-        concat1 = tf.concat(2, [layers[-1]] + [
-            input.vehicle_state, input.prev_action, input.prev_reward
-        ])
+        concat1 = tf.concat([layers[-1]] + other_states, 2)
         lstms.append(LSTM(concat1, FLAGS.hidden_size, scope="LSTM-1"))
 
         # LSTM-2
         # Concatenate previous output with vehicle_state and prev_action
         # concat2 = tf.concat(2, [fc, lstms[-1].output, vehicle_state, input.prev_action])
-        concat2 = tf.concat(2, [lstms[-1].output] + [
-            concat1, input.vehicle_state, input.prev_action, input.prev_reward
-        ])
+        concat2 = tf.concat([lstms[-1].output] + other_states, 2)
         lstms.append(LSTM(concat2, FLAGS.hidden_size, scope="LSTM-2"))
 
         layers += lstms
@@ -351,7 +352,6 @@ def policy_network(input, num_outputs, clip_mu=True):
         sigma = deflatten(sigma, S, B)
 
     return mu, sigma
-    # return tf.unstack(mu, axis=-1), tf.unstack(sigma, axis=-1)
 
 def state_value_network(input, num_outputs=1):
     """

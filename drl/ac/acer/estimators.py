@@ -31,13 +31,14 @@ def create_avgnet_init_op(global_step, avg_vars, global_net, local_net):
         lambda: tf.no_op()
     )
 
+    alpha = tf.Variable(FLAGS.avg_net_momentum, name="alpha", trainable=False)
     with tf.control_dependencies([init_avg_net]):
         train_op = make_train_op(local_net, global_net)
 
         with tf.control_dependencies([train_op]):
 
             train_and_update_avgnet_op = make_copy_params_op(
-                global_vars, avg_vars, alpha=FLAGS.avg_net_momentum
+                global_vars, avg_vars, alpha=alpha
             )
 
     return train_and_update_avgnet_op
@@ -245,8 +246,8 @@ class AcerEstimator():
 
             # TF equivalent of .prepend()
             with tf.name_scope("prepend"):
-                Q_ret = tf.concat_v2([Q_ret_i, Q_ret], axis=0)
-                Q_opc = tf.concat_v2([Q_opc_i, Q_opc], axis=0)
+                Q_ret = tf.concat([Q_ret_i, Q_ret], 0)
+                Q_opc = tf.concat([Q_opc_i, Q_opc], 0)
 
             # Q^{ret} \leftarrow c_i (Q^{ret} - Q(x_i, a_i)) + V(x_i)
             with tf.name_scope("post_update"):
@@ -295,7 +296,7 @@ class AcerEstimator():
 
             # Take the partial derivatives w.r.t. phi (i.e. mu and sigma)
             # k = tf.pack(tf.gradients(KL_divergence, pi.phi), axis=-1)
-            k = tf_concat(-1, tf.gradients(KL_divergence, pi.phi))
+            k = tf.concat(tf.gradients(KL_divergence, pi.phi), -1)
 
             # Compute \frac{k^T g - \delta}{k^T k}, perform reduction only on axis 2
             num   = tf.reduce_sum(k * g, axis=2, keep_dims=True) - delta
@@ -381,7 +382,7 @@ class AcerEstimator():
         # ACER gradient is the gradient of policy objective function, which is
         # the negatation of policy loss
         # g_acer = tf.pack(tf.gradients(pi_obj, pi.phi), axis=-1)
-        g_acer = tf_concat(-1, tf.gradients(pi_obj, pi.phi))
+        g_acer = tf.concat(tf.gradients(pi_obj, pi.phi), -1)
         self.g_acer = g_acer
 
         with tf.name_scope("TRPO"):
@@ -389,7 +390,7 @@ class AcerEstimator():
                 g_acer, self.avg_net.pi, pi)
 
         # phi = tf.pack(pi.phi, axis=-1)
-        phi = tf_concat(-1, pi.phi)
+        phi = tf.concat(pi.phi, -1)
 
         # Compute the objective function (obj) we try to maximize
         obj = pi_obj
@@ -529,7 +530,7 @@ class AcerEstimator():
                 broadcaster = tf.zeros([num_samples] + [1] * (ndims-1), dtype=FLAGS.dtype)
                 input_ = input[None, ...] + broadcaster
 
-                input_with_a = tf_concat(-1, [input_, actions])
+                input_with_a = tf.concat([input_, actions], -1)
                 input_with_a = flatten_all_leading_axes(input_with_a)
 
                 # 1st fully connected layer

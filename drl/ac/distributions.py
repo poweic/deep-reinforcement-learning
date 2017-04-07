@@ -46,7 +46,8 @@ def to_transformed_distribution(dist, dist_type):
 
     def sample_n(n, msg=None):
 
-        samples = dist.sample_n(n)
+        # sample_n is deprecated starting from TensorFlow v1.0
+        samples = dist.sample(n)
 
         if dist_type == "normal":
             samples = clip(samples, low, high)
