@@ -13,8 +13,8 @@ gym.configuration.undo_logger_setup()
 tf.logging.set_verbosity(tf.logging.INFO)
 
 # Set format
-formatter = logging.Formatter('[%(asctime)s %(file)s:%(line)s] %(message)s')
-tf.logging._handler.setFormatter(formatter)
+fmt = logging.Formatter('[%(asctime)s] %(message)s', datefmt="%m-%d %H:%M:%S")
+tf.logging._handler.setFormatter(fmt)
 
 # Use the same format and dump it to log file
 if FLAGS.log_file is not None:
@@ -22,7 +22,8 @@ if FLAGS.log_file is not None:
     FLAGS.log_file = FLAGS.log_dir + FLAGS.log_file
 
     fh = logging.FileHandler(FLAGS.log_file)
-    fh.setFormatter(formatter)
+    fmt = logging.Formatter('[%(asctime)s %(file)s:%(line)s] %(message)s')
+    fh.setFormatter(fmt)
     tf.logging._logger.addHandler(fh)
 
     FLAGS.stats_file = FLAGS.log_dir + FLAGS.stats_file
