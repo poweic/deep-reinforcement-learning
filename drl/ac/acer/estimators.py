@@ -132,10 +132,6 @@ class AcerEstimator():
 
                 check_none_grads(grads_and_vars)
 
-                self.grad_norms = {
-                    str(v.name): tf.sqrt(tf.reduce_sum(g**2))
-                    for g, v in grads_and_vars if g is not None
-                }
                 self.global_norm = tf.global_norm([g for g, v in grads_and_vars if g is not None])
 
                 self.grads_and_vars = [(tf.check_numerics(g, message=str(v.name)), v) for g, v in grads_and_vars if g is not None]
