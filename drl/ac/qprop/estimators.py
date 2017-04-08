@@ -57,21 +57,18 @@ class QPropEstimator():
 
         with tf.variable_scope("policy"):
             self.pi, self.pi_behavior = build_policy(shared, FLAGS.policy_dist)
+            self.pi_mean = self.pi.dist.mean()
 
         with tf.name_scope("output"):
             self.a_prime = tf.squeeze(self.pi.sample_n(1), 0)
             self.action_and_stats = [self.a_prime, self.pi.stats]
 
         with tf.variable_scope("A"):
-            # adv = self.advantage_network(tf.stop_gradient(shared))
-            adv = self.advantage_network(shared)
-            self.Q_tilt = self.SDN_network(adv, self.value, self.pi)
+            Q_tilt = stochastic_dueling_network(shared, self.value, self.pi)
 
         with tf.variable_scope("Q"):
-            self.Q_tilt_a = self.Q_tilt(self.a, name="Q_tilt_a")
-            self.pi_mean = self.pi.dist.mean()
-            self.Q_tilt_mu = self.Q_tilt(self.pi_mean, name="Q_w_at_mu")
-            self.Q_tilt_a_prime = self.Q_tilt(self.a_prime, name="Q_tilt_a_prime")
+            self.Q_tilt_a = Q_tilt(self.a, name="Q_tilt_a")
+            self.Q_tilt_mu = Q_tilt(self.pi_mean, name="Q_w_at_mu")
 
             # Compute the importance sampling weight \rho and \rho^{'}
             with tf.name_scope("rho"):
@@ -238,72 +235,6 @@ class QPropEstimator():
         loss_sur = Q_l2_loss_sur + V_l2_loss_sur
 
         return reduce_seq_batch_dim(loss, loss_sur)
-
-    def SDN_network(self, advantage, value, pi):
-        """
-        This function wrap advantage, value, policy pi within closure, so that
-        the caller doesn't have to pass these as argument anymore
-        """
-
-        def Q_tilt(action, name, num_samples=FLAGS.num_sdn_samples):
-            with tf.name_scope(name):
-                # See eq. 13 in ACER
-                if len(action.get_shape()) != 4:
-                    action = action[None, ...]
-
-                adv = tf.squeeze(advantage(action, name="A_action"), 0)
-
-                # TODO Use symmetric low variance sampling !!
-                samples = tf.stop_gradient(pi.sample_n(num_samples))
-                advs = advantage(samples, "A_sampled", num_samples)
-                mean_adv = tf.reduce_mean(advs, axis=0)
-
-                return value + adv - mean_adv
-
-        return Q_tilt
-
-    def advantage_network(self, input):
-
-        rank = get_rank(input)
-        if rank == 3:
-            S, B = get_seq_length_batch_size(input)
-
-        # Given states
-        def advantage(actions, name, num_samples=1):
-
-            with tf.name_scope(name):
-                ndims = len(actions.get_shape())
-                broadcaster = tf.zeros([num_samples] + [1] * (ndims-1), dtype=FLAGS.dtype)
-                input_ = input[None, ...] + broadcaster
-
-                input_with_a = tf.concat([input_, actions], -1)
-                input_with_a = flatten_all_leading_axes(input_with_a)
-
-                # 1st fully connected layer
-                # fc1 = input_with_a
-                fc1 = tf.contrib.layers.fully_connected(
-                    inputs=input_with_a,
-                    num_outputs=FLAGS.hidden_size,
-                    activation_fn=tf.nn.relu,
-                    scope="fc1")
-
-                # 2nd fully connected layer that regresses the advantage
-                fc2 = tf.contrib.layers.fully_connected(
-                    inputs=fc1,
-                    num_outputs=1,
-                    activation_fn=None,
-                    scope="fc2")
-
-                output = fc2
-
-                output = tf.reshape(output, [num_samples, -1, 1])
-
-                if rank == 3:
-                    output = tf.reshape(output, [-1, S, B, 1])
-
-            return output
-
-        return tf.make_template('advantage', advantage)
 
     def summarize(self, add_summaries):
 

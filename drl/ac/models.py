@@ -406,3 +406,71 @@ def get_forward_velocity(state):
     v = tf.sign(v) * tf.maximum(tf.abs(v), 1e-3)
     # v = tf.Print(v, [flatten_all(v)], message="\33[33m after  v = \33[0m", summarize=100)
     return v
+
+def stochastic_dueling_network(input, value, pi):
+    """
+    This function wrap advantage, value, policy pi within closure, so that
+    the caller doesn't have to pass these as argument anymore
+    """
+
+    advantage = advantage_network(input)
+
+    def Q_tilt(action, name, num_samples=FLAGS.num_sdn_samples):
+        with tf.name_scope(name):
+            # See eq. 13 in ACER
+            if len(action.get_shape()) != 4:
+                action = action[None, ...]
+
+            adv = tf.squeeze(advantage(action, name="A_action"), 0)
+
+            # TODO Use symmetric low variance sampling !!
+            samples = tf.stop_gradient(pi.sample_n(num_samples))
+            advs = advantage(samples, "A_sampled", num_samples)
+            mean_adv = tf.reduce_mean(advs, axis=0)
+
+            return value + adv - mean_adv
+
+    return Q_tilt
+
+def advantage_network(input):
+
+    rank = get_rank(input)
+    if rank == 3:
+        S, B = get_seq_length_batch_size(input)
+
+    # Given states
+    def advantage(actions, name, num_samples=1):
+
+        with tf.name_scope(name):
+            ndims = len(actions.get_shape())
+            broadcaster = tf.zeros([num_samples] + [1] * (ndims-1), dtype=FLAGS.dtype)
+            input_ = input[None, ...] + broadcaster
+
+            input_with_a = tf.concat([input_, actions], -1)
+            input_with_a = flatten_all_leading_axes(input_with_a)
+
+            # 1st fully connected layer
+            # fc1 = input_with_a
+            fc1 = tf.contrib.layers.fully_connected(
+                inputs=input_with_a,
+                num_outputs=FLAGS.hidden_size,
+                activation_fn=tf.nn.relu,
+                scope="fc1")
+
+            # 2nd fully connected layer that regresses the advantage
+            fc2 = tf.contrib.layers.fully_connected(
+                inputs=fc1,
+                num_outputs=1,
+                activation_fn=None,
+                scope="fc2")
+
+            output = fc2
+
+            output = tf.reshape(output, [num_samples, -1, 1])
+
+            if rank == 3:
+                output = tf.reshape(output, [-1, S, B, 1])
+
+        return output
+
+    return tf.make_template('advantage', advantage)
