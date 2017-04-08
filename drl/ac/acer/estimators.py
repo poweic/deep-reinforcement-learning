@@ -5,6 +5,7 @@ from drl.ac.utils import *
 from drl.ac.distributions import *
 from drl.ac.models import *
 from drl.ac.policies import build_policy
+import drl.ac.estimators
 import drl.ac.acer.worker
 import threading
 
@@ -282,42 +283,6 @@ class AcerEstimator():
 
         return Q_ret, Q_opc
 
-    def compute_trust_region_update(self, g, pi_avg, pi, delta=0.5):
-        """
-        In ACER's original paper, they use delta uniformly sampled from [0.1, 2]
-        """
-        try:
-            # Compute the KL-divergence between the policy distribution of the
-            # average policy network and those of this network, i.e. KL(avg || this)
-            KL_divergence = tf.reduce_sum(tf.contrib.distributions.kl(
-                pi_avg.dist, pi.dist, allow_nan=False), axis=2)
-
-            self.mean_KL = tf.reduce_mean(KL_divergence)
-
-            # Take the partial derivatives w.r.t. phi (i.e. mu and sigma)
-            # k = tf.pack(tf.gradients(KL_divergence, pi.phi), axis=-1)
-            k = tf.concat(tf.gradients(KL_divergence, pi.phi), -1)
-
-            # Compute \frac{k^T g - \delta}{k^T k}, perform reduction only on axis 2
-            num   = tf.reduce_sum(k * g, axis=2, keep_dims=True) - delta
-            denom = tf.reduce_sum(k * k, axis=2, keep_dims=True)
-
-            # Hold gradient back a little bit if KL divergence is too large
-            correction = tf.maximum(tf_const(0.), num / denom) * k
-
-            # z* is the TRPO regularized gradient
-            z_star = g - correction
-
-        except Exception as e:
-            print e
-            tf.logging.warn("\33[33mFailed to create TRPO update. Fall back to normal update\33[0m")
-            z_star = g
-
-        # By using stop_gradient, we make z_star being treated as a constant
-        z_star = tf.stop_gradient(z_star)
-
-        return z_star
-
     def to_feed_dict(self, state):
 
         feed_dict = {
@@ -373,48 +338,13 @@ class AcerEstimator():
             pi_obj = self.compute_ACER_policy_obj(
                 rho, pi, a, Q_opc, value, rho_prime, Q_tilt_a_prime, a_prime)
 
-        pi_loss, pi_loss_sur = self.add_TRPO_regularization(pi, pi_obj)
-
-        return pi_loss, pi_loss_sur
-
-    def add_TRPO_regularization(self, pi, pi_obj):
-
-        # ACER gradient is the gradient of policy objective function, which is
-        # the negatation of policy loss
-        # g_acer = tf.pack(tf.gradients(pi_obj, pi.phi), axis=-1)
-        g_acer = tf.concat(tf.gradients(pi_obj, pi.phi), -1)
-        self.g_acer = g_acer
-
-        with tf.name_scope("TRPO"):
-            self.g_acer_trpo = g_acer_trpo = self.compute_trust_region_update(
-                g_acer, self.avg_net.pi, pi)
-
-        # phi = tf.pack(pi.phi, axis=-1)
-        phi = tf.concat(pi.phi, -1)
-
-        # Compute the objective function (obj) we try to maximize
-        obj = pi_obj
-        obj_sur = phi * g_acer_trpo
-
-        # Sum over the intermediate variable phi
-        obj     = tf.reduce_sum(obj    , axis=2)
-        obj_sur = tf.reduce_sum(obj_sur, axis=2)
-
-        # Take mean over batch axis
-        obj     = tf.reduce_mean(obj    , axis=1)
-        obj_sur = tf.reduce_mean(obj_sur, axis=1)
-
-        # Sum over time axis
-        # loss is for display, not for computing gradients, so use reduce_mean
-        # loss_sur is for computing gradients, use reduce_sum
-        obj     = tf.reduce_mean(obj    , axis=0)
-        obj_sur = tf.reduce_sum(obj_sur, axis=0)
-
-        assert len(obj.get_shape()) == 0
-        assert len(obj_sur.get_shape()) == 0
+        pi_obj_sur, self.mean_KL = drl.ac.estimators.add_fast_TRPO_regularization(
+            pi, self.avg_net.pi, pi_obj)
 
         # loss is the negative of objective function
-        return -obj, -obj_sur
+        loss, loss_sur = -pi_obj, -pi_obj_sur
+
+        return reduce_seq_batch_dim(loss, loss_sur)
 
     def get_value_loss(self, Q_ret, Q_tilt_a, rho, value):
 
@@ -434,20 +364,7 @@ class AcerEstimator():
         loss     = Q_l2_loss
         loss_sur = Q_l2_loss_sur + V_l2_loss_sur
 
-        # Take mean over batch axis
-        loss     = tf.reduce_mean(tf.squeeze(loss,     -1), axis=1)
-        loss_sur = tf.reduce_mean(tf.squeeze(loss_sur, -1), axis=1)
-
-        # Sum over time axis
-        # loss is for display, not for computing gradients, so use reduce_mean
-        # loss_sur is for computing gradients, use reduce_sum
-        loss     = tf.reduce_mean(loss,     axis=0)
-        loss_sur = tf.reduce_sum(loss_sur, axis=0)
-
-        assert len(loss.get_shape()) == 0
-        assert len(loss_sur.get_shape()) == 0
-
-        return loss, loss_sur
+        return reduce_seq_batch_dim(loss, loss_sur)
 
     def compute_ACER_policy_obj(self, rho, pi, a, Q_opc, value, rho_prime,
                                  Q_tilt_a_prime, a_prime):

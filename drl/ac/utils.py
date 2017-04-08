@@ -684,3 +684,18 @@ class ReplayBuffer(deque):
             self.timer.decompress.toc()
 
         return item
+
+def reduce_seq_batch_dim(value, value_sur):
+    assert len(value.get_shape()) == 3
+    assert len(value_sur.get_shape()) == 3
+
+    # for sequence dimension (0-th axis), we use reduce_sum for surrogate value
+    # but reduce_mean for easier human debugging
+    value     = tf.reduce_mean(value, axis=0)
+    value_sur = tf.reduce_sum(value_sur, axis=0)
+
+    # Reduce the rest axis to a single number
+    value     = tf.reduce_mean(value)
+    value_sur = tf.reduce_mean(value_sur)
+
+    return value, value_sur

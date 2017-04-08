@@ -31,7 +31,7 @@ tf.flags.DEFINE_boolean("double-precision", False, "Use tf.float64")
 tf.flags.DEFINE_boolean("summarize", False, "Create summary writer")
 tf.flags.DEFINE_boolean("debug-dump", False, "dump debugging information to *.mat file")
 
-tf.flags.DEFINE_integer("log-episode-stats-every-nth", 100, "Print stats of episode every nth")
+tf.flags.DEFINE_integer("log-episode-stats-every-nth", 20, "Print stats of episode every nth")
 tf.flags.DEFINE_integer("parallelism", 1, "Number of threads to run. If not set we run [num_cpu_cores] threads.")
 tf.flags.DEFINE_integer("save-every-n-minutes", 10, "Save model every N minutes")
 tf.flags.DEFINE_integer("off-policy-batch-size", 1, "batch rollouts when performing off-policy updates")
