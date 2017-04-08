@@ -5,7 +5,7 @@ from drl.ac.utils import *
 from drl.ac.distributions import *
 from drl.ac.models import *
 from drl.ac.policies import build_policy
-from drl.ac.estimators import add_fast_TRPO_regularization, compute_rho
+from drl.ac.estimators import *
 import drl.ac.acer.worker
 import threading
 
@@ -80,7 +80,7 @@ class AcerEstimator():
                 tf.logging.info("c.shape = {}".format(tf_shape(self.c)))
 
             with tf.name_scope("Q_Retrace"):
-                self.Q_ret, self.Q_opc = self.compute_Q_ret_Q_opc_recursively(
+                self.Q_ret, self.Q_opc = compute_Q_ret_Q_opc(
                     self.value, self.value_last, self.c, self.r, self.Q_tilt_a
                 )
 
@@ -146,79 +146,6 @@ class AcerEstimator():
         self.lock = None
 
         self.summaries = self.summarize(add_summaries)
-
-    def compute_Q_ret_Q_opc_recursively(self, values, value_last, c, r, Q_tilt_a):
-        """
-        Use tf.while_loop to compute Q_ret, Q_opc
-        """
-
-        tf.logging.info("Compute Q_ret & Q_opc recursively ...")
-        gamma = tf_const(FLAGS.discount_factor)
-        lambda_ = tf_const(FLAGS.lambda_)
-        # gamma = tf_print(gamma, "gamma = ")
-
-        with tf.name_scope("initial_value"):
-            # Use "done" to determine whether x_k is terminal state. If yes,
-            # set initial Q_ret to 0. Otherwise, bootstrap initial Q_ret from V.
-            Q_ret_0 = value_last * int(FLAGS.bootstrap)
-            Q_opc_0 = Q_ret_0
-
-            Q_ret = Q_ret_0
-            Q_opc = Q_opc_0
-
-            k = tf.shape(values)[0] # if seq_length is None else seq_length
-            i_0 = k - 1
-
-        def cond(i, Q_ret_i, Q_opc_i, Q_ret, Q_opc):
-            return i >= 0
-
-        def body(i, Q_ret_i, Q_opc_i, Q_ret, Q_opc):
-
-            # Q^{ret} \leftarrow r_i + \gamma Q^{ret}
-            with tf.name_scope("r_i"):
-                r_i = r[i:i+1, ...]
-
-            with tf.name_scope("pre_update"):
-                Q_ret_i = r_i + gamma * Q_ret_i
-                Q_opc_i = r_i + gamma * Q_opc_i
-
-            # TF equivalent of .prepend()
-            with tf.name_scope("prepend"):
-                Q_ret = tf.concat([Q_ret_i, Q_ret], 0)
-                Q_opc = tf.concat([Q_opc_i, Q_opc], 0)
-
-            # Q^{ret} \leftarrow c_i (Q^{ret} - Q(x_i, a_i)) + V(x_i)
-            with tf.name_scope("post_update"):
-                with tf.name_scope("c_i"): c_i = c[i:i+1, ...]
-                with tf.name_scope("Q_i"): Q_i = Q_tilt_a[i:i+1, ...]
-                with tf.name_scope("V_i"): V_i = values[i:i+1, ...]
-
-                # ACER with Generalized Advantage Estimation (GAE):
-                # For lambda = 1: this is original ACER with k-step TD error
-                # For lambda = 0: 1-step TD error (low variance, high bias)
-                Q_ret_i = lambda_ * c_i * (Q_ret_i - Q_i) + V_i
-                Q_opc_i = lambda_       * (Q_opc_i - Q_i) + V_i
-
-            return i-1, Q_ret_i, Q_opc_i, Q_ret, Q_opc
-
-        i, Q_ret_i, Q_opc_i, Q_ret, Q_opc = tf.while_loop(
-            cond, body,
-            loop_vars=[
-                i_0, Q_ret_0, Q_opc_0, Q_ret, Q_opc
-            ],
-            shape_invariants=[
-                i_0.get_shape(),
-                Q_ret_0.get_shape(),
-                Q_opc_0.get_shape(),
-                tf.TensorShape([None, batch_size, 1]),
-                tf.TensorShape([None, batch_size, 1])
-            ]
-        )
-
-        Q_ret = tf.stop_gradient(Q_ret[:-1, ...], name="Q_ret")
-        Q_opc = tf.stop_gradient(Q_opc[:-1, ...], name="Q_opc")
-
-        return Q_ret, Q_opc
 
     def to_feed_dict(self, state):
 
