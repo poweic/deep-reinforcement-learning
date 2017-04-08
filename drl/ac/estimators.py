@@ -1,5 +1,5 @@
 import tensorflow as tf
-from utils import tf_const, make_copy_params_op, make_train_op
+from utils import *
 FLAGS = tf.flags.FLAGS
 
 def get_estimator(type):
@@ -98,3 +98,13 @@ def create_avgnet_init_op(global_step, avg_vars, global_net, local_net):
             )
 
     return train_and_update_avgnet_op
+
+def compute_rho(a, pi, pi_behavior):
+    pi_a = pi.prob(a)[..., None]
+    mu_a = pi_behavior.prob(a)[..., None]
+
+    rho = pi_a / mu_a
+    rho = tf_print(rho)
+    rho = tf.stop_gradient(rho)
+
+    return rho

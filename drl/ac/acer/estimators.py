@@ -5,7 +5,7 @@ from drl.ac.utils import *
 from drl.ac.distributions import *
 from drl.ac.models import *
 from drl.ac.policies import build_policy
-from drl.ac.estimators import add_fast_TRPO_regularization
+from drl.ac.estimators import add_fast_TRPO_regularization, compute_rho
 import drl.ac.acer.worker
 import threading
 
@@ -72,9 +72,8 @@ class AcerEstimator():
 
             # Compute the importance sampling weight \rho and \rho^{'}
             with tf.name_scope("rho"):
-                self.rho, self.rho_prime = self.compute_rho(
-                    self.a, self.a_prime, self.pi, self.pi_behavior
-                )
+                self.rho = compute_rho(self.a, self.pi, self.pi_behavior)
+                self.rho_prime = compute_rho(self.a_prime, self.pi, self.pi_behavior)
 
             with tf.name_scope("c_i"):
                 self.c = tf.minimum(tf_const(1.), self.rho ** (1. / FLAGS.num_actions), "c_i")
@@ -147,37 +146,6 @@ class AcerEstimator():
         self.lock = None
 
         self.summaries = self.summarize(add_summaries)
-
-    def compute_rho(self, a, a_prime, pi, pi_behavior):
-        # compute rho, rho_prime, and c
-        with tf.name_scope("pi_a"):
-            self.pi_a = pi_a = pi.prob(a, "In pi_a: ")[..., None]
-        with tf.name_scope("pi_behavior_a"):
-            self.mu_a = mu_a = pi_behavior.prob(a, "In mu_a: ")[..., None]
-
-        with tf.name_scope("pi_a_prime"):
-            self.pi_a_prime = pi_a_prime = pi.prob(a_prime, "In pi_a_prime: ")[..., None]
-        with tf.name_scope("pi_behavior_a_prime"):
-            self.mu_a_prime = mu_a_prime = pi_behavior.prob(a_prime, "In mu_a_prime: ")[..., None]
-
-        # use tf.div instead of pi_a / mu_a to assign a name to the output
-        rho = tf.div(pi_a, mu_a)
-        rho_prime = tf.div(pi_a_prime, mu_a_prime)
-
-        rho = tf_print(rho)
-        rho_prime = tf_print(rho_prime)
-
-        tf.logging.info("pi_a.shape = {}".format(tf_shape(pi_a)))
-        tf.logging.info("mu_a.shape = {}".format(tf_shape(mu_a)))
-        tf.logging.info("pi_a_prime.shape = {}".format(tf_shape(pi_a_prime)))
-        tf.logging.info("mu_a_prime.shape = {}".format(tf_shape(mu_a_prime)))
-        tf.logging.info("rho.shape = {}".format(tf_shape(rho)))
-        tf.logging.info("rho_prime.shape = {}".format(tf_shape(rho_prime)))
-
-        rho = tf.stop_gradient(rho, name="rho")
-        rho_prime = tf.stop_gradient(rho_prime, name="rho_prime")
-
-        return rho, rho_prime
 
     def compute_Q_ret_Q_opc_recursively(self, values, value_last, c, r, Q_tilt_a):
         """
