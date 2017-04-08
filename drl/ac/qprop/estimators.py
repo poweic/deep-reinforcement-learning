@@ -1,6 +1,5 @@
 import sys
 import tensorflow as tf
-from pprint import pprint
 from drl.ac.utils import *
 from drl.ac.distributions import *
 from drl.ac.models import *
@@ -122,17 +121,9 @@ class QPropEstimator():
                 )
 
                 self.optimizer = tf.train.AdamOptimizer(self.lr)
-                # self.optimizer = tf.train.RMSPropOptimizer(self.lr)
-                # self.optimizer = tf.train.GradientDescentOptimizer(FLAGS.learning_rate)
 
-                tf.logging.info("Computing gradients ...")
-                grads_and_vars = self.optimizer.compute_gradients(self.loss_sur)
-
-                check_none_grads(grads_and_vars)
-
-                self.global_norm = tf.global_norm([g for g, v in grads_and_vars if g is not None])
-
-                self.grads_and_vars = [(tf.check_numerics(g, message=str(v.name)), v) for g, v in grads_and_vars if g is not None]
+                self.grads_and_vars, self.global_norm = \
+                    compute_gradients_with_checks(self.optimizer, self.loss_sur)
 
             # Collect all trainable variables initialized here
             self.var_list = [v for g, v in self.grads_and_vars]

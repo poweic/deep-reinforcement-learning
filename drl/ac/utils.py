@@ -13,6 +13,7 @@ import cv2
 import gym
 import sys
 import cPickle
+from pprint import pprint
 from numbers import Number
 from collections import Set, Mapping, deque
 from gym import spaces
@@ -53,7 +54,7 @@ def warm_up_env():
     initialize_env_related_flags(env)
     env.close()
 
-def check_none_grads(grads_and_vars):
+def check_unused_local_variables(grads_and_vars):
 
     none_grads = [
         (g, v) for g, v in grads_and_vars
@@ -713,3 +714,24 @@ def to_feed_dict(self, state):
     }
 
     return feed_dict
+
+def compute_gradients_with_checks(optimizer, loss):
+
+    tf.logging.info("Computing gradients ...")
+
+    grads_and_vars = optimizer.compute_gradients(loss)
+
+    check_unused_local_variables(grads_and_vars)
+
+    # remove none grads
+    grads_and_vars = [(g,v) for g,v in grads_and_vars if g is not None]
+
+    # add check_numerics
+    grads_and_vars = [
+        (tf.check_numerics(g, message=str(v.name)), v)
+        for g, v in grads_and_vars
+    ]
+
+    global_norm = tf.global_norm([g for g, v in grads_and_vars])
+
+    return grads_and_vars, global_norm

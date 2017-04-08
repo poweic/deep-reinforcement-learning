@@ -200,7 +200,7 @@ def build_network(input, scope_name, add_summaries=False):
     if FLAGS.batch_norm:
         params.update({
             "normalizer_fn": tf.contrib.layers.batch_norm,
-            "normalizer_params": {'updates_collections': None}
+            # "normalizer_params": {'updates_collections': None}
         })
 
     S, B = get_seq_length_batch_size(input.prev_action)
