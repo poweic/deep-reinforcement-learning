@@ -76,7 +76,6 @@ class QPropEstimator():
             # Compute the importance sampling weight \rho and \rho^{'}
             with tf.name_scope("rho"):
                 self.rho = compute_rho(self.a, self.pi, self.pi_behavior)
-                self.rho_prime = compute_rho(self.a_prime, self.pi, self.pi_behavior)
 
             with tf.name_scope("c_i"):
                 self.c = tf.minimum(tf_const(1.), self.rho ** (1. / FLAGS.num_actions), "c_i")
@@ -89,8 +88,7 @@ class QPropEstimator():
 
         with tf.name_scope("losses"):
             self.pi_loss, self.pi_loss_sur = self.get_policy_loss(
-                self.rho, self.pi, self.a, self.Q_opc, self.value,
-                self.rho_prime, self.Q_tilt_mu, self.a_prime
+                self.rho, self.pi, self.a, self.Q_opc, self.value, self.Q_tilt_mu
             )
 
             self.vf_loss, self.vf_loss_sur = self.get_value_loss(
@@ -191,8 +189,7 @@ class QPropEstimator():
 
         return a_prime, stats, hidden_states
 
-    def get_policy_loss(self, rho, pi, a, Q_opc, value, rho_prime,
-                        Q_tilt_mu, a_prime):
+    def get_policy_loss(self, rho, pi, a, Q_opc, value, Q_tilt_mu):
 
         tf.logging.info("Computing policy loss ...")
 
