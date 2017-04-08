@@ -151,19 +151,9 @@ class QPropEstimator():
         self.summaries = self.summarize(add_summaries)
 
     def predict_values(self, state, seq_length, sess=None):
-        feed_dict = self.to_feed_dict(state)
+        feed_dict = to_feed_dict(self, state)
         feed_dict[self.seq_length] = seq_length
         return self.predict(self.value_all, feed_dict, sess)[0]
-
-    def to_feed_dict(self, state):
-
-        feed_dict = {
-            self.state[k]: state[k]
-            if same_rank(self.state[k], state[k]) else state[k][None, ...]
-            for k in state.keys()
-        }
-
-        return feed_dict
 
     def get_initial_hidden_states(self, batch_size):
         return get_lstm_initial_states(self.lstm.inputs, batch_size)
@@ -192,7 +182,7 @@ class QPropEstimator():
 
     def predict_actions(self, state, sess=None):
 
-        feed_dict = self.to_feed_dict(state)
+        feed_dict = to_feed_dict(self, state)
         feed_dict[self.seq_length] = 1
 
         (a_prime, stats), hidden_states = self.predict(self.action_and_stats, feed_dict, sess)

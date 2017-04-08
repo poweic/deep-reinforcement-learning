@@ -97,17 +97,6 @@ class A3CEstimator():
         reg_losses = tf.add_n([tf.reduce_sum(w * w) for w in weights])
         return reg_losses
 
-    def to_feed_dict(self, state):
-        rank_a = len(self.state.prev_reward.get_shape())
-        rank_b = state.prev_reward.ndim
-
-        feed_dict = {
-            self.state[k]: state[k] if rank_a == rank_b else state[k][None, ...]
-            for k in state.keys()
-        }
-
-        return feed_dict
-
     def reset_lstm_state(self):
         self.lstm.prev_state_out = None
 
@@ -124,11 +113,11 @@ class A3CEstimator():
         return output
 
     def predict_values(self, state, sess=None):
-        feed_dict = self.to_feed_dict(state)
+        feed_dict = to_feed_dict(self, state)
         return self.predict(self.value, feed_dict, sess)
 
     def predict_actions(self, state, sess=None):
-        feed_dict = self.to_feed_dict(state)
+        feed_dict = to_feed_dict(self, state)
         actions, stats = self.predict(self.action_and_stats, feed_dict, sess)
         actions = actions[0, ...].T
         return actions, stats

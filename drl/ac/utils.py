@@ -703,3 +703,13 @@ def reduce_seq_batch_dim(value, value_sur):
     value_sur = tf.reduce_mean(value_sur)
 
     return value, value_sur
+
+def to_feed_dict(self, state):
+
+    feed_dict = {
+        self.state[k]: state[k]
+        if same_rank(self.state[k], state[k]) else state[k][None, ...]
+        for k in state.keys()
+    }
+
+    return feed_dict
