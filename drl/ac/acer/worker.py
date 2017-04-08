@@ -5,6 +5,7 @@ import tensorflow as tf
 import drl.ac.acer.estimators
 from drl.ac.worker import Worker
 from drl.ac.utils import *
+from drl.ac.estimators import create_avgnet_init_op
 import time
 
 class AcerWorker(Worker):
@@ -37,7 +38,7 @@ class AcerWorker(Worker):
         self.prev_debug = None
         self.prev_mdp_states = None
 
-        train_and_update_avgnet_op = drl.ac.acer.estimators.create_avgnet_init_op(
+        train_and_update_avgnet_op = create_avgnet_init_op(
             self.global_step, avg_vars, global_net, self.local_net
         )
 

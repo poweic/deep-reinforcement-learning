@@ -5,42 +5,13 @@ from drl.ac.utils import *
 from drl.ac.distributions import *
 from drl.ac.models import *
 from drl.ac.policies import build_policy
+from drl.ac.estimators import add_fast_TRPO_regularization
 import drl.ac.qprop.worker
 import threading
 
 FLAGS = tf.flags.FLAGS
 batch_size = FLAGS.batch_size
 seq_length = FLAGS.seq_length
-
-def flatten_all_leading_axes(x):
-    return tf.reshape(x, [-1, x.get_shape()[-1].value])
-
-def create_avgnet_init_op(global_step, avg_vars, global_net, local_net):
-
-    global_vars = global_net.var_list
-
-    def copy_global_to_avg():
-        msg = "\33[94mInitialize average net when global_step = \33[0m"
-        disp_op = tf.Print(global_step, [global_step], msg)
-        copy_op = make_copy_params_op(global_vars, avg_vars)
-        return tf.group(*[copy_op, disp_op])
-
-    init_avg_net = tf.cond(
-        tf.equal(global_step, 0),
-        copy_global_to_avg,
-        lambda: tf.no_op()
-    )
-
-    with tf.control_dependencies([init_avg_net]):
-        train_op = make_train_op(local_net, global_net)
-
-        with tf.control_dependencies([train_op]):
-
-            train_and_update_avgnet_op = make_copy_params_op(
-                global_vars, avg_vars, alpha=FLAGS.avg_net_momentum
-            )
-
-    return train_and_update_avgnet_op
 
 class QPropEstimator():
     def __init__(self, add_summaries=False, trainable=True, use_naive_policy=True):
@@ -362,7 +333,7 @@ class QPropEstimator():
         pi_obj = tf.stop_gradient(self.adv - eta * A_bar) * log_a + \
             tf.stop_gradient(eta) * tf.reduce_sum(g_Qw_at_mu * mu, axis=-1, keep_dims=True)
 
-        pi_obj_sur, self.mean_KL = drl.ac.estimators.add_fast_TRPO_regularization(
+        pi_obj_sur, self.mean_KL = add_fast_TRPO_regularization(
             pi, self.avg_net.pi, pi_obj)
 
         # loss is the negative of objective function

@@ -376,6 +376,10 @@ def flatten(x): # flatten the first 2 axes
     except:
         return tf.reshape(x, [-1] + x.get_shape().as_list()[2:])
 
+# TODO merge all flatten utilities into one single function
+def flatten_all_leading_axes(x):
+    return tf.reshape(x, [-1, x.get_shape()[-1].value])
+
 def deflatten(x, n, m=-1): # de-flatten the first axes
     try:
         return x.reshape((n, -1,) + x.shape[1:])

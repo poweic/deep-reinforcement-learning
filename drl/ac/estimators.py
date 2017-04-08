@@ -1,10 +1,13 @@
 import tensorflow as tf
-from a3c.estimators import A3CEstimator
-from acer.estimators import AcerEstimator
-# from qprop.estimators import QPropEstimator
-from drl.ac.utils import tf_const
+from utils import tf_const, make_copy_params_op, make_train_op
+FLAGS = tf.flags.FLAGS
 
 def get_estimator(type):
+    # defer import to avoid cyclic import
+    from a3c.estimators import A3CEstimator
+    from acer.estimators import AcerEstimator
+    from qprop.estimators import QPropEstimator
+
     type = type.upper()
 
     print "Using {} as estimator".format(type)
@@ -68,3 +71,30 @@ def compute_trust_region_update(g, pi_avg, pi, delta=0.5):
     z_star = tf.stop_gradient(z_star)
 
     return z_star, mean_KL
+
+def create_avgnet_init_op(global_step, avg_vars, global_net, local_net):
+
+    global_vars = global_net.var_list
+
+    def copy_global_to_avg():
+        msg = "\33[94mInitialize average net when global_step = \33[0m"
+        disp_op = tf.Print(global_step, [global_step], msg)
+        copy_op = make_copy_params_op(global_vars, avg_vars)
+        return tf.group(*[copy_op, disp_op])
+
+    init_avg_net = tf.cond(
+        tf.equal(global_step, 0),
+        copy_global_to_avg,
+        lambda: tf.no_op()
+    )
+
+    with tf.control_dependencies([init_avg_net]):
+        train_op = make_train_op(local_net, global_net)
+
+        with tf.control_dependencies([train_op]):
+
+            train_and_update_avgnet_op = make_copy_params_op(
+                global_vars, avg_vars, alpha=FLAGS.avg_net_momentum
+            )
+
+    return train_and_update_avgnet_op
