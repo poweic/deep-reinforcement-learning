@@ -1,5 +1,6 @@
 import traceback
 import itertools
+import threading
 import numpy as np
 import tensorflow as tf
 from drl.ac.utils import *
@@ -297,3 +298,5 @@ class Worker(object):
                 traceback.print_exc()
 
 Worker.stop = False
+Worker.lock = threading.Lock()
+# Worker.pause = False

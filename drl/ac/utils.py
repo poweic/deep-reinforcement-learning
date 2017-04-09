@@ -318,7 +318,7 @@ def yawrate_to_steer(omega, v):
     # assert omega.get_shape().as_list() == v.get_shape().as_list()
     return tf.atan(FLAGS.wheelbase * omega / v) 
 
-def make_train_op(local_estimator, global_estimator):
+def make_train_op(local_estimator, global_estimator, opt=None):
     """
     Creates an op that applies local gradients to the global variables.
     """
@@ -334,8 +334,10 @@ def make_train_op(local_estimator, global_estimator):
     local_grads_global_vars = list(zip(local_grads, global_vars))
     # global_step = tf.contrib.framework.get_global_step()
 
-    return global_estimator.optimizer.apply_gradients(
-        local_grads_global_vars)
+    if opt is None:
+        opt = global_estimator.optimizer
+
+    return opt.apply_gradients(local_grads_global_vars)
 
 def make_copy_params_op(v1_list, v2_list, alpha=0.):
     """
@@ -715,11 +717,11 @@ def to_feed_dict(self, state):
 
     return feed_dict
 
-def compute_gradients_with_checks(optimizer, loss):
+def compute_gradients_with_checks(optimizer, loss, var_list=None):
 
     tf.logging.info("Computing gradients ...")
 
-    grads_and_vars = optimizer.compute_gradients(loss)
+    grads_and_vars = optimizer.compute_gradients(loss, var_list=var_list)
 
     check_unused_local_variables(grads_and_vars)
 

@@ -82,6 +82,9 @@ class AcerEstimator():
                 )
 
         with tf.name_scope("losses"):
+            # Surrogate loss is the loss tensor we passed to optimizer for
+            # automatic gradient computation, it uses lots of stop_gradient.
+            # Therefore it's different from the true loss (self.loss)
             self.pi_loss, self.pi_loss_sur = self.get_policy_loss(
                 self.rho, self.pi, self.a, self.Q_opc, self.value,
                 self.rho_prime, self.Q_tilt_a_prime, self.a_prime
@@ -91,11 +94,7 @@ class AcerEstimator():
                 self.Q_ret, self.Q_tilt_a, self.rho, self.value
             )
 
-            # Surrogate loss is the loss tensor we passed to optimizer for
-            # automatic gradient computation, it uses lots of stop_gradient.
-            # Therefore it's different from the true loss (self.loss)
-            self.entropy = tf.reduce_sum(tf.reduce_mean(self.pi.entropy(), axis=1), axis=0)
-            self.entropy_loss = -self.entropy * FLAGS.entropy_cost_mult
+            self.entropy, self.entropy_loss = exploration_loss(self.pi)
 
             for loss in [self.pi_loss_sur, self.vf_loss_sur, self.entropy_loss]:
                 assert len(loss.get_shape()) == 0
@@ -128,8 +127,6 @@ class AcerEstimator():
             # Collect all trainable variables initialized here
             self.var_list = [v for g, v in self.grads_and_vars]
 
-        self.lock = None
-
         self.summaries = self.summarize(add_summaries)
 
     def get_initial_hidden_states(self, batch_size):
@@ -137,8 +134,6 @@ class AcerEstimator():
 
     def predict(self, tensors, feed_dict, sess=None):
         sess = sess or tf.get_default_session()
-
-        B = feed_dict[self.state.prev_reward].shape[1]
 
         output, hidden_states = sess.run([
             tensors, self.lstm.outputs
@@ -149,11 +144,8 @@ class AcerEstimator():
     def update(self, tensors, feed_dict, sess=None):
         sess = sess or tf.get_default_session()
 
-        # avg_net is shared by all workers, we need to use lock to make sure
-        # avg_net.LSTM states won't be changed by other threads before
-        # calling sess.run
-        with self.avg_net.lock:
-            output, _ = self.predict(tensors, feed_dict, sess)
+        with Worker.lock:
+            output = sess.run(tensors, feed_dict)
 
         return output
 
@@ -275,6 +267,5 @@ class AcerEstimator():
         if "average_net" not in AcerEstimator.__dict__:
             with tf.variable_scope("average_net"):
                 AcerEstimator.average_net = AcerEstimator(add_summaries=False, trainable=False)
-                AcerEstimator.average_net.lock = threading.Lock()
 
 AcerEstimator.Worker = AcerWorker

@@ -23,9 +23,6 @@ class QPropEstimator():
         scope_name = tf.get_variable_scope().name + '/'
 
         with tf.name_scope("inputs"):
-            # TODO When seq_length is None, use seq_length + 1 is somewhat counter-intuitive.
-            # Come up a solution to pass seq_length+1 and seq_length at the same time.
-            # maybe a assertion ? But that could be hard to understand
             self.seq_length = tf.placeholder(tf.int32, [], "seq_length")
             self.state = get_state_placeholder()
             self.a = tf.placeholder(FLAGS.dtype, [seq_length, batch_size, FLAGS.num_actions], "actions")
@@ -38,7 +35,7 @@ class QPropEstimator():
 
         # For k-step rollout s_i, i = 0, 1, ..., k-1, we need one additional
         # state s_k s.t. we can bootstrap value from it, i.e. we need V(s_k)
-        with tf.variable_scope("V"):
+        with tf.variable_scope("value-network"):
             self.value_all = value = state_value_network(shared)
             value *= tf.Variable(1, dtype=FLAGS.dtype, name="value_scale", trainable=FLAGS.train_value_scale)
             self.value_last = value[-1:, ...] * tf.cast(~self.done, FLAGS.dtype)[None, ...]
@@ -55,7 +52,7 @@ class QPropEstimator():
 
         self.state.update(self.lstm.inputs)
 
-        with tf.variable_scope("policy"):
+        with tf.variable_scope("policy-network"):
             self.pi, self.pi_behavior = build_policy(shared, FLAGS.policy_dist)
             self.pi_mean = self.pi.dist.mean()
 
@@ -84,6 +81,10 @@ class QPropEstimator():
                 )
 
         with tf.name_scope("losses"):
+            # Surrogate loss is the loss tensor we passed to optimizer for
+            # automatic gradient computation, it uses lots of stop_gradient.
+            # Therefore it's different from the true loss (self.loss)
+
             self.pi_loss, self.pi_loss_sur = self.get_policy_loss(
                 self.rho, self.pi, self.a, self.Q_opc, self.value, self.Q_tilt_mu
             )
@@ -92,20 +93,10 @@ class QPropEstimator():
                 self.Q_ret, self.Q_tilt_a, self.rho, self.value
             )
 
-            # Surrogate loss is the loss tensor we passed to optimizer for
-            # automatic gradient computation, it uses lots of stop_gradient.
-            # Therefore it's different from the true loss (self.loss)
-            self.entropy = tf.reduce_sum(tf.reduce_mean(self.pi.entropy(), axis=1), axis=0)
-            self.entropy_loss = -self.entropy * FLAGS.entropy_cost_mult
+            self.entropy, self.entropy_loss = exploration_loss(self.pi)
 
             for loss in [self.pi_loss_sur, self.vf_loss_sur, self.entropy_loss]:
                 assert len(loss.get_shape()) == 0
-
-            self.loss_sur = (
-                self.pi_loss_sur
-                + self.vf_loss_sur * FLAGS.lr_vp_ratio
-                + self.entropy_loss
-            )
 
             self.loss = self.pi_loss + self.vf_loss + self.entropy_loss
 
@@ -121,15 +112,27 @@ class QPropEstimator():
                     FLAGS.decay_steps, FLAGS.decay_rate, staircase=FLAGS.staircase
                 )
 
-                self.optimizer = tf.train.AdamOptimizer(self.lr)
+                tvars = tf.trainable_variables()
 
-                self.grads_and_vars, self.global_norm = \
-                    compute_gradients_with_checks(self.optimizer, self.loss_sur)
+                # optimizer for on-policy actor update
+                self.optimizer = tf.train.AdamOptimizer(self.lr)
+                pi_var_list = [v for v in tvars if "shared" in v.name or "policy-network" in v.name]
+                self.grads_and_vars, self.global_norm = compute_gradients_with_checks(
+                    self.optimizer, self.pi_loss_sur + self.entropy_loss, pi_var_list)
+
+                # optimizer for off-policy critic update
+                self.vf_optimizer = tf.train.AdamOptimizer(self.lr)
+                vf_var_list = [v for v in tvars if "value-network" in v.name or "advantage" in v.name]
+                self.grads_and_vars, self.global_norm = compute_gradients_with_checks(
+                    self.vf_optimizer, self.vf_loss_sur, vf_var_list)
+
+                """
+                unused = set(tvars) - set(pi_var_list) - set(vf_var_list)
+                print "\n".join([v.name for v in unused]), "\n============="
+                """
 
             # Collect all trainable variables initialized here
             self.var_list = [v for g, v in self.grads_and_vars]
-
-        self.lock = None
 
         self.summaries = self.summarize(add_summaries)
 
@@ -155,11 +158,8 @@ class QPropEstimator():
     def update(self, tensors, feed_dict, sess=None):
         sess = sess or tf.get_default_session()
 
-        # avg_net is shared by all workers, we need to use lock to make sure
-        # avg_net.LSTM states won't be changed by other threads before
-        # calling sess.run
-        with self.avg_net.lock:
-            output, _ = self.predict(tensors, feed_dict, sess)
+        with Worker.lock:
+            output = sess.run(tensors, feed_dict)
 
         return output
 
@@ -188,7 +188,8 @@ class QPropEstimator():
         Cov_A_Abar = self.adv * A_bar
 
         # assuming covariance matrix of action is identity matrix
-        Var_A_bar = tf.reduce_sum(g_Qw_at_mu ** 2, axis=-1, keep_dims=True)
+        # Var_A_bar = tf.reduce_sum(g_Qw_at_mu ** 2, axis=-1, keep_dims=True)
+        Var_A_bar = A_bar ** 2
 
         ETA = {
             "adaptive":     lambda C, V: C / V,
@@ -254,6 +255,5 @@ class QPropEstimator():
         if "average_net" not in QPropEstimator.__dict__:
             with tf.variable_scope("average_net"):
                 QPropEstimator.average_net = QPropEstimator(add_summaries=False, trainable=False)
-                QPropEstimator.average_net.lock = threading.Lock()
 
 QPropEstimator.Worker = QPropWorker

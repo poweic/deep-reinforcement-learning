@@ -38,6 +38,11 @@ class QPropWorker(Worker):
         self.prev_debug = None
         self.prev_mdp_states = None
 
+        train_op = make_train_op(self.local_net, self.global_net,
+                                 self.global_net.vf_optimizer)
+
+        self.train_op = tf.group(*[train_op for _ in range(1)])
+
         train_and_update_avgnet_op = create_avgnet_init_op(
             self.global_step, avg_vars, global_net, self.local_net
         )
@@ -56,13 +61,8 @@ class QPropWorker(Worker):
             },
             net.summaries,
             train_and_update_avgnet_op,
-            {
-                'Q_ret': net.Q_ret,
-                'Q_tilt_a': net.Q_tilt_a,
-                'value': net.value_all,
-                'done': net.done
-            },
-            self.inc_global_step, # TODO is it the correct way to use?
+            {},
+            self.inc_global_step,
         ]
 
     def _run(self):
@@ -210,6 +210,8 @@ class QPropWorker(Worker):
         feed_dict.update({net.state[k]:     v for k, v in rollout.states.iteritems()})
         feed_dict.update({avg_net.state[k]: v for k, v in rollout.states.iteritems()})
         feed_dict.update({net.pi_behavior.stats[k]: v for k, v in rollout.pi_stats.iteritems()})
+
+        step_op = self.step_op if on_policy else self.train_op
 
         loss, summaries, _, debug, self.gstep = net.update(self.step_op, feed_dict, self.sess)
         loss = AttrDict(loss)

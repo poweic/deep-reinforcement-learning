@@ -182,3 +182,8 @@ def compute_Q_ret_Q_opc(values, value_last, c, r, Q_tilt_a):
     Q_opc = tf.stop_gradient(Q_opc[:-1, ...], name="Q_opc")
 
     return Q_ret, Q_opc
+
+def exploration_loss(pi):
+    entropy = tf.reduce_sum(tf.reduce_mean(pi.entropy(), axis=1), axis=0)
+    entropy_loss = -entropy * FLAGS.entropy_cost_mult
+    return entropy, entropy_loss

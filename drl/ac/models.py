@@ -368,7 +368,7 @@ def state_value_network(input, num_outputs=1):
     input = tf.contrib.layers.fully_connected(
         inputs=input,
         num_outputs=FLAGS.hidden_size,
-        activation_fn=None,
+        activation_fn=tf.nn.tanh,
         scope="value-input-dense")
     """
 
@@ -378,8 +378,6 @@ def state_value_network(input, num_outputs=1):
         num_outputs=num_outputs,
         activation_fn=None,
         scope="value-dense")
-
-    # value = tf.reshape(value, [-1, 1], name="value")
 
     if rank == 3:
         value = deflatten(value, S, B)
