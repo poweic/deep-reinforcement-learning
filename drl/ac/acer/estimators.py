@@ -5,8 +5,8 @@ from drl.ac.distributions import *
 from drl.ac.models import *
 from drl.ac.policies import build_policy
 from drl.ac.estimators import *
-import drl.ac.acer.worker
-import threading
+from drl.ac.worker import Worker
+from drl.ac.acer.worker import AcerWorker
 
 FLAGS = tf.flags.FLAGS
 batch_size = FLAGS.batch_size
@@ -277,4 +277,4 @@ class AcerEstimator():
                 AcerEstimator.average_net = AcerEstimator(add_summaries=False, trainable=False)
                 AcerEstimator.average_net.lock = threading.Lock()
 
-AcerEstimator.Worker = drl.ac.acer.worker.AcerWorker
+AcerEstimator.Worker = AcerWorker

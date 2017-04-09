@@ -3,7 +3,7 @@ import tensorflow as tf
 from drl.ac.utils import *
 from drl.ac.models import *
 from drl.ac.policies import build_policy
-import drl.ac.a3c.worker
+from drl.ac.a3c.worker import A3CWorker
 FLAGS = tf.flags.FLAGS
 batch_size = FLAGS.batch_size
 seq_length = FLAGS.seq_length
@@ -163,4 +163,4 @@ class A3CEstimator():
         tf.summary.scalar("min_advantage", tf.reduce_min(self.advantages))
         tf.summary.scalar("mean_advantage", tf.reduce_mean(self.advantages))
 
-A3CEstimator.Worker = drl.ac.a3c.worker.A3CWorker
+A3CEstimator.Worker = A3CWorker

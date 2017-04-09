@@ -5,7 +5,8 @@ from drl.ac.distributions import *
 from drl.ac.models import *
 from drl.ac.policies import build_policy
 from drl.ac.estimators import *
-import drl.ac.qprop.worker
+from drl.ac.worker import Worker
+from drl.ac.qprop.worker import QPropWorker
 import threading
 
 FLAGS = tf.flags.FLAGS
@@ -255,4 +256,4 @@ class QPropEstimator():
                 QPropEstimator.average_net = QPropEstimator(add_summaries=False, trainable=False)
                 QPropEstimator.average_net.lock = threading.Lock()
 
-QPropEstimator.Worker = drl.ac.qprop.worker.QPropWorker
+QPropEstimator.Worker = QPropWorker
