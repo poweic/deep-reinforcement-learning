@@ -1,7 +1,7 @@
 import tensorflow as tf
 from a3c.estimators import A3CEstimator
 from acer.estimators import AcerEstimator
-from qprop.estimators import QPropEstimator
+# from qprop.estimators import QPropEstimator
 from drl.ac.utils import tf_const
 
 def get_estimator(type):

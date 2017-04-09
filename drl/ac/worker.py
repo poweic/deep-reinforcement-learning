@@ -51,46 +51,46 @@ class Worker(object):
 
     def reset_env(self):
 
-        env_state = self.env.reset()
+        # Re-seed environment and store the seed
+        self.seed = self.env.seed()
 
-        # Reshape to compatiable format
-        action = np.zeros((FLAGS.num_actions, self.n_agents), dtype=np.float32)
+        # Get environmental state
+        self.env_state = self.env.reset()
 
+        # Get initial hidden states (this can also be viewed as "state")
+        self.hidden_states = self.local_net.get_initial_hidden_states(self.n_agents)
+
+        # intialize action to 0
+        self.action = np.zeros((FLAGS.num_actions, self.n_agents), dtype=np.float32)
+
+        # intialize reward & return to 0
+        self.reward = np.zeros((1, self.n_agents), dtype=np.float32)
         self.total_return = np.zeros((1, self.n_agents), dtype=np.float32)
-        self.current_reward = np.zeros((1, self.n_agents), dtype=np.float32)
 
         # Set initial timestamp
         self.global_episode_stats.set_initial_timestamp()
-
-        return env_state, action
 
     def run_n_steps(self, n_steps):
 
         transitions = []
 
-        # Initial state
-        seed = self.env.seed()
-        env_state, action = self.reset_env()
-        hidden_states = self.local_net.get_initial_hidden_states(self.n_agents)
-
-        reward = np.zeros((1, self.n_agents), dtype=np.float32)
         for i in range(n_steps):
 
             # Note: state is "fully observable" state, it contains env.state,
             # lstm.hidden_states, and other things like prev_action and reward
-            state = form_state(self.env, env_state, action, reward, hidden_states)
+            state = form_state(self.env, self.env_state, self.action, self.reward, self.hidden_states)
 
             # Predict an action
-            action, pi_stats, hidden_states = \
+            self.action, pi_stats, self.hidden_states = \
                 self.local_net.predict_actions(state, self.sess)
 
             # Take a step in environment
-            env_state, reward, done, _ = self.env.step(action.squeeze())
-            reward = np.array([reward], np.float32).reshape(1, self.n_agents)
+            self.env_state, self.reward, done, _ = self.env.step(self.action.squeeze())
+            self.reward = np.array([self.reward], np.float32).reshape(1, self.n_agents)
             done = np.array(done).reshape(1, self.n_agents)
 
-            self.current_reward = reward
-            self.total_return += reward
+            self.total_return += self.reward
+
             if np.max(self.total_return) > self.max_return:
                 self.max_return = np.max(self.total_return)
 
@@ -99,8 +99,8 @@ class Worker(object):
             transitions.append(AttrDict(
                 state=state,
                 pi_stats=pi_stats,
-                action=action.copy(),
-                reward=reward.copy(),
+                action=self.action.copy(),
+                reward=self.reward.copy(),
                 done=done.copy()
             ))
 
@@ -108,15 +108,21 @@ class Worker(object):
                 break
 
         transitions.append(AttrDict(state=form_state(
-            self.env, env_state, action, reward, hidden_states
+            self.env, self.env_state, self.action, self.reward, self.hidden_states
         )))
 
-        rollout = self.process_rollouts(transitions, seed)
+        rollout = self.process_rollouts(transitions)
         rollout.r = self.total_return
+        rollout.seed = self.seed
+
+        # reset environment if it's terminated
+        if np.any(done):
+            self.collect_statistics(rollout)
+            self.reset_env()
 
         return rollout
 
-    def process_rollouts(self, trans, seed):
+    def process_rollouts(self, trans):
 
         states = AttrDict({
             key: np.stack([t.state[key] for t in trans])
@@ -145,7 +151,6 @@ class Worker(object):
             pi_stats = pi_stats,
             seq_length = len(trans),
             batch_size = self.n_agents,
-            seed = seed,
         )
 
     def get_partial_rollout(self, rollout, length=None, start=None):
@@ -236,17 +241,15 @@ class Worker(object):
             tf.logging.info("{} = {}".format(key, rollout[key]))
 
     def collect_statistics(self, rollout):
-        avg_total_return = np.mean(self.total_return)
+        avg_total_return = np.mean(rollout.r)
         self.global_episode_stats.append(
-            rollout.seq_length, avg_total_return, self.total_return.flatten()
+            rollout.seq_length, avg_total_return, rollout.r.flatten()
         )
 
     def store_experience(self, rollout):
         # Some bad simulation can have episode length 0 or 1, and that's outlier
         if rollout.seq_length <= 1:
             return
-
-        self.collect_statistics(rollout)
 
         # Store rollout in the replay buffer, discard the oldest by popping
         # the 1st element if it exceeds maximum buffer size
@@ -280,6 +283,8 @@ class Worker(object):
 
         self.sess = sess
         self.coord = coord
+
+        self.reset_env()
 
         with sess.as_default(), sess.graph.as_default():
             try:
