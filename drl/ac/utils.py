@@ -286,14 +286,14 @@ def s2y(mu, v):
     # Extract steer from input (2nd column), turn it to yawrate, and
     # concatenate (pack) it back
     mu_yawrate = steer_to_yawrate(mu[..., 1:], v)[..., 0]
-    mu = tf.pack([mu[..., 0], mu_yawrate], axis=-1)
+    mu = tf.stack([mu[..., 0], mu_yawrate], axis=-1)
     return mu
 
 def y2s(mu, v):
     # Extract yawrwate from input (2nd column), turn it to steer, and
     # concatenate (pack) it back
     mu_steer = yawrate_to_steer(mu[..., 1:], v)[..., 0]
-    mu = tf.pack([mu[..., 0], mu_steer], axis=-1)
+    mu = tf.stack([mu[..., 0], mu_steer], axis=-1)
     return mu
 
 def steer_to_yawrate(steer, v):
@@ -516,12 +516,12 @@ def put_kernels_on_grid(kernel, pad = 1):
     # put NumKernels to the 1st dimension
     x2 = tf.transpose(x1, (3, 0, 1, 2))
     # organize grid on Y axis
-    x3 = tf.reshape(x2, tf.pack([grid_X, Y * grid_Y, X, channels]))
+    x3 = tf.reshape(x2, tf.stack([grid_X, Y * grid_Y, X, channels]))
 
     # switch X and Y axes
     x4 = tf.transpose(x3, (0, 2, 1, 3))
     # organize grid on X axis
-    x5 = tf.reshape(x4, tf.pack([1, X * grid_X, Y * grid_Y, channels]))
+    x5 = tf.reshape(x4, tf.stack([1, X * grid_X, Y * grid_Y, channels]))
 
     # back to normal order (not combining with the next step for clarity)
     x6 = tf.transpose(x5, (2, 1, 3, 0))
