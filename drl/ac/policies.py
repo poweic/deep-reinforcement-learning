@@ -18,12 +18,16 @@ def get_param_placeholder(name):
         FLAGS.seq_length, FLAGS.batch_size, FLAGS.num_actions
     ], name=name)
 
+def softplus(x):
+    # tf.nn.softplus doesn't support 2nd derivatives ...
+    return tf.log(tf.exp(x) + 1)
+
 def beta_policy(input):
 
     alpha, beta = policy_network(input, FLAGS.num_actions, clip_mu=False)
 
-    alpha = tf.nn.softplus(alpha) + 2
-    beta  = tf.nn.softplus(beta)  + 2
+    alpha = softplus(alpha) + 2
+    beta  = softplus(beta)  + 2
 
     pi = create_distribution(dist_type="beta", param1=alpha, param2=beta)
 
