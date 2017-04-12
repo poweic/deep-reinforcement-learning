@@ -452,7 +452,7 @@ def advantage_network(input):
             fc1 = tf.contrib.layers.fully_connected(
                 inputs=input_with_a,
                 num_outputs=FLAGS.hidden_size,
-                activation_fn=tf.nn.relu,
+                activation_fn=tf.nn.tanh,
                 scope="fc1")
 
             # 2nd fully connected layer that regresses the advantage
