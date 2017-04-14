@@ -7,6 +7,7 @@ from drl.ac.policies import build_policy
 from drl.ac.estimators import *
 from drl.ac.worker import Worker
 from drl.ac.acer.worker import AcerWorker
+from drl.optimizers import TrpoOptimizer
 
 FLAGS = tf.flags.FLAGS
 batch_size = FLAGS.batch_size
@@ -120,6 +121,7 @@ class AcerEstimator():
                 )
 
                 self.optimizer = tf.train.AdamOptimizer(self.lr)
+                # self.optimizer = TrpoOptimizer(self.lr)
 
                 self.grads_and_vars, self.global_norm = \
                     compute_gradients_with_checks(self.optimizer, self.loss_sur)
@@ -171,6 +173,9 @@ class AcerEstimator():
 
         pi_obj_sur, self.mean_KL = add_fast_TRPO_regularization(
             pi, self.avg_net.pi, pi_obj)
+        """
+        pi_obj_sur = pi_obj
+        """
 
         # loss is the negative of objective function
         loss, loss_sur = -pi_obj, -pi_obj_sur
@@ -251,7 +256,7 @@ class AcerEstimator():
         self.total_return = tf.reduce_mean(tf.reduce_sum(self.r, axis=0))
 
         keys_to_summarize = [
-            "vf_loss", "pi_loss", "entropy", "mean_KL", "loss",
+            "vf_loss", "pi_loss", "entropy", "loss",
             "total_return", "seq_length"
         ]
 
