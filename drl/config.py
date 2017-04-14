@@ -25,6 +25,7 @@ tf.flags.DEFINE_integer("decay-steps", 1000, "Decay learning using exponential_d
 tf.flags.DEFINE_float("decay-rate", 0.7071, "Decay learning using exponential_decay with staircase=True")
 tf.flags.DEFINE_float("per-process-gpu-memory-fraction", 1.0, "per_process_gpu_memory_fraction for TF session config")
 tf.flags.DEFINE_boolean("staircase", False, "Set exponential_decay with staircase=True/False")
+tf.flags.DEFINE_boolean("timestep-as-feature", False, "Add timestep as feature by adding an extra dimension")
 tf.flags.DEFINE_boolean("use-lstm", True, "Use LSTM when set True")
 tf.flags.DEFINE_boolean("batch-norm", False, "Use batch norm whenever possible")
 tf.flags.DEFINE_boolean("double-precision", False, "Use tf.float64")

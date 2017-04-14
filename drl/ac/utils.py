@@ -73,12 +73,13 @@ def pretty_float(fmt):
     fmt = fmt.replace("%f", "{:+8.3f}")
     return fmt
 
-def form_state(env, env_state, prev_action, prev_reward, hidden_states):
+def form_state(env, env_state, prev_action, prev_reward, hidden_states, steps):
     env_state = FLAGS.featurize_state(env_state)
 
     state = AttrDict(
-        prev_action   = prev_action.copy().T,
-        prev_reward   = prev_reward.copy().T
+        steps = np.array(steps).reshape(-1, 1),
+        prev_action = prev_action.copy().T,
+        prev_reward = prev_reward.copy().T
     )
 
     if hidden_states is not None:

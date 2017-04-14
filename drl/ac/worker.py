@@ -61,6 +61,9 @@ class Worker(object):
         # Get initial hidden states (this can also be viewed as "state")
         self.hidden_states = self.local_net.get_initial_hidden_states(self.n_agents)
 
+        # A counter to keep track of number of steps in current env
+        self.steps = 0
+
         # intialize action to 0
         self.action = np.zeros((FLAGS.num_actions, self.n_agents), dtype=np.float32)
 
@@ -76,10 +79,12 @@ class Worker(object):
         transitions = []
 
         for i in range(n_steps):
-
             # Note: state is "fully observable" state, it contains env.state,
             # lstm.hidden_states, and other things like prev_action and reward
-            state = form_state(self.env, self.env_state, self.action, self.reward, self.hidden_states)
+            state = form_state(
+                self.env, self.env_state, self.action, self.reward,
+                self.hidden_states, self.steps
+            )
 
             # Predict an action
             self.action, pi_stats, self.hidden_states = \
@@ -105,11 +110,14 @@ class Worker(object):
                 done=done.copy()
             ))
 
+            self.steps += 1
+
             if np.any(done):
                 break
 
         transitions.append(AttrDict(state=form_state(
-            self.env, self.env_state, self.action, self.reward, self.hidden_states
+            self.env, self.env_state, self.action, self.reward,
+            self.hidden_states, self.steps
         )))
 
         rollout = self.process_rollouts(transitions)

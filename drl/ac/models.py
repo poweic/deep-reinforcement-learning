@@ -35,8 +35,10 @@ def get_state_placeholder():
     # Note that placeholder are tf.Tensor not tf.Variable
     prev_action = tf.placeholder(FLAGS.dtype, [S, B, FLAGS.num_actions], "prev_action")
     prev_reward = tf.placeholder(FLAGS.dtype, [S, B, 1], "prev_reward")
+    steps = tf.placeholder(FLAGS.dtype, [S, B, 1], "steps")
 
     placeholder = AttrDict(
+        steps = steps,
         prev_action = prev_action,
         prev_reward = prev_reward
     )
@@ -344,12 +346,15 @@ def policy_network(input, num_outputs, clip_mu=True):
 
     return mu, sigma
 
-def state_value_network(input, num_outputs=1):
+def state_value_network(input, steps):
     """
     This is state-only value V
     """
 
     rank = get_rank(input)
+
+    if FLAGS.timestep_as_feature:
+        input = tf.concat([input] + [steps], 2)
 
     if rank == 3:
         S, B = get_seq_length_batch_size(input)
@@ -366,7 +371,7 @@ def state_value_network(input, num_outputs=1):
     # This is just linear classifier
     value = tf.contrib.layers.fully_connected(
         inputs=input,
-        num_outputs=num_outputs,
+        num_outputs=1,
         activation_fn=None,
         scope="value-dense")
 

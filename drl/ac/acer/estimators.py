@@ -38,7 +38,7 @@ class AcerEstimator():
         # For k-step rollout s_i, i = 0, 1, ..., k-1, we need one additional
         # state s_k s.t. we can bootstrap value from it, i.e. we need V(s_k)
         with tf.variable_scope("V"):
-            self.value_all = value = state_value_network(shared)
+            self.value_all = value = state_value_network(shared, self.state.steps)
             value *= tf.Variable(1, dtype=FLAGS.dtype, name="value_scale", trainable=FLAGS.train_value_scale)
             self.value_last = value[-1:, ...] * tf.cast(~self.done, FLAGS.dtype)[None, ...]
             self.value = value[:self.seq_length, ...]
