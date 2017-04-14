@@ -67,12 +67,6 @@ class AcerWorker(Worker):
 
     def _run(self):
 
-        """
-        if Worker.pause:
-            time.sleep(600)
-            return
-        """
-
         # if resume from some unfinished training, we first re-generate
         # lots of experiecnes before further training/updating
         if FLAGS.regenerate_exp_after_resume:
@@ -111,17 +105,6 @@ class AcerWorker(Worker):
         # FLAGS.max_steps = int(np.ceil(FLAGS.t_max * FLAGS.command_freq))
         rollout = self.run_n_steps(FLAGS.max_steps)
 
-        """ # For debugging
-        mean, std = self.global_episode_stats.last_n_stats(100)
-        if mean > 4000 and rollout.seq_length < 50:
-            with Worker.lock:
-                Worker.pause = True
-            tf.logging.info("rollout.seq_length = {}, re-run 20 times".format(rollout.seq_length))
-            for i in range(500):
-                rollout = self.run_n_steps(FLAGS.max_steps)
-                tf.logging.info("\33[93m{:02d} trial seq_length = {}, return = {}\33[0m".format(i, rollout.seq_length, rollout.r))
-        """
-
         # Compute gradient and Perform update
         self.update(self.get_partial_rollout(rollout))
 
@@ -144,9 +127,7 @@ class AcerWorker(Worker):
         """
 
     def _run_off_policy_n_times(self):
-        mean, std = self.global_episode_stats.last_n_stats()
-        replay_ratio = FLAGS.replay_ratio # * max(1, mean / 1000)
-        N = np.random.poisson(replay_ratio) * FLAGS.off_policy_batch_size
+        N = np.random.poisson(FLAGS.replay_ratio) * FLAGS.off_policy_batch_size
         self._run_off_policy(N)
 
     def _run_off_policy(self, N):
