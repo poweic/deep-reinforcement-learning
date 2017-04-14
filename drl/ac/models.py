@@ -206,13 +206,13 @@ def build_network(input, scope_name, add_summaries=False):
     S, B = get_seq_length_batch_size(input.prev_action)
 
     layers = []
-    other_states = []
+    other_states = [input.prev_action, input.prev_reward]
     if "OffRoadNav" in FLAGS.game:
         tf.logging.info("building convnet ...")
         layers.append(build_convnet(input.front_view, params))
-        other_states = [input.vehicle_state, input.prev_action, input.prev_reward]
+        other_states += [input.vehicle_state]
     else:
-        layers.append(flatten(input.state))
+        layers.append(flatten(tf.concat([input.state] + other_states, 2)))
 
     layers.append(tf.contrib.layers.fully_connected(
         inputs=layers[-1],
@@ -265,8 +265,8 @@ def build_network(input, scope_name, add_summaries=False):
         """
         for i in range(3):
             layers.append(resnet_block(layers[-1], FLAGS.hidden_size, tf.nn.relu))
-
         """
+
         layers.append(tf.contrib.layers.fully_connected(
             inputs=layers[-1],
             num_outputs=FLAGS.hidden_size,
@@ -274,15 +274,6 @@ def build_network(input, scope_name, add_summaries=False):
             scope="state-hidden-dense-2",
             **params
         ))
-
-        """
-        layers.append(tf.contrib.layers.fully_connected(
-            inputs=layers[-1],
-            num_outputs=FLAGS.hidden_size,
-            activation_fn=tf.nn.tanh,
-            scope="state-hidden-dense-3"
-        ))
-        """
 
         layers.append(deflatten(layers[-1], S, B))
 

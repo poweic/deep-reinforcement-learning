@@ -651,9 +651,9 @@ class Timer(object):
         self.counter += 1
         if self.counter % self.timer.maxlen == 0:
             self.counter = 0
-            tf.logging.info("average time of {} = {:.2f} ms".format(
-                self.message, np.mean(self.timer) * 1000
-            ))
+            avg_time = np.mean(self.timer) * 1000
+            msg = "average time of {} = {:.2f} ms".format(self.message, avg_time)
+            tf.logging.info(msg)
 
 class ReplayBuffer(deque):
 
