@@ -23,7 +23,8 @@ def renderer(q):
             # after we receive data
             if env is None:
                 env = gym.make(FLAGS.game)
-                env = wrappers.Monitor(env, FLAGS.video_dir)
+                if FLAGS.record_video:
+                    env = wrappers.Monitor(env, FLAGS.video_dir)
 
             env.seed(seed[0])
             env.reset()
@@ -32,7 +33,7 @@ def renderer(q):
                 env.render()
                 _, _, done, _ = env.step(action.T)
 
-            assert done
+            # assert done
 
         except Queue.Empty:
             # Nothing in queue to render, wait 5 seconds ...
