@@ -23,6 +23,7 @@ class Worker(object):
 
         self.name = name
         self.env = env
+        self.env.spec.timestep_limit = FLAGS.max_steps
         self.global_counter = global_counter
         self.global_episode_stats = global_episode_stats
         self.global_net = global_net
@@ -100,9 +101,9 @@ class Worker(object):
                 self.local_net.predict_actions(state, self.sess)
 
             # Take a step in environment
-            self.env_state, self.reward, done, _ = self.env.step(self.action.squeeze())
-            self.reward = np.array([self.reward], np.float32).reshape(1, self.n_agents)
-            done = np.array(done).reshape(1, self.n_agents)
+            self.env_state, self.reward, done, info = self.env.step(self.action.squeeze())
+            self.reward = np.array([self.reward], np.float32).reshape(1, -1)
+            done_ = np.array(getattr(info, 'done', done)).reshape(1, -1)
 
             self.total_return += self.reward
 
@@ -116,12 +117,12 @@ class Worker(object):
                 pi_stats=pi_stats,
                 action=self.action.copy(),
                 reward=self.reward.copy(),
-                done=done.copy()
+                done=done_.copy()
             ))
 
             self.steps += 1
 
-            if np.any(done):
+            if done:
                 break
 
         transitions.append(AttrDict(state=form_state(
@@ -135,7 +136,7 @@ class Worker(object):
         self.actions.append(rollout.action)
 
         # reset environment if it's terminated
-        if np.any(done) or self.steps > FLAGS.max_steps:
+        if done:
             seed_and_actions = (self.seed, np.concatenate(self.actions))
             self.seed_actions_buffer.append(seed_and_actions)
             self.collect_statistics(rollout)

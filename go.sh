@@ -10,6 +10,7 @@
   --estimator-type ACER \
   --log-file train.$(date +%s).log \
   --stats-file train.$(date +%s).stats.csv \
+  --video-dir $(date +%s) \
   --parallelism 2 \
   --map-def map5 \
   --save-every-n-minutes 15 \

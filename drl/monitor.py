@@ -4,6 +4,7 @@ import Queue
 import multiprocessing
 import numpy as np
 import tensorflow as tf
+from gym import wrappers
 FLAGS = tf.flags.FLAGS
 
 # Global method take take a queue "q" as input, consume data in the queue
@@ -21,6 +22,8 @@ def renderer(q):
             # after we receive data
             if env is None:
                 env = gym.make(FLAGS.game)
+                env.spec.timestep_limit = FLAGS.max_steps
+                env = wrappers.Monitor(env, FLAGS.video_dir)
 
             env.seed(seed[0])
             env.reset()

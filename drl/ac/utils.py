@@ -222,6 +222,8 @@ def mkdir_p(dirname):
     if not os.path.exists(dirname):
         os.makedirs(dirname)
 
+    return dirname
+
 def show_mem_usage(x=None, subject=None):
 
     if x is None:

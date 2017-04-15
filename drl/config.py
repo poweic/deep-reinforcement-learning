@@ -11,6 +11,7 @@ tf.flags.DEFINE_string("base-dir", "exp/", "Directory to write Tensorboard summa
 tf.flags.DEFINE_string("exp", None, "Optional experiment tag")
 tf.flags.DEFINE_string("log-file", None, "log file")
 tf.flags.DEFINE_string("stats-file", None, "stats file")
+tf.flags.DEFINE_string("video-dir", None, "relative directory for storing video")
 tf.flags.DEFINE_string("game", None, "Game environment. Ex: Humanoid-v1, OffRoadNav-v0")
 tf.flags.DEFINE_string("estimator-type", "ACER", "Choose A3C or ACER")
 tf.flags.DEFINE_string("qprop-type", "adaptive", "Choose \"adaptive\", \"conservative\", or \"aggressive\"")
@@ -110,18 +111,16 @@ def parse_flags():
         FLAGS.base_dir, FLAGS.game, "-" + FLAGS.exp if FLAGS.exp is not None else ""
     )
 
-    FLAGS.log_dir        = FLAGS.exp_dir + "/log/"
-    # FLAGS.monitor_dir    = FLAGS.exp_dir + "/monitor"
-    FLAGS.checkpoint_dir = FLAGS.exp_dir + "/checkpoint"
-    FLAGS.save_path      = FLAGS.checkpoint_dir + "/model"
-    FLAGS.debug_dir      = FLAGS.exp_dir + "/debug"
-
-    FLAGS.dtype = tf.float64 if FLAGS.double_precision else tf.float32
-
     from drl.ac.utils import AttrDict, mkdir_p
 
-    mkdir_p(FLAGS.checkpoint_dir)
-    mkdir_p(FLAGS.debug_dir)
+    FLAGS.log_dir        = mkdir_p(FLAGS.exp_dir + "/log/")
+    FLAGS.debug_dir      = mkdir_p(FLAGS.exp_dir + "/debug")
+    FLAGS.checkpoint_dir = mkdir_p(FLAGS.exp_dir + "/checkpoint")
+    FLAGS.video_dir      = mkdir_p(FLAGS.exp_dir + "/videos/" + FLAGS.video_dir)
+
+    FLAGS.save_path      = FLAGS.checkpoint_dir + "/model"
+
+    FLAGS.dtype = tf.float64 if FLAGS.double_precision else tf.float32
 
     if FLAGS.random_learning_rate:
         low  = np.log10(FLAGS.min_learning_rate)
