@@ -17,6 +17,7 @@ from pprint import pprint
 from numbers import Number
 from collections import Set, Mapping, deque
 from gym import spaces
+import itertools
 FLAGS = tf.flags.FLAGS
 
 def get_dof(space):
@@ -103,11 +104,15 @@ class EpisodeStats(object):
         self.initial_reset_timestamp = None
         self.timestamps = []
 
+        # a thread-safe get-and-increment counter
+        self.counter = itertools.count()
+
     def set_initial_timestamp(self):
         if self.initial_reset_timestamp is None:
             self.initial_reset_timestamp = time.time()
 
     def append(self, length, reward, rewards_all_agent):
+
         self.episode_lengths.append(length)
         self.episode_rewards_all_agents.append(rewards_all_agent)
         self.episode_rewards.append(reward)
@@ -115,7 +120,7 @@ class EpisodeStats(object):
 
         timesteps = np.sum(self.episode_lengths)
 
-        if self.num_episodes() % FLAGS.log_episode_stats_every_nth == 0:
+        if self.counter.next() % FLAGS.log_episode_stats_every_nth == 0:
             # set print options
             np.set_printoptions(
                 formatter={'float_kind': lambda x: "{:.2f}".format(x)},
@@ -165,7 +170,7 @@ class EpisodeStats(object):
             last_n = self.episode_rewards[-N:]
             mean, std = np.mean(last_n), np.std(last_n)
 
-        if self.num_episodes() % FLAGS.log_episode_stats_every_nth == 0:
+        if self.counter.next() % FLAGS.log_episode_stats_every_nth == 0:
             fmt = "\33[33mLast {} episodes' score: {:.4f} ± {:.4f}\33[0m"
             tf.logging.info(fmt.format(N, mean, std))
 
