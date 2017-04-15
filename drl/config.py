@@ -32,7 +32,6 @@ tf.flags.DEFINE_boolean("use-lstm", True, "Use LSTM when set True")
 tf.flags.DEFINE_boolean("batch-norm", False, "Use batch norm whenever possible")
 tf.flags.DEFINE_boolean("double-precision", False, "Use tf.float64")
 tf.flags.DEFINE_boolean("summarize", False, "Create summary writer")
-tf.flags.DEFINE_boolean("record-video", False, "Record video using gym.wrappers")
 tf.flags.DEFINE_boolean("debug-dump", False, "dump debugging information to *.mat file")
 
 tf.flags.DEFINE_integer("log-episode-stats-every-nth", 20, "Print stats of episode every nth")
@@ -117,7 +116,9 @@ def parse_flags():
     FLAGS.log_dir        = mkdir_p(FLAGS.exp_dir + "/log/")
     FLAGS.debug_dir      = mkdir_p(FLAGS.exp_dir + "/debug")
     FLAGS.checkpoint_dir = mkdir_p(FLAGS.exp_dir + "/checkpoint")
-    FLAGS.video_dir      = mkdir_p(FLAGS.exp_dir + "/videos/" + FLAGS.video_dir)
+
+    if FLAGS.video_dir is not None:
+        FLAGS.video_dir  = mkdir_p(FLAGS.exp_dir + "/videos/" + FLAGS.video_dir)
 
     FLAGS.save_path      = FLAGS.checkpoint_dir + "/model"
 

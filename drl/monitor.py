@@ -23,7 +23,7 @@ def renderer(q):
             # after we receive data
             if env is None:
                 env = gym.make(FLAGS.game)
-                if FLAGS.record_video:
+                if FLAGS.video_dir is not None:
                     env = wrappers.Monitor(env, FLAGS.video_dir)
 
             env.seed(seed[0])
