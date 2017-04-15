@@ -23,7 +23,6 @@ class Worker(object):
 
         self.name = name
         self.env = env
-        self.env.spec.timestep_limit = FLAGS.max_steps
         self.global_counter = global_counter
         self.global_episode_stats = global_episode_stats
         self.global_net = global_net
@@ -101,8 +100,8 @@ class Worker(object):
                 self.local_net.predict_actions(state, self.sess)
 
             # Take a step in environment
-            self.env_state, self.reward, done, info = self.env.step(self.action.squeeze())
-            self.reward = np.array([self.reward], np.float32).reshape(1, -1)
+            self.env_state, reward, done, info = self.env.step(self.action.squeeze())
+            self.reward = np.array([info.reward], np.float32).reshape(1, -1)
             done_ = np.array(getattr(info, 'done', done)).reshape(1, -1)
 
             self.total_return += self.reward

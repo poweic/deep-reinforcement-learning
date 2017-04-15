@@ -1,6 +1,7 @@
 import gym
 import time
 import Queue
+import traceback
 import multiprocessing
 import numpy as np
 import tensorflow as tf
@@ -22,7 +23,6 @@ def renderer(q):
             # after we receive data
             if env is None:
                 env = gym.make(FLAGS.game)
-                env.spec.timestep_limit = FLAGS.max_steps
                 env = wrappers.Monitor(env, FLAGS.video_dir)
 
             env.seed(seed[0])
@@ -30,11 +30,18 @@ def renderer(q):
 
             for action in actions:
                 env.render()
-                env.step(action.T)
+                _, _, done, _ = env.step(action.T)
+
+            assert done
 
         except Queue.Empty:
             # Nothing in queue to render, wait 5 seconds ...
             time.sleep(5)
+
+        except Exception as e:
+            print "\33[91m"
+            traceback.print_exc()
+            raise e
 
 class Monitor(object):
     def __init__(self):
