@@ -104,7 +104,7 @@ class EpisodeStats(object):
         self.initial_reset_timestamp = None
         self.timestamps = []
 
-        # a thread-safe get-and-increment counter
+        # A thread-safe get-and-increment counter
         self.counter = itertools.count()
 
     def set_initial_timestamp(self):
@@ -647,8 +647,10 @@ def compress_decompress_dict(rollout, fn):
 class Timer(object):
     def __init__(self, message, maxlen=1000):
         self.timer = deque(maxlen=maxlen)
-        self.counter = 0
         self.message = message
+
+        # A thread-safe get-and-increment counter
+        self.counter = itertools.count()
 
     def tic(self):
         self.t = time.time()
@@ -656,12 +658,10 @@ class Timer(object):
     def toc(self):
         self.timer.append(time.time() - self.t)
 
-        self.counter += 1
-        if self.counter % self.timer.maxlen == 0:
-            self.counter = 0
-            avg_time = np.mean(self.timer) * 1000
-            msg = "average time of {} = {:.2f} ms".format(self.message, avg_time)
-            tf.logging.info(msg)
+        if self.counter.next() % self.timer.maxlen == 0:
+            tf.logging.info("average time of {} = {:.2f} ms".format(
+                self.message, np.mean(self.timer) * 1000
+            ))
 
 class ReplayBuffer(deque):
 
@@ -674,7 +674,8 @@ class ReplayBuffer(deque):
             decompress = Timer("decompress")
         )
 
-        self.counter = 0
+        # A thread-safe get-and-increment counter
+        self.counter = itertools.count()
 
     def append(self, item):
 
@@ -683,10 +684,8 @@ class ReplayBuffer(deque):
             item = zlib.compress(cPickle.dumps(item, protocol=cPickle.HIGHEST_PROTOCOL))
             self.timer.compress.toc()
 
-            self.counter += 1
-            if self.counter % self.maxlen == 0:
+            if self.counter.next() % self.maxlen == 0:
                 show_mem_usage(self, "replay buffer")
-                self.counter = 0
 
         super(ReplayBuffer, self).append(item)
 
