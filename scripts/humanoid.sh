@@ -14,6 +14,7 @@ M=000000
   --decay-steps 4000$K \
   --replay-ratio 8 \
   --off-policy-batch-size 1 \
+  --n-steps 200 \
   --lr-vp-ratio 1 \
   --lambda_ 0.97 \
   --discount-factor 0.995 \

@@ -51,8 +51,8 @@ class A3CWorker(Worker):
     def _run(self):
         self.copy_params_from_global()
 
-        # FLAGS.max_steps = int(np.ceil(FLAGS.t_max * FLAGS.command_freq))
-        rollout = self.run_n_steps(FLAGS.max_steps)
+        # Collect rollout {(s_0, a_0, r_0, mu_0), (s_1, ...), ... }
+        rollout = self.run_n_steps()
 
         # Even though A3C can't use experience replay, we still need store
         # experiences for playback visualization and statistics

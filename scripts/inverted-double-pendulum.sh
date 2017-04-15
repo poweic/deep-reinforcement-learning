@@ -10,7 +10,7 @@ M=000000
   --save-every-n-minutes 20 \
   --max-global-steps 800$K \
   --bi-directional False  \
-  --max-steps 400 \
+  --n-steps 1000 \
   --max-seq-length 1000 \
   --decay-steps 100$K \
   --replay-ratio 8 \
@@ -38,4 +38,5 @@ M=000000
   --hidden-size 64 \
   --use-lstm False \
   --share-network False \
+  --summarize True \
   $@

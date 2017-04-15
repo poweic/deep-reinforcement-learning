@@ -93,7 +93,7 @@ class AcerWorker(Worker):
 
         self.copy_params_from_global()
         while len(self.replay_buffer) < N:
-            self.store_experience(self.run_n_steps(FLAGS.max_steps))
+            self.store_experience(self.run_n_steps())
 
         tf.logging.info("Regeneration done. len(replay_buffer) = {}.".format(
             len(self.replay_buffer)))
@@ -102,8 +102,7 @@ class AcerWorker(Worker):
         self.copy_params_from_global()
 
         # Collect rollout {(s_0, a_0, r_0, mu_0), (s_1, ...), ... }
-        # FLAGS.max_steps = int(np.ceil(FLAGS.t_max * FLAGS.command_freq))
-        rollout = self.run_n_steps(FLAGS.max_steps)
+        rollout = self.run_n_steps()
 
         # Compute gradient and Perform update
         self.update(self.get_partial_rollout(rollout))
@@ -121,7 +120,7 @@ class AcerWorker(Worker):
                 n_more_times))
 
             for i in range(n_more_times):
-                rollout = self.run_n_steps(FLAGS.max_steps)
+                rollout = self.run_n_steps()
                 self.update(rollout)
                 self.store_experience(rollout)
         """

@@ -5,11 +5,13 @@
   --game OffRoadNav-v0 \
   --base-dir /Data3/acer-post-icml2017/ \
   --max-global-steps 80000 \
+  --max-steps 10000 \
+  --n-steps 100 \
   --estimator-type ACER \
   --log-file train.$(date +%s).log \
   --stats-file train.$(date +%s).stats.csv \
-  --parallelism 4 \
-  --map-def map3 \
+  --parallelism 2 \
+  --map-def map5 \
   --save-every-n-minutes 15 \
   --policy-dist Beta \
   --exp exp/debug \

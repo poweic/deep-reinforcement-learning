@@ -4,6 +4,7 @@ import threading
 import numpy as np
 import tensorflow as tf
 from drl.ac.utils import *
+from collections import deque
 FLAGS = tf.flags.FLAGS
 
 class Worker(object):
@@ -46,12 +47,16 @@ class Worker(object):
         # Assign each worker (thread) a memory replay buffer
         self.replay_buffer = ReplayBuffer(maxlen=FLAGS.max_replay_buffer_size)
 
+        # Besides the experience replay buffer, we also store random seed and
+        # actions in another buffer, so that I can pass it to the monitor in
+        # another process and playback.
+        self.seed_actions_buffer = deque(maxlen=10)
+
     def copy_params_from_global(self):
         # Copy Parameters from the global networks
         self.sess.run(self.copy_params_op)
 
     def reset_env(self):
-
         # Re-seed environment and store the seed
         self.seed = self.env.seed()
 
@@ -74,11 +79,15 @@ class Worker(object):
         # Set initial timestamp
         self.global_episode_stats.set_initial_timestamp()
 
-    def run_n_steps(self, n_steps):
+        # store all the actions, and append it to seed_actions_buffer whenever
+        # an episode ends
+        self.actions = []
+
+    def run_n_steps(self):
 
         transitions = []
 
-        for i in range(n_steps):
+        for i in range(FLAGS.n_steps):
             # Note: state is "fully observable" state, it contains env.state,
             # lstm.hidden_states, and other things like prev_action and reward
             state = form_state(
@@ -123,9 +132,12 @@ class Worker(object):
         rollout = self.process_rollouts(transitions)
         rollout.r = self.total_return
         rollout.seed = self.seed
+        self.actions.append(rollout.action)
 
         # reset environment if it's terminated
-        if np.any(done):
+        if np.any(done) or self.steps > FLAGS.max_steps:
+            seed_and_actions = (self.seed, np.concatenate(self.actions))
+            self.seed_actions_buffer.append(seed_and_actions)
             self.collect_statistics(rollout)
             self.reset_env()
 

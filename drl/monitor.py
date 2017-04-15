@@ -2,6 +2,7 @@ import gym
 import time
 import Queue
 import multiprocessing
+import numpy as np
 import tensorflow as tf
 FLAGS = tf.flags.FLAGS
 
@@ -14,27 +15,23 @@ def renderer(q):
 
     while True:
         try:
-            rollout = q.get_nowait()
+            seed, actions = q.get_nowait()
 
             # env was initially set to None, because we start rendering only
             # after we receive data
             if env is None:
                 env = gym.make(FLAGS.game)
 
-            env.seed(rollout.seed[0])
+            env.seed(seed[0])
             env.reset()
 
-            for action in rollout.action:
+            for action in actions:
                 env.render()
                 env.step(action.T)
 
         except Queue.Empty:
             # Nothing in queue to render, wait 5 seconds ...
             time.sleep(5)
-
-        except Exception as e:
-            tf.logging.info("\33[31m[Exception]\33[0m {}".format(e))
-            raise e
 
 class Monitor(object):
     def __init__(self):
@@ -57,10 +54,10 @@ class Monitor(object):
         # We keep track the previous data we sent for each worker so that we
         # won't render same rollout twice.
         for i, worker in enumerate(self.workers):
-            if len(worker.replay_buffer) == 0:
+            if len(worker.seed_actions_buffer) == 0:
                 continue
 
-            data = worker.replay_buffer[-1]
+            data = worker.seed_actions_buffer[-1]
             if self.prev_data[i] is data:
                 continue
 
