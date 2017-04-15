@@ -101,7 +101,7 @@ class Worker(object):
 
             # Take a step in environment
             self.env_state, reward, done, info = self.env.step(self.action.squeeze())
-            self.reward = np.array([info.reward], np.float32).reshape(1, -1)
+            self.reward = np.array(getattr(info, 'reward', reward), np.float32).reshape(1, -1)
             done_ = np.array(getattr(info, 'done', done)).reshape(1, -1)
 
             self.total_return += self.reward
