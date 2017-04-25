@@ -105,7 +105,8 @@ class EpisodeStats(object):
         self.timestamps = []
 
         # A thread-safe get-and-increment counter
-        self.counter = itertools.count()
+        self.counter1 = itertools.count()
+        self.counter2 = itertools.count()
 
     def set_initial_timestamp(self):
         if self.initial_reset_timestamp is None:
@@ -120,7 +121,7 @@ class EpisodeStats(object):
 
         timesteps = np.sum(self.episode_lengths)
 
-        if self.counter.next() % FLAGS.log_episode_stats_every_nth == 0:
+        if self.counter1.next() % FLAGS.log_episode_stats_every_nth == 0:
             # set print options
             np.set_printoptions(
                 formatter={'float_kind': lambda x: "{:.2f}".format(x)},
@@ -170,7 +171,7 @@ class EpisodeStats(object):
             last_n = self.episode_rewards[-N:]
             mean, std = np.mean(last_n), np.std(last_n)
 
-        if self.counter.next() % FLAGS.log_episode_stats_every_nth == 0:
+        if self.counter2.next() % FLAGS.log_episode_stats_every_nth == 0:
             fmt = "\33[33mLast {} episodes' score: {:.4f} ± {:.4f}\33[0m"
             tf.logging.info(fmt.format(N, mean, std))
 
@@ -645,7 +646,7 @@ def compress_decompress_dict(rollout, fn):
     })
 
 class Timer(object):
-    def __init__(self, message, maxlen=1000):
+    def __init__(self, message, maxlen=10000):
         self.timer = deque(maxlen=maxlen)
         self.message = message
 
