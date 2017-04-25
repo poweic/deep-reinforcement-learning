@@ -520,6 +520,13 @@ def put_kernels_on_grid(kernel, pad = 1):
     (grid_Y, grid_X) = factorize(kernel.get_shape()[3].value)
     # print 'grid: %d = (%d, %d)' % (kernel.get_shape()[3].value, grid_Y, grid_X)
 
+    # Normalize each filter to [0, 1]
+    """
+    x_max = tf.reduce_max(kernel, axis=[0, 1], keep_dims=True)
+    x_min = tf.reduce_min(kernel, axis=[0, 1], keep_dims=True)
+    kernel = (kernel - x_min) / (x_max - x_min)
+    """
+
     # pad X and Y
     x1 = tf.pad(kernel, tf.constant( [[pad,pad],[pad, pad],[0,0],[0,0]] ), mode = 'CONSTANT')
 
