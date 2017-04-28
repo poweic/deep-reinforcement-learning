@@ -108,7 +108,10 @@ class AcerEstimator():
 
             self.loss = self.pi_loss + self.vf_loss + self.entropy_loss
 
-            self.loss += FLAGS.l2_reg * self.get_reg_loss()
+            # Add regularization (L1 and L2)
+            reg_vars = get_regularizable_vars()
+            self.loss += FLAGS.l1_reg * l1_loss(reg_vars)
+            self.loss += FLAGS.l2_reg * l2_loss(reg_vars)
 
         with tf.name_scope("grads_and_optimizer"):
 
@@ -183,15 +186,6 @@ class AcerEstimator():
         loss, loss_sur = -pi_obj, -pi_obj_sur
 
         return reduce_seq_batch_dim(loss, loss_sur)
-
-    def get_reg_loss(self):
-        vscope = tf.get_variable_scope().name
-        weights = [
-            v for v in tf.trainable_variables()
-            if vscope in v.name and ("W" in v.name or "weights" in v.name)
-        ]
-        reg_losses = tf.add_n([tf.reduce_sum(w * w) for w in weights])
-        return reg_losses
 
     def get_value_loss(self, Q_ret, Q_tilt_a, rho, value):
 

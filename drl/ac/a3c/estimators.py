@@ -52,9 +52,10 @@ class A3CEstimator():
                 self.entropy_loss
             )
 
-        with tf.name_scope("regularization"):
-            self.reg_loss = self.get_reg_loss()
-            self.loss += FLAGS.l2_reg * self.reg_loss
+            # Add regularization (L1 and L2)
+            reg_vars = get_regularizable_vars()
+            self.loss += FLAGS.l1_reg * l1_loss(reg_vars)
+            self.loss += FLAGS.l2_reg * l2_loss(reg_vars)
 
         with tf.name_scope("grads_and_optimizer"):
             self.optimizer = tf.train.RMSPropOptimizer(FLAGS.learning_rate)
@@ -87,15 +88,6 @@ class A3CEstimator():
 
     def get_exploration_loss(self, pi):
         return tf.reduce_sum(tf.reduce_mean(self.pi.entropy(), axis=1), axis=0)
-
-    def get_reg_loss(self):
-        vscope = tf.get_variable_scope().name
-        weights = [
-            v for v in tf.trainable_variables()
-            if vscope in v.name and ("W" in v.name or "weights" in v.name)
-        ]
-        reg_losses = tf.add_n([tf.reduce_sum(w * w) for w in weights])
-        return reg_losses
 
     def reset_lstm_state(self):
         self.lstm.prev_state_out = None

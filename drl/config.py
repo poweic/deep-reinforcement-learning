@@ -72,6 +72,7 @@ tf.flags.DEFINE_boolean("random-learning-rate", False, "Random sample learning r
 tf.flags.DEFINE_boolean("min-learning-rate", 1e-4, "min learning rate used in LogUniform")
 tf.flags.DEFINE_boolean("max-learning-rate", 5e-4, "max learning rate used in LogUniform")
 
+tf.flags.DEFINE_float("l1-reg", 0, "L1 regularization multiplier")
 tf.flags.DEFINE_float("l2-reg", 1e-4, "L2 regularization multiplier")
 tf.flags.DEFINE_float("max-gradient", 10, "Threshold for gradient clipping used by tf.clip_by_global_norm")
 tf.flags.DEFINE_float("timestep", 0.025, "Simulation timestep")

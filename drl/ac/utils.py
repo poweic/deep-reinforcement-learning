@@ -732,6 +732,23 @@ def to_feed_dict(self, state):
 
     return feed_dict
 
+def get_regularizable_vars():
+    # skip bias and convolution kernels
+    vscope = tf.get_variable_scope().name
+    weights = [
+        v for v in tf.trainable_variables()
+        if vscope in v.name and
+        ("W" in v.name or "weights" in v.name) and
+        "conv" not in v.name
+    ]
+    return weights
+
+def l1_loss(weights):
+    return tf.add_n([tf.reduce_sum(tf.abs(w)) for w in weights])
+
+def l2_loss(weights):
+    return tf.add_n([tf.reduce_sum(w * w) for w in weights])
+
 def compute_gradients_with_checks(optimizer, loss, var_list=None):
 
     tf.logging.info("Computing gradients ...")
