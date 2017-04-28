@@ -17,7 +17,7 @@ fmt = logging.Formatter('[%(asctime)s] %(message)s', datefmt="%m-%d %H:%M:%S")
 tf.logging._handler.setFormatter(fmt)
 
 # Use the same format and dump it to log file
-if FLAGS.log_file is not None:
+if hasattr(FLAGS, "log_file") and FLAGS.log_file is not None:
     FLAGS.log_file = FLAGS.log_dir + FLAGS.log_file
 
     fh = logging.FileHandler(FLAGS.log_file)
