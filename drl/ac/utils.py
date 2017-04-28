@@ -666,8 +666,8 @@ class Timer(object):
     def toc(self):
         self.timer.append(time.time() - self.t)
 
-        if self.counter.next() % self.timer.maxlen == 0:
-            tf.logging.info("average time of {} = {:.2f} ms".format(
+        if self.counter.next() % (self.timer.maxlen / 10) == 0:
+            tf.logging.info("average time of \33[93m{} = {:.2f} ms\33[0m".format(
                 self.message, np.mean(self.timer) * 1000
             ))
 
