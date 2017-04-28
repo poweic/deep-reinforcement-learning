@@ -52,6 +52,12 @@ class Worker(object):
         # another process and playback.
         self.seed_actions_buffer = deque(maxlen=10)
 
+        self.timer = AttrDict(
+            act=Timer("predict action"),
+            step=Timer("1 step in env"),
+            others=Timer("others")
+        )
+
     def copy_params_from_global(self):
         # Copy Parameters from the global networks
         self.sess.run(self.copy_params_op)
@@ -96,14 +102,19 @@ class Worker(object):
             )
 
             # Predict an action
+            self.timer.act.tic()
             self.action, pi_stats, self.hidden_states = \
                 self.local_net.predict_actions(state, self.sess)
+            self.timer.act.toc()
 
             # Take a step in environment
+            self.timer.step.tic()
             self.env_state, reward, done, info = self.env.step(self.action.squeeze())
             self.reward = np.array(getattr(info, 'reward', reward), np.float32).reshape(1, -1)
             done_ = np.array(getattr(info, 'done', done)).reshape(1, -1)
+            self.timer.step.toc()
 
+            self.timer.others.tic()
             self.total_return += self.reward
 
             if np.max(self.total_return) > self.max_return:
@@ -120,6 +131,7 @@ class Worker(object):
             ))
 
             self.steps += 1
+            self.timer.others.toc()
 
             if done:
                 break
