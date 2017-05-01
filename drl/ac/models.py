@@ -139,6 +139,14 @@ def build_convnet(front_view, params):
 
         conv_options = {"activation_fn": tf.nn.relu, "padding": "VALID"}
         conv_options.update(params)
+        layers.append(conv2d(layers[-1], 16, 3, scope="conv-1", stride=2, **conv_options))
+        layers.append(conv2d(layers[-1], 16, 3, scope="conv-2", stride=2, **conv_options))
+        layers.append(conv2d(layers[-1], 16, 3, scope="conv-3", stride=2, **conv_options))
+        # layers.append(conv2d(layers[-1], 8, 3, scope="conv-3", stride=2, **conv_options))
+
+        """
+        conv_options = {"activation_fn": tf.nn.relu, "padding": "VALID"}
+        conv_options.update(params)
         layers.append(conv2d(layers[-1], 24, 3, scope="conv-1", stride=2, **conv_options))
         layers.append(conv2d(layers[-1], 32, 3, scope="conv-2", stride=2, **conv_options))
         layers.append(conv2d(layers[-1], 64, 3, scope="conv-3", stride=1, **conv_options))
@@ -146,6 +154,7 @@ def build_convnet(front_view, params):
         layers.append(conv2d(layers[-1], 64, 3, scope="conv-5", **conv_options))
         """
 
+        """
         conv_options = {"activation_fn": tf.nn.relu}
         conv_options.update(params)
 
@@ -213,10 +222,15 @@ def build_network(input, scope_name, add_summaries=False):
         tf.logging.info("building convnet ...")
         layers.append(build_convnet(input.front_view, params))
         other_states += [input.vehicle_state]
+        layers.append(tf.concat([layers[-1]] + [
+            flatten(s) for s in other_states
+        ], axis=-1))
     else:
-        layers.append(flatten(tf.concat([input.state] + other_states, 2)))
+        #layers.append(flatten(tf.concat([input.state] + other_states, 2)))
+        layers.append(flatten(input.state))
 
-    layers.append(tf.contrib.layers.fully_connected(
+    dense = tf.contrib.layers.fully_connected
+    layers.append(dense(
         inputs=layers[-1],
         num_outputs=FLAGS.hidden_size,
         activation_fn=tf.nn.tanh,
@@ -269,13 +283,14 @@ def build_network(input, scope_name, add_summaries=False):
             layers.append(resnet_block(layers[-1], FLAGS.hidden_size, tf.nn.relu))
         """
 
-        layers.append(tf.contrib.layers.fully_connected(
-            inputs=layers[-1],
-            num_outputs=FLAGS.hidden_size,
-            activation_fn=tf.nn.tanh,
-            scope="state-hidden-dense-2",
-            **params
-        ))
+        for i in range(1):
+            layers.append(dense(
+                inputs=layers[-1],
+                num_outputs=FLAGS.hidden_size,
+                activation_fn=tf.nn.tanh,
+                scope="state-hidden-dense-{}".format(i),
+                **params
+            ))
 
         layers.append(deflatten(layers[-1], S, B))
 
