@@ -142,7 +142,7 @@ def build_convnet(front_view, params):
         layers.append(conv2d(layers[-1], 16, 3, scope="conv-1", stride=2, **conv_options))
         layers.append(conv2d(layers[-1], 16, 3, scope="conv-2", stride=2, **conv_options))
         layers.append(conv2d(layers[-1], 16, 3, scope="conv-3", stride=2, **conv_options))
-        # layers.append(conv2d(layers[-1], 8, 3, scope="conv-3", stride=2, **conv_options))
+        # layers.append(conv2d(layers[-1], 16, 3, scope="conv-4", stride=2, **conv_options))
 
         """
         conv_options = {"activation_fn": tf.nn.relu, "padding": "VALID"}
