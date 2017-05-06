@@ -97,7 +97,7 @@ class Worker(object):
             # Note: state is "fully observable" state, it contains env.state,
             # lstm.hidden_states, and other things like prev_action and reward
             state = form_state(
-                self.env, self.env_state, self.action, self.reward,
+                self.env_state, self.action, self.reward,
                 self.hidden_states, self.steps
             )
 
@@ -137,7 +137,7 @@ class Worker(object):
                 break
 
         transitions.append(AttrDict(state=form_state(
-            self.env, self.env_state, self.action, self.reward,
+            self.env_state, self.action, self.reward,
             self.hidden_states, self.steps
         )))
 

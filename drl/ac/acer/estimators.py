@@ -61,6 +61,9 @@ class AcerEstimator():
             self.a_prime = tf.squeeze(self.pi.sample_n(1), 0)
             self.action_and_stats = [self.a_prime, self.pi.stats]
 
+        if not self.trainable:
+            return
+
         with tf.variable_scope("A"):
             Q_tilt = stochastic_dueling_network(shared, self.value, self.pi)
 
@@ -276,6 +279,6 @@ class AcerEstimator():
     def create_averge_network():
         if "average_net" not in AcerEstimator.__dict__:
             with tf.variable_scope("average_net"):
-                AcerEstimator.average_net = AcerEstimator(add_summaries=False, trainable=False)
+                AcerEstimator.average_net = AcerEstimator(add_summaries=False)
 
 AcerEstimator.Worker = AcerWorker

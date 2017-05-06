@@ -67,7 +67,7 @@ with tf.Session(config=cfg) as sess:
 
     # Global policy and value nets
     with tf.variable_scope("global_net"):
-        global_net = Estimator(trainable=False)
+        global_net = Estimator()
 
     # Global step iterator
     global_counter = itertools.count()

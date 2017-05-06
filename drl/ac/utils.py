@@ -74,7 +74,7 @@ def pretty_float(fmt):
     fmt = fmt.replace("%f", "{:+8.3f}")
     return fmt
 
-def form_state(env, env_state, prev_action, prev_reward, hidden_states, steps):
+def form_state(env_state, prev_action, prev_reward, hidden_states, steps=None):
     env_state = FLAGS.featurize_state(env_state)
 
     state = AttrDict(
@@ -653,7 +653,7 @@ def compress_decompress_dict(rollout, fn):
     })
 
 class Timer(object):
-    def __init__(self, message, maxlen=10000):
+    def __init__(self, message, maxlen=100000):
         self.timer = deque(maxlen=maxlen)
         self.message = message
 
