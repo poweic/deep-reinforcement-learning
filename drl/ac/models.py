@@ -221,7 +221,10 @@ def build_network(input, scope_name, add_summaries=False):
     if "OffRoadNav" in FLAGS.game:
         tf.logging.info("building convnet ...")
         layers.append(build_convnet(input.front_view, params))
-        other_states += [input.vehicle_state]
+
+        # Feed forward velocity [4] and yawrate [5] as input, ignore others
+        other_states += [input.vehicle_state[..., 4:]]
+
         layers.append(tf.concat([layers[-1]] + [
             flatten(s) for s in other_states
         ], axis=-1))
