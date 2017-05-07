@@ -126,6 +126,10 @@ def LSTM(input, num_outputs, scope=None, state_in_fw=None, state_in_bw=None):
 
 def build_convnet(front_view, params):
 
+    # inverse operation of "x = (x + 1.) / 2. * 255."
+    # convert value from [0, 255] to [-1, 1]
+    front_view = front_view / (255. / 2) - 1
+
     S, B = get_seq_length_batch_size(front_view)
     layers = [flatten(front_view)]
 
