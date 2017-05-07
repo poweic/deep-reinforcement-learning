@@ -685,12 +685,22 @@ class ReplayBuffer(deque):
         # A thread-safe get-and-increment counter
         self.counter = itertools.count()
 
+    def compress(self, item):
+        self.timer.compress.tic()
+        item = zlib.compress(cPickle.dumps(item, protocol=cPickle.HIGHEST_PROTOCOL))
+        self.timer.compress.toc()
+        return item
+
+    def decompress(self, item):
+        self.timer.decompress.tic()
+        item = cPickle.loads(zlib.decompress(item))
+        self.timer.decompress.toc()
+        return item
+
     def append(self, item):
 
         if FLAGS.compress:
-            self.timer.compress.tic()
-            item = zlib.compress(cPickle.dumps(item, protocol=cPickle.HIGHEST_PROTOCOL))
-            self.timer.compress.toc()
+            item = self.compress(item)
 
             if self.counter.next() % self.maxlen == 0:
                 show_mem_usage(self, "replay buffer")
@@ -701,9 +711,7 @@ class ReplayBuffer(deque):
         item = super(ReplayBuffer, self).__getitem__(key)
 
         if FLAGS.compress:
-            self.timer.decompress.tic()
-            item = cPickle.loads(zlib.decompress(item))
-            self.timer.decompress.toc()
+            item = self.decompress(item)
 
         return item
 
