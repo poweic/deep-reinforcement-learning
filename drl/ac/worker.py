@@ -4,7 +4,9 @@ import threading
 import numpy as np
 import tensorflow as tf
 from drl.ac.utils import *
+from drl.replay_buffer import ReplayBuffer
 from collections import deque
+import cPickle
 FLAGS = tf.flags.FLAGS
 
 class Worker(object):
@@ -46,6 +48,8 @@ class Worker(object):
 
         # Assign each worker (thread) a memory replay buffer
         self.replay_buffer = ReplayBuffer(maxlen=FLAGS.max_replay_buffer_size)
+        if FLAGS.replay_buffer_resume_path:
+            self.replay_buffer.load(FLAGS.replay_buffer_resume_path, fixed=True)
 
         # Besides the experience replay buffer, we also store random seed and
         # actions in another buffer, so that I can pass it to the monitor in
@@ -289,6 +293,14 @@ class Worker(object):
         rp = self.replay_buffer
 
         rp.append(rollout)
+
+        '''
+        if len(rp) > 100:
+            rp.dump(FLAGS.replay_buffer_save_path)
+            tf.logging.info("replay_buffer saved to {} (len = {})".format(
+                FLAGS.replay_buffer_save_path, len(rp)
+            ))
+        '''
 
         if len(rp) % 100 == 0 and len(rp) < FLAGS.max_replay_buffer_size:
             tf.logging.info("len(replay_buffer) = {}".format(len(rp)))

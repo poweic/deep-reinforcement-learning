@@ -1,7 +1,6 @@
 # -*- coding: utf-8 -*-
 import os
 import time
-import zlib
 import psutil
 import numpy as np
 import scipy.signal
@@ -12,7 +11,6 @@ import schedule
 import cv2
 import gym
 import sys
-import cPickle
 from pprint import pprint
 from numbers import Number
 from collections import Set, Mapping, deque
@@ -646,12 +644,6 @@ def sizeof(obj_0):
 
     return inner(obj_0)
 
-def compress_decompress_dict(rollout, fn):
-    return AttrDict({
-        k: fn(v.tobytes()) if isinstance(v, np.ndarray) else v
-        for k, v in rollout.iteritems()
-    })
-
 class Timer(object):
     def __init__(self, message, maxlen=100000):
         self.timer = deque(maxlen=maxlen)
@@ -670,50 +662,6 @@ class Timer(object):
             tf.logging.info("average time of \33[93m{} = {:.2f} ms\33[0m".format(
                 self.message, np.mean(self.timer) * 1000
             ))
-
-class ReplayBuffer(deque):
-
-    def __init__(self, maxlen=None):
-        super(ReplayBuffer, self).__init__(maxlen=maxlen)
-
-        # keep last 1000 compress, decompress time for profiling purpose
-        self.timer = AttrDict(
-            compress = Timer("compress"),
-            decompress = Timer("decompress")
-        )
-
-        # A thread-safe get-and-increment counter
-        self.counter = itertools.count()
-
-    def compress(self, item):
-        self.timer.compress.tic()
-        item = zlib.compress(cPickle.dumps(item, protocol=cPickle.HIGHEST_PROTOCOL))
-        self.timer.compress.toc()
-        return item
-
-    def decompress(self, item):
-        self.timer.decompress.tic()
-        item = cPickle.loads(zlib.decompress(item))
-        self.timer.decompress.toc()
-        return item
-
-    def append(self, item):
-
-        if FLAGS.compress:
-            item = self.compress(item)
-
-            if self.counter.next() % self.maxlen == 0:
-                show_mem_usage(self, "replay buffer")
-
-        super(ReplayBuffer, self).append(item)
-
-    def __getitem__(self, key):
-        item = super(ReplayBuffer, self).__getitem__(key)
-
-        if FLAGS.compress:
-            item = self.decompress(item)
-
-        return item
 
 def reduce_seq_batch_dim(value, value_sur):
     assert len(value.get_shape()) == 3

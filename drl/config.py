@@ -41,6 +41,8 @@ tf.flags.DEFINE_integer("off-policy-batch-size", 1, "batch rollouts when perform
 
 tf.flags.DEFINE_float("replay-ratio", 10, "off-policy memory replay ratio, choose a number from {0, 1, 4, 8}")
 tf.flags.DEFINE_integer("max-replay-buffer-size", 100, "off-policy memory replay buffer")
+tf.flags.DEFINE_string("replay-buffer-resume-path", None, "*.pkl file for resuming replay buffer")
+tf.flags.DEFINE_string("replay-buffer-save-path", None, "*.pkl file for resuming replay buffer")
 tf.flags.DEFINE_boolean("prioritize-replay", False, "Use choice(length) to sample replay")
 tf.flags.DEFINE_boolean("compress", True, "compress memory replay using cPickle + zlib")
 tf.flags.DEFINE_integer("regenerate-size", 1000, "number of episodes experience to regenerate after resuming")
@@ -117,11 +119,18 @@ def parse_flags():
     FLAGS.log_dir        = mkdir_p(FLAGS.exp_dir + "/log/")
     FLAGS.debug_dir      = mkdir_p(FLAGS.exp_dir + "/debug")
     FLAGS.checkpoint_dir = mkdir_p(FLAGS.exp_dir + "/checkpoint")
+    FLAGS.replay_dir     = mkdir_p(FLAGS.exp_dir + "/replay/")
 
     if FLAGS.video_dir is not None:
         FLAGS.video_dir  = mkdir_p(FLAGS.exp_dir + "/videos/" + FLAGS.video_dir)
 
-    FLAGS.save_path      = FLAGS.checkpoint_dir + "/model"
+    FLAGS.save_path = FLAGS.checkpoint_dir + "/model"
+    FLAGS.replay_buffer_save_path = FLAGS.replay_dir + FLAGS.replay_buffer_save_path
+
+    if FLAGS.replay_buffer_resume_path:
+        if not os.path.isfile(FLAGS.replay_buffer_resume_path):
+            FLAGS.replay_buffer_resume_path = FLAGS.replay_dir + \
+                FLAGS.replay_buffer_resume_path
 
     FLAGS.dtype = tf.float64 if FLAGS.double_precision else tf.float32
 
