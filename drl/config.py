@@ -89,7 +89,7 @@ tf.flags.DEFINE_float("command-freq", 20, "How frequent we send command to vehic
 tf.flags.DEFINE_integer("field-of-view", 20, "size of front view (N x N) passed to network")
 tf.flags.DEFINE_integer("downsample", 1, "downsample front view by this scale")
 tf.flags.DEFINE_integer("n-agents-per-worker", 1, "number of agents per worker thread")
-tf.flags.DEFINE_integer("viewport-scale", 4, "number of agents per worker thread")
+tf.flags.DEFINE_float("viewport-scale", 4, "number of agents per worker thread")
 tf.flags.DEFINE_boolean("drift", False, "If set, turn on drift")
 
 tf.flags.DEFINE_float("min-mu-vf", 2. / 3.6, "Minimum forward velocity of vehicle (m/s)")
