@@ -9,7 +9,7 @@ FLAGS = tf.flags.FLAGS
 
 class ReplayBuffer(object):
 
-    def __init__(self, fn=None, maxlen=None):
+    def __init__(self, fn=None, maxlen=None, compress=True, save_path=None):
 
         if fn:
             self.load(fn)
@@ -23,7 +23,8 @@ class ReplayBuffer(object):
             decompress = Timer("decompress")
         )
 
-        self.compress = getattr(FLAGS, 'compress', True)
+        self.compress = compress
+        self.save_path = save_path
 
         # A thread-safe get-and-increment counter
         self.counter = itertools.count()
@@ -34,6 +35,8 @@ class ReplayBuffer(object):
     def load(self, fn, fixed=False):
         tf.logging.info("Loading replay from {}".format(fn))
         data = cPickle.load(open(fn, 'rb'))
+        for i in range(99):
+            data.append(data[0])
         tf.logging.info("{} experiences loaded".format(len(data)))
 
         if fixed:
@@ -59,11 +62,17 @@ class ReplayBuffer(object):
 
     def append(self, item):
 
+        # itertools.count() starts from 0, so we need to skip i == 0
+        i = self.counter.next()
+        if i > 0 and i % self.maxlen == 0:
+            show_mem_usage(self, "replay buffer")
+
+            # auto save only when save_path is not None
+            if self.save_path is not None:
+                self.dump('{}/{:06d}.pkl'.format(self.save_path, i))
+
         if self.compress:
             item = self._compress(item)
-
-            if self.counter.next() % self.maxlen == 0:
-                show_mem_usage(self, "replay buffer")
 
         self.deque.append(item)
 
