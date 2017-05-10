@@ -9,6 +9,20 @@ from collections import deque
 import cPickle
 FLAGS = tf.flags.FLAGS
 
+def summarize_rollout(rollout):
+
+    for k, v in rollout.states.iteritems():
+        tf.logging.info("states[{}].shape = {}".format(k, v.shape))
+
+    for key in ["action", "reward", "done"]:
+        tf.logging.info("{}.shape = {}".format(key, rollout[key].shape))
+
+    for k, v in rollout.pi_stats.iteritems():
+        tf.logging.info("pi_stats[{}].shape = {}".format(k, v.shape))
+
+    for key in ["seq_length", "batch_size", "seed"]:
+        tf.logging.info("{} = {}".format(key, rollout[key]))
+
 class Worker(object):
     """
     An A3C worker thread. Runs episodes locally and updates global shared value and policy nets.
@@ -232,7 +246,7 @@ class Worker(object):
             pi_stats = None if rollout.pi_stats is None else {k: v[s] for k, v in rollout.pi_stats.iteritems()},
             seq_length = min(rollout.seq_length, length),
             batch_size = rollout.batch_size,
-            seed = rollout.seed,
+            seed = getattr(rollout, "seed", 0),
         )
 
     def batch_rollouts(self, rollouts):
@@ -262,20 +276,6 @@ class Worker(object):
             batch_size = self.n_agents * len(rollouts),
             seed = [r.seed for r in rollouts],
         )
-
-    def summarize_rollout(self, rollout):
-
-        for k, v in rollout.states.iteritems():
-            tf.logging.info("states[{}].shape = {}".format(k, v.shape))
-
-        for key in ["action", "reward", "done"]:
-            tf.logging.info("{}.shape = {}".format(key, rollout[key].shape))
-
-        for k, v in rollout.pi_stats.iteritems():
-            tf.logging.info("pi_stats[{}].shape = {}".format(k, v.shape))
-
-        for key in ["seq_length", "batch_size", "seed"]:
-            tf.logging.info("{} = {}".format(key, rollout[key]))
 
     def collect_statistics(self, rollout):
         avg_total_return = np.mean(rollout.r)
