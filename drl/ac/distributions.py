@@ -2,7 +2,7 @@ import tensorflow as tf
 from drl.ac.utils import *
 FLAGS = tf.flags.FLAGS
 
-def create_distribution(dist_type, bijectors=None, **stats):
+def create_distribution(dist_type, bijectors=None, info='', **stats):
 
     num_actions = FLAGS.num_actions
     AS = FLAGS.action_space
@@ -16,8 +16,8 @@ def create_distribution(dist_type, bijectors=None, **stats):
     param1 = tf_check_numerics(stats['param1'])
     param2 = tf_check_numerics(stats['param2'])
 
-    param1 = tf_print(param1)
-    param2 = tf_print(param2)
+    param1 = tf_print(param1, message=info + 'param1 = ')
+    param2 = tf_print(param2, message=info + 'param2 = ')
 
     dist = DIST(param1, param2, allow_nan_stats=False)
     pi = to_transformed_distribution(dist, dist_type)

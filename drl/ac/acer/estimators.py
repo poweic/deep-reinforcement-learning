@@ -74,7 +74,9 @@ class AcerEstimator():
             # Compute the importance sampling weight \rho and \rho^{'}
             with tf.name_scope("rho"):
                 self.rho = compute_rho(self.a, self.pi, self.pi_behavior)
+                self.rho = tf_print(self.rho)
                 self.rho_prime = compute_rho(self.a_prime, self.pi, self.pi_behavior)
+                self.rho_prime = tf_print(self.rho_prime)
 
             with tf.name_scope("c_i"):
                 self.c = tf.minimum(tf_const(1.), self.rho ** (1. / FLAGS.num_actions), "c_i")
@@ -229,6 +231,7 @@ class AcerEstimator():
 
             # Policy gradient should only flow backs from log \pi
             truncation = tf.stop_gradient(rho_bar * target_1) * log_a
+            truncation = tf_print(truncation)
 
         # compute bias correction term
         with tf.name_scope("bias_correction"):
@@ -237,6 +240,7 @@ class AcerEstimator():
                 plus = tf_print(plus)
 
             with tf.name_scope("d_log_prob_a_prime"):
+                a_prime = tf_print(a_prime)
                 self.log_ap = log_ap = pi.log_prob(a_prime)[..., None]
                 log_ap = tf_print(log_ap)
 
@@ -246,9 +250,11 @@ class AcerEstimator():
 
             # Policy gradient should only flow backs from log \pi
             bias_correction = tf.stop_gradient(plus * target_2) * log_ap
+            bias_correction = tf_print(bias_correction)
 
         # g is called "truncation with bias correction" in ACER
         obj = truncation + bias_correction
+        obj = tf_print(obj)
 
         return obj
 

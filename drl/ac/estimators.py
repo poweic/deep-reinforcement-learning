@@ -105,7 +105,6 @@ def compute_rho(a, pi, pi_behavior):
     mu_a = pi_behavior.prob(a)[..., None]
 
     rho = pi_a / mu_a
-    rho = tf_print(rho)
     rho = tf.stop_gradient(rho)
 
     return rho

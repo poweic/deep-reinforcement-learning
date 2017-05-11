@@ -32,7 +32,7 @@ def beta_policy(input):
     pi = create_distribution(dist_type="beta", param1=alpha, param2=beta)
 
     pi_behavior = create_distribution(
-        dist_type="beta", 
+        dist_type="beta", info = 'pi_behavior ',
         param1 = get_param_placeholder("param1"),
         param2 = get_param_placeholder("param2"),
     )
