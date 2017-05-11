@@ -10,25 +10,29 @@
   --estimator-type ACER \
   --log-file train.$(date +%s).log \
   --stats-file train.$(date +%s).stats.csv \
+  --rp-fixed-replication 10 \
+  --rp-resume-path-fixed /home/boton/Dropbox/CMU/dirl/deep-reinforcement-learning/fsr-masa-flipped-312.pkl \
+  --rp-resume-path /Data3/acer-post-icml2017/OffRoadNav-v0-exp/debug40/replay/1494474393/001000.pkl \
+  --rp-save-path $(date +%s) \
   --video-dir $(date +%s) \
   --parallelism 2 \
-  --map-def map8 \
+  --map-def map9 \
   --save-every-n-minutes 15 \
   --policy-dist Beta \
-  --exp exp/debug19 \
+  --exp exp/debug41 \
   --t-max 40 \
   --drift False \
   --max-seq-length 512 \
   --max-gradient 1000.0 \
   --field-of-view 32 \
-  --viewport-scale 3 \
+  --viewport-scale 1.5 \
   --timestep 0.025 \
   --replay-ratio 4 \
   --off-policy-batch-size 1 \
   --lambda_ 0.995 \
   --num-sdn-samples 15 \
   --avg-net-momentum 0.995 \
-  --max-replay-buffer-size 500 \
+  --max-replay-buffer-size 1000 \
   --command-freq 5 \
   --discount-factor 0.95 \
   --n-agents-per-worker 32 \
@@ -47,3 +51,6 @@
 
 #  --min-mu-vf -4.0 \
 #  --max-mu-vf 4.0 \
+#  --replay-buffer-resume-path /Data3/acer-post-icml2017//OffRoadNav-v0-exp/debug36/replay/1494209456.pkl \
+#  --rp-resume-path /Data2/Research/Yamaha/catkin_workspace/src/drl_nav/pkl/20170508-off-policy-1.pkl \
+#  --rp-resume-path /Data3/acer-post-icml2017/OffRoadNav-v0-exp/debug40/replay/1494474393/001000.pkl \
