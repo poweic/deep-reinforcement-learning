@@ -116,6 +116,7 @@ with tf.Session(config=cfg) as sess:
         if latest_checkpoint:
             tf.logging.info("Loading model checkpoint: {}".format(latest_checkpoint))
             FLAGS.saver.restore(sess, latest_checkpoint)
+            tf.logging.info("learning rate = {}".format(sess.run(global_net.lr)))
 
     # Start worker threads
     worker_threads = []

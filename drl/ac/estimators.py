@@ -79,8 +79,9 @@ def create_avgnet_init_op(global_step, avg_vars, global_net, local_net):
     def copy_global_to_avg():
         msg = "\33[94mInitialize average net when global_step = \33[0m"
         disp_op = tf.Print(global_step, [global_step], msg)
+        disp_op2 = tf.Print(local_net.lr, [local_net.lr], "learning_rate = ")
         copy_op = make_copy_params_op(global_vars, avg_vars)
-        return tf.group(*[copy_op, disp_op])
+        return tf.group(*[copy_op, disp_op, disp_op2])
 
     init_avg_net = tf.cond(
         tf.equal(global_step, 0),

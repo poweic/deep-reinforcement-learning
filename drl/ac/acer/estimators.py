@@ -121,10 +121,8 @@ class AcerEstimator():
             update_ops = tf.get_collection(tf.GraphKeys.UPDATE_OPS)
             with tf.control_dependencies(update_ops):
 
-                global_step = FLAGS.global_step
-
                 self.lr = tf.train.exponential_decay(
-                    tf_const(FLAGS.learning_rate), FLAGS.global_timestep,
+                    tf_const(FLAGS.learning_rate), FLAGS.global_step,
                     FLAGS.decay_steps, FLAGS.decay_rate, staircase=FLAGS.staircase
                 )
 

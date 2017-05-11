@@ -208,7 +208,7 @@ class AcerWorker(Worker):
             self.summary_writer.flush()
 
         # Show learning rate every FLAGS.decay_steps
-        if self.gstep % FLAGS.decay_steps == 1:
+        if self.gstep % (FLAGS.decay_steps / 10) == 0:
             tf.logging.info("learning rate = {}".format(
                 self.sess.run(self.local_net.lr)))
 
