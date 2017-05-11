@@ -38,6 +38,7 @@ tf.flags.DEFINE_integer("log-episode-stats-every-nth", 20, "Print stats of episo
 tf.flags.DEFINE_integer("parallelism", 1, "Number of threads to run. If not set we run [num_cpu_cores] threads.")
 tf.flags.DEFINE_integer("save-every-n-minutes", 10, "Save model every N minutes")
 tf.flags.DEFINE_integer("off-policy-batch-size", 1, "batch rollouts when performing off-policy updates")
+tf.flags.DEFINE_boolean("copy-params-every-update", True, "copy params from global net every off-policy update")
 
 tf.flags.DEFINE_float("replay-ratio", 10, "off-policy memory replay ratio, choose a number from {0, 1, 4, 8}")
 tf.flags.DEFINE_integer("max-replay-buffer-size", 100, "off-policy memory replay buffer")

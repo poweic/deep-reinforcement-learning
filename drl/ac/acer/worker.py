@@ -3,7 +3,7 @@ import gc
 from collections import OrderedDict
 import tensorflow as tf
 import drl.ac.acer.estimators
-from drl.ac.worker import Worker
+from drl.ac.worker import Worker, summarize_rollout
 from drl.ac.utils import *
 from drl.ac.estimators import create_avgnet_init_op
 import time
@@ -146,22 +146,23 @@ class AcerWorker(Worker):
             indices = np.random.randint(len(rp), size=N)
 
         for i, chucked_indices in enumerate(chunks(indices, FLAGS.off_policy_batch_size)):
-            self.copy_params_from_global()
+            if FLAGS.copy_params_every_update:
+                self.copy_params_from_global()
 
-            """
-            # Compute gradient and perform update
-            length = min([rp[idx].seq_length for idx in chucked_indices])
-            length = min(length, 64)
-            rollouts = [
-                self.get_partial_rollout(rp[idx], length=length)
-                for idx in chucked_indices
-            ]
+            if FLAGS.off_policy_batch_size > 1:
+                # Compute gradient and perform update
+                length = min([rp[idx].seq_length for idx in chucked_indices])
+                length = min(length, 128)
+                rollouts = [
+                    self.get_partial_rollout(rp[idx], length=length)
+                    for idx in chucked_indices
+                ]
 
-            batched_rollouts = self.batch_rollouts(rollouts)
-            """
+                batched_rollouts = self.batch_rollouts(rollouts)
+            else:
+                batched_rollouts = self.get_partial_rollout(rp[chucked_indices[0]])
 
-            rollout = rp[chucked_indices[0]]
-            batched_rollouts = self.get_partial_rollout(rollout)
+            # summarize_rollout(batched_rollouts)
 
             self.update(batched_rollouts, on_policy=False, display=(i == 0))
 
@@ -169,8 +170,6 @@ class AcerWorker(Worker):
 
         if rollout.seq_length == 0:
             return
-
-        # self.summarize_rollout(rollout)
 
         # Start to put things in placeholders in graph
         net = self.local_net

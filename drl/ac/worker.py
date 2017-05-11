@@ -267,7 +267,7 @@ class Worker(object):
             states = {
                 k: np.concatenate(
                     [r.states[k] for r in rollouts],
-                    axis=(-2 if k is not "front_view" else 1)
+                    axis=(1 if k == "front_view" else -2)
                 )
                 for k in rollouts[0].states.keys()
             },
