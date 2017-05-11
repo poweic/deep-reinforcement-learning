@@ -63,10 +63,13 @@ class Worker(object):
         # Assign each worker (thread) a memory replay buffer
         self.replay_buffer = ReplayBuffer(
             maxlen=FLAGS.max_replay_buffer_size, compress=FLAGS.compress,
-            save_path=FLAGS.rp_save_path
+            save_path=FLAGS.rp_save_path, replication=FLAGS.rp_fixed_replication
         )
+        if FLAGS.rp_resume_path_fixed:
+            self.replay_buffer.load(FLAGS.rp_resume_path_fixed, fixed=True)
+
         if FLAGS.rp_resume_path:
-            self.replay_buffer.load(FLAGS.rp_resume_path, fixed=True)
+            self.replay_buffer.load(FLAGS.rp_resume_path, fixed=False)
 
         # Besides the experience replay buffer, we also store random seed and
         # actions in another buffer, so that I can pass it to the monitor in

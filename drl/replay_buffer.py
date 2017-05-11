@@ -5,16 +5,14 @@ import tensorflow as tf
 from attrdict import AttrDict
 from collections import deque
 from drl.ac.utils import Timer, show_mem_usage
-FLAGS = tf.flags.FLAGS
 
 class ReplayBuffer(object):
 
-    def __init__(self, fn=None, maxlen=None, compress=True, save_path=None):
+    def __init__(self, fn=None, maxlen=None, compress=True, save_path=None, replication=1):
 
         if fn:
             self.load(fn)
         else:
-            self.maxlen = maxlen
             self.deque = deque(maxlen=maxlen)
 
         # keep last 1000 compress, decompress time for profiling purpose
@@ -25,6 +23,7 @@ class ReplayBuffer(object):
 
         self.compress = compress
         self.save_path = save_path
+        self.replication = replication
 
         # A thread-safe get-and-increment counter
         self.counter = itertools.count()
@@ -34,16 +33,15 @@ class ReplayBuffer(object):
 
     def load(self, fn, fixed=False):
         tf.logging.info("Loading replay from {}".format(fn))
-        data = cPickle.load(open(fn, 'rb'))
-        for i in range(99):
-            data.append(data[0])
-        tf.logging.info("{} experiences loaded".format(len(data)))
+        data = list(cPickle.load(open(fn, 'rb')))
 
         if fixed:
-            self.fixed_items = list(data)
+            data *= self.replication
+            self.fixed_items += data
         else:
-            self.deque = data
-            self.maxlen = self.deque.maxlen
+            self.deque.extend(data)
+
+        tf.logging.info("{} experiences loaded".format(len(data)))
 
     def dump(self, fn):
         cPickle.dump(self.deque, open(fn, 'wb'), protocol=cPickle.HIGHEST_PROTOCOL)
@@ -64,12 +62,15 @@ class ReplayBuffer(object):
 
         # itertools.count() starts from 0, so we need to skip i == 0
         i = self.counter.next()
-        if i > 0 and i % self.maxlen == 0:
+        if i > 0 and i % self.deque.maxlen == 0:
             show_mem_usage(self, "replay buffer")
 
             # auto save only when save_path is not None
             if self.save_path is not None:
                 self.dump('{}/{:06d}.pkl'.format(self.save_path, i))
+
+        if i % 100 == 0:
+            tf.logging.info("len(rp) [fixed + deque] = {}".format(len(self)))
 
         if self.compress:
             item = self._compress(item)

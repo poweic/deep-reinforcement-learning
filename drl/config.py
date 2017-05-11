@@ -41,6 +41,8 @@ tf.flags.DEFINE_integer("off-policy-batch-size", 1, "batch rollouts when perform
 
 tf.flags.DEFINE_float("replay-ratio", 10, "off-policy memory replay ratio, choose a number from {0, 1, 4, 8}")
 tf.flags.DEFINE_integer("max-replay-buffer-size", 100, "off-policy memory replay buffer")
+tf.flags.DEFINE_integer("rp-fixed-replication", 1, "replicate fixed replay buffer N times")
+tf.flags.DEFINE_string("rp-resume-path-fixed", None, "*.pkl file for resuming replay buffer")
 tf.flags.DEFINE_string("rp-resume-path", None, "*.pkl file for resuming replay buffer")
 tf.flags.DEFINE_string("rp-save-path", None, "*.pkl file for resuming replay buffer")
 tf.flags.DEFINE_boolean("prioritize-replay", False, "Use choice(length) to sample replay")
@@ -132,6 +134,10 @@ def parse_flags():
     if FLAGS.rp_resume_path:
         if not os.path.isfile(FLAGS.rp_resume_path):
             FLAGS.rp_resume_path = FLAGS.replay_dir + FLAGS.rp_resume_path
+
+    if FLAGS.rp_resume_path_fixed:
+        if not os.path.isfile(FLAGS.rp_resume_path_fixed):
+            FLAGS.rp_resume_path_fixed = FLAGS.replay_dir + FLAGS.rp_resume_path_fixed
 
     FLAGS.dtype = tf.float64 if FLAGS.double_precision else tf.float32
 
