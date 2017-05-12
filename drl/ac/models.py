@@ -133,6 +133,9 @@ def build_convnet(front_view, params):
     S, B = get_seq_length_batch_size(front_view)
     layers = [flatten(front_view)]
 
+    half_size = tuple(np.array(layers[-1].shape.as_list()[1:3]) / 2)
+    layers.append(tf.image.resize_images(layers[-1], half_size))
+
     with tf.name_scope("conv"):
 
         conv2d = tf.contrib.layers.convolution2d
@@ -143,10 +146,18 @@ def build_convnet(front_view, params):
 
         conv_options = {"activation_fn": tf.nn.relu, "padding": "VALID"}
         conv_options.update(params)
-        layers.append(conv2d(layers[-1], 16, 3, scope="conv-1", stride=2, **conv_options))
-        layers.append(conv2d(layers[-1], 16, 3, scope="conv-2", stride=2, **conv_options))
-        layers.append(conv2d(layers[-1], 16, 3, scope="conv-3", stride=2, **conv_options))
+        layers.append(conv2d(layers[-1], 8, 3, scope="conv-2", stride=2, **conv_options))
+        layers.append(conv2d(layers[-1], 8, 3, scope="conv-3", stride=2, **conv_options))
         layers.append(conv2d(layers[-1], 16, 3, scope="conv-4", stride=2, **conv_options))
+        layers.append(conv2d(layers[-1], 16, 3, scope="conv-5", stride=2, **conv_options))
+
+        """
+        layers.append(conv2d(layers[-1], 8, 3, scope="conv-1", stride=2, **conv_options))
+        layers.append(conv2d(layers[-1], 8, 3, scope="conv-2", stride=2, **conv_options))
+        layers.append(conv2d(layers[-1], 8, 3, scope="conv-3", stride=2, **conv_options))
+        layers.append(conv2d(layers[-1], 16, 3, scope="conv-4", stride=2, **conv_options))
+        layers.append(conv2d(layers[-1], 16, 3, scope="conv-5", stride=2, **conv_options))
+        """
 
         """
         conv_options = {"activation_fn": tf.nn.relu, "padding": "VALID"}

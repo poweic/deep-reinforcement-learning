@@ -10,10 +10,9 @@ class ReplayBuffer(object):
 
     def __init__(self, fn=None, maxlen=None, compress=True, save_path=None, replication=1):
 
+        self.deque = deque(maxlen=maxlen)
         if fn:
             self.load(fn)
-        else:
-            self.deque = deque(maxlen=maxlen)
 
         # keep last 1000 compress, decompress time for profiling purpose
         self.timer = AttrDict(
@@ -33,9 +32,10 @@ class ReplayBuffer(object):
 
     def load(self, fn, fixed=False):
         tf.logging.info("Loading replay from {}".format(fn))
-        data = list(cPickle.load(open(fn, 'rb')))
+        data = cPickle.load(open(fn, 'rb'))
 
         if fixed:
+            data = list(data)
             data *= self.replication
             self.fixed_items += data
         else:

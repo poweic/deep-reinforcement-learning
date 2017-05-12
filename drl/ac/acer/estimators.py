@@ -31,6 +31,7 @@ class AcerEstimator():
             self.a = tf.placeholder(FLAGS.dtype, [seq_length, batch_size, FLAGS.num_actions], "actions")
             self.r = tf.placeholder(FLAGS.dtype, [seq_length, batch_size, 1], "rewards")
             self.done = tf.placeholder(tf.bool, [batch_size, 1], "done")
+            self.human_demo = tf.placeholder(tf.bool, [], "human_demonstration")
 
         with tf.variable_scope("shared"):
             shared, self.lstm = build_network(self.state, scope_name, add_summaries)
@@ -100,18 +101,23 @@ class AcerEstimator():
                 self.Q_ret, self.Q_tilt_a, self.rho, self.value
             )
 
+            self.param_loss, self.param_loss_sur = self.supervision_loss(
+                self.pi, self.pi_behavior
+            )
+
             self.entropy, self.entropy_loss = exploration_loss(self.pi)
 
-            for loss in [self.pi_loss_sur, self.vf_loss_sur, self.entropy_loss]:
+            for loss in [self.pi_loss_sur, self.vf_loss_sur, self.param_loss_sur, self.entropy_loss]:
                 assert len(loss.get_shape()) == 0
 
             self.loss_sur = (
                 self.pi_loss_sur
                 + self.vf_loss_sur * FLAGS.lr_vp_ratio
                 + self.entropy_loss
+                + self.param_loss_sur
             )
 
-            self.loss = self.pi_loss + self.vf_loss + self.entropy_loss
+            self.loss = self.pi_loss + self.vf_loss + self.param_loss + self.entropy_loss
 
             # Add regularization (L1 and L2)
             reg_vars = get_regularizable_vars()
@@ -138,6 +144,33 @@ class AcerEstimator():
             self.var_list = [v for g, v in self.grads_and_vars]
 
         self.summaries = self.summarize(add_summaries)
+
+    def supervision_loss(self, pi, mu):
+
+        human_demo = tf.cast(self.human_demo, FLAGS.dtype)
+
+        pi_mode = (pi.stats.param1 - 1.) / (pi.stats.param1 + pi.stats.param2 - 2.)
+        mu_mode = (mu.stats.param1 - 1.) / (mu.stats.param1 + mu.stats.param2 - 2.)
+
+        # compute root-mean-square
+        diff = (pi_mode - mu_mode)
+        rms = tf.reduce_mean(diff[..., 1] ** 2) ** 0.5
+
+        # rescale from [0, 1] to [-30, 30] degree (60 times)
+        rms = rms * 60. * human_demo
+
+        '''
+        p1_loss = (pi.stats.param1 - pi_behavior.stats.param1) ** 2
+        p2_loss = (pi.stats.param2 - pi_behavior.stats.param2) ** 2
+
+        p1_loss, p1_loss_sur = reduce_seq_batch_dim(p1_loss, p1_loss)
+        p2_loss, p2_loss_sur = reduce_seq_batch_dim(p2_loss, p2_loss)
+
+        p_loss     = (p1_loss + p2_loss) * mult
+        p_loss_sur = (p1_loss_sur + p2_loss_sur) * mult
+        '''
+
+        return rms, rms * FLAGS.supervised_param_mult
 
     def get_initial_hidden_states(self, batch_size):
         return get_lstm_initial_states(self.lstm.inputs, batch_size)

@@ -1,4 +1,7 @@
 *.pyc
+*.png
+*.pkl
+*.tar.gz
 gym_offroad_nav.egg-info/
 python/*.pyc
 data/*

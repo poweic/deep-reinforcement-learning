@@ -208,6 +208,7 @@ class Worker(object):
             pi_stats = pi_stats,
             seq_length = len(trans),
             batch_size = self.n_agents,
+            human_demo = False,
         )
 
     def get_partial_rollout(self, rollout, length=None, start=None):
@@ -252,6 +253,7 @@ class Worker(object):
             pi_stats = None if rollout.pi_stats is None else {k: v[s] for k, v in rollout.pi_stats.iteritems()},
             seq_length = min(rollout.seq_length, length),
             batch_size = rollout.batch_size,
+            human_demo = getattr(rollout, 'human_demo', True),
             seed = getattr(rollout, "seed", 0),
         )
 

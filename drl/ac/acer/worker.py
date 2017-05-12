@@ -50,6 +50,7 @@ class AcerWorker(Worker):
             {
                 'pi': net.pi_loss,
                 'vf': net.vf_loss,
+                'param_loss': net.param_loss,
                 'entropy': net.entropy_loss,
                 'total': net.loss,
                 'global_norm': net.global_norm,
@@ -181,8 +182,11 @@ class AcerWorker(Worker):
             net.a: rollout.action,
             net.done: rollout.done[-1],
             net.seq_length: rollout.seq_length,
+            net.human_demo: getattr(rollout, 'human_demo', True),
             avg_net.seq_length: rollout.seq_length,
         }
+
+        # print "feed_dict[net.human_demo] = ", feed_dict[net.human_demo]
 
         feed_dict.update({net.state[k]:     v for k, v in rollout.states.iteritems()})
         feed_dict.update({avg_net.state[k]: v for k, v in rollout.states.iteritems()})
@@ -193,10 +197,10 @@ class AcerWorker(Worker):
 
         if display and self.name == "worker_0":
             tf.logging.info((
-                "#{:6d}: pi_loss = {:+8.3f}, vf_loss = {:+8.3f}, ent = {:5.3f},"
+                "#{:6d}: pi_loss = {:+8.3f}, vf_loss = {:+8.3f}, deg_rms = {:+9.4f}, ent = {:5.3f},"
                 "loss = {:+10.3f} {}\33[0m S = {:3d}, B = {} norm = {:7.2e}"
             ).format(
-                self.gstep, loss.pi, loss.vf, loss.entropy, loss.total,
+                self.gstep, loss.pi, loss.vf, loss.param_loss, loss.entropy, loss.total,
                 "\33[92m[on ]" if on_policy else "\33[93m[off]",
                 rollout.seq_length, rollout.batch_size, loss.global_norm
             ))
